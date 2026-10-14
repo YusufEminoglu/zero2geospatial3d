@@ -7,6 +7,9 @@ import { h, button, toast, download } from './dom.js';
 import { fmt } from '../core/classify.js';
 import { renderImage } from '../export/exporters.js';
 import { PdfPage, wrap } from '../export/pdf.js';
+import { featureKey } from '../scene/objects.js';
+import { rampStops, rampColor } from '../core/classify.js';
+import { OPEN_PEDESTRIAN_FACTOR } from '../core/wind.js';
 
 /** Label, unit and one-line explanation of each result field. */
 export const FIELD_INFO = {
@@ -27,11 +30,23 @@ export const FIELD_INFO = {
   lcz: ['Local Climate Zone', '', 'Approximate LCZ of the surrounding block'],
   flood_depth_m: ['Flood depth at the door', 'm', 'Water depth at the lowest ground point for the chosen level'],
   opt_floors: ['Optimised floors', '', 'Floor count of the applied optimisation design'],
+  comfort_pct: ['Comfortable hours around it', '%', 'Share of the year (chosen hours) with UTCI 9–26 °C on the surrounding open ground'],
+  heat_stress_h: ['Heat-stress hours', 'h', 'Hours a year with UTCI of 32 °C or more around the building'],
+  cold_stress_h: ['Cold-stress hours', 'h', 'Hours a year with UTCI below 0 °C around the building'],
+  ped_wind_ms: ['Pedestrian wind (year)', 'm/s', 'Mean sheltered wind at 1.5 m around the building'],
+  windy_pct: ['Windy hours', '%', 'Share of hours with pedestrian wind above 5 m/s'],
+  svf_ground: ['Sky view around it', '', 'Mean sky view factor of the surrounding open ground'],
   opt_height_m: ['Optimised height', 'm', 'Height of the applied optimisation design']
 };
 
 function infoFor(name) {
   if (FIELD_INFO[name]) return FIELD_INFO[name];
+  const m = name.match(/^(d_)?(.+?)(_A|_B)?$/);
+  if (m && (m[1] || m[3]) && FIELD_INFO[m[2]]) {
+    const [label, unit, help] = FIELD_INFO[m[2]];
+    if (m[1]) return [`${label}: change B − A`, unit, `How scenario B changes it: ${help.toLowerCase()}`];
+    return [`${label} (scenario ${m[3].slice(1)})`, unit, help];
+  }
   if (name.startsWith('clim_')) return [`${name.slice(5)} (climate raster)`, '', 'Mean of the climate raster over the footprint'];
   return [name, '', ''];
 }
@@ -62,9 +77,19 @@ export function buildingFacts(app, layer, f) {
     ['Ground level', `${layer.baseZ[f].toFixed(1)} m`]
   ];
   const analyses = [];
+  const scenario = [];
   for (const [name, arr] of layer.extraFields) {
     const v = arr[f];
     if (!Number.isFinite(v)) continue;
+    const sm = name.match(/^d_(.+)$/);
+    if (sm) {
+      const a = layer.extraFields.get(`${sm[1]}_A`)?.[f];
+      const b = layer.extraFields.get(`${sm[1]}_B`)?.[f];
+      const [label, unit] = infoFor(sm[1]);
+      scenario.push({ name: sm[1], label, unit, a, b, delta: v });
+      continue;
+    }
+    if (/_(A|B)$/.test(name) && layer.extraFields.has(`d_${name.slice(0, -2)}`)) continue;
     const [label, unit, help] = infoFor(name);
     const rank = percentileRank(arr, v);
     let mean = 0, n = 0;
@@ -74,7 +99,19 @@ export function buildingFacts(app, layer, f) {
   const attributes = Object.entries(props).filter(([k, v]) => !k.startsWith('_') && v !== null && v !== '').slice(0, 24)
     .map(([k, v]) => [k, typeof v === 'number' ? fmt(v) : String(v)]);
   const name = props.name || props.NAME || props.ad || `#${f + 1}`;
-  return { name: String(name), facts, analyses, attributes };
+  // Optimisation: this building's floors now and in the applied design.
+  let optimisation = null;
+  const o = app.lastOptimisation;
+  const k = o ? o.targets.findIndex((t) => t.layer === layer && t.f === f) : -1;
+  if (o && k >= 0) {
+    optimisation = {
+      floorsNow: o.now.x[k], floorsDesign: o.design.x[k], floorHeight: o.floorHeight,
+      gfaChange: (o.design.x[k] - o.now.x[k]) * layer.footprint[f],
+      groundSunNow: o.now.extra.sun, groundSunDesign: o.design.extra.sun,
+      areaNow: o.now.extra.gfa, areaDesign: o.design.extra.gfa, targets: o.targets.length, date: o.date
+    };
+  }
+  return { name: String(name), facts, analyses, attributes, scenario, optimisation };
 }
 
 /** Report block for the inspector panel. */
@@ -90,8 +127,30 @@ export function reportBlock(app, layer, f) {
         h('div', { class: 'rep-bar' }, h('i', { style: { width: `${Math.max(2, a.rank).toFixed(0)}%` } })),
         h('div', { class: 'muted small', text: `Higher than ${a.rank.toFixed(0)} % of ${a.count} buildings · mean ${fmt(a.mean, a.unit)}` })));
     }
-  } else {
+  } else if (!info.scenario.length) {
     wrapEl.appendChild(h('p', { class: 'muted small', text: 'No analysis results for this building yet: press "Analyse this building".' }));
+  }
+  if (info.scenario.length) {
+    wrapEl.appendChild(h('div', { class: 'insp-sub', text: `Scenario impact (B − A)` }));
+    wrapEl.appendChild(h('table', { class: 'stats' }, ...info.scenario.map((s) => h('tr', {},
+      h('td', { text: s.label }),
+      h('td', { class: s.delta < 0 ? 'neg' : s.delta > 0 ? 'pos' : '', text: `${fmtOr(s.a, s.unit)} → ${fmtOr(s.b, s.unit)} (${sign(s.delta)}${fmt(s.delta, s.unit)})` })))));
+  }
+  const rose = buildingRose(app, layer, f);
+  if (rose) {
+    wrapEl.appendChild(h('div', { class: 'insp-sub', text: 'Wind around it (year)' }));
+    const cv = h('canvas', { class: 'rose', width: 220, height: 220 });
+    drawRose(cv.getContext('2d'), rose, 110, 110, 92);
+    wrapEl.appendChild(h('div', { class: 'rose-wrap' }, cv,
+      h('div', { class: 'muted small', text: `Petal length: how often the wind blows from there; colour: the sheltered pedestrian speed beside this building (blue calm, red strong). Calm ${(rose.calm * 100).toFixed(0)} %.` })));
+  }
+  if (info.optimisation) {
+    const o = info.optimisation;
+    wrapEl.appendChild(h('div', { class: 'insp-sub', text: 'Optimisation (applied design)' }));
+    wrapEl.appendChild(h('table', { class: 'stats' },
+      h('tr', {}, h('td', { text: 'Floors' }), h('td', { text: `${o.floorsNow} → ${o.floorsDesign}` })),
+      h('tr', {}, h('td', { text: 'Floor area change' }), h('td', { text: `${sign(o.gfaChange)}${Math.round(o.gfaChange).toLocaleString('en-US')} m²` })),
+      h('tr', {}, h('td', { text: `Sun on open ground (${o.targets} buildings)` }), h('td', { text: `${o.groundSunNow.toFixed(2)} → ${o.groundSunDesign.toFixed(2)} h` }))));
   }
   wrapEl.appendChild(h('div', { class: 'btn-row' },
     button('Analyse this building', () => analyseBuilding(app, layer, f), { kind: 'primary', title: 'Winter sun, sky view and annual solar, with facades, around this building' }),
@@ -193,6 +252,40 @@ export async function buildingPdf(app, layer, f) {
     for (const line of wrap('No analysis results yet. Use "Analyse this building" in the viewer first.', 8.5, side)) { page.text(x, y, line, { size: 8.5, color: muted }); y += 11; }
     y += 10;
   }
+  if (info.scenario.length && y < PH - margin - 80) {
+    table('Scenario impact (B − A)', info.scenario.map((s) => [s.label, `${fmtOr(s.a, s.unit)} → ${fmtOr(s.b, s.unit)} (${sign(s.delta)}${fmt(s.delta, s.unit)})`]));
+  }
+  const rose = buildingRose(app, layer, f);
+  if (rose && y < PH - margin - 120) {
+    page.text(x, y, 'Wind around it (year)', { size: 10, bold: true, color: ink });
+    const R = 42, cx = x + 50, cy = y + 56;
+    const maxF = Math.max(...rose.petals.map((p) => p.freq), 0.01);
+    const width = (2 * Math.PI) / rose.sectors;
+    rose.petals.forEach((p, k) => {
+      if (!p.freq) return;
+      const a = (k * 2 * Math.PI) / rose.sectors - Math.PI / 2;
+      const r = (R * p.freq) / maxF;
+      const pts = [[cx, cy]];
+      for (let t = 0; t <= 6; t++) {
+        const ang = a - width / 2 + 0.03 + ((width - 0.06) * t) / 6;
+        pts.push([cx + Math.cos(ang) * r, cy + Math.sin(ang) * r]);
+      }
+      page.polygon(pts, { fill: roseColor(p.speed) });
+    });
+    page.text(cx - 3, cy - R - 4, 'N', { size: 8, color: muted });
+    let ly = y + 22;
+    for (const line of wrap(`Petals: how often the wind comes from there. Colour: sheltered pedestrian speed here, blue calm to red ${ROSE_MAX_SPEED} m/s. Calm ${(rose.calm * 100).toFixed(0)} %.`, 7.5, side - 110)) {
+      page.text(x + 110, ly, line, { size: 7.5, color: muted });
+      ly += 10;
+    }
+    y += 2 * R + 30;
+  }
+  if (info.optimisation && y < PH - margin - 80) {
+    const o = info.optimisation;
+    table('Optimisation (applied design)', [['Floors', `${o.floorsNow} → ${o.floorsDesign}`],
+      ['Floor area change', `${sign(o.gfaChange)}${Math.round(o.gfaChange)} m²`],
+      ['Sun on open ground', `${o.groundSunNow.toFixed(2)} → ${o.groundSunDesign.toFixed(2)} h`]]);
+  }
   if (y < PH - margin - 80) table('Attributes', info.attributes.slice(0, Math.floor((PH - margin - 40 - y) / 13) - 1));
   page.line(margin, PH - margin - 8, PW - margin, PH - margin - 8, { color: [0.85, 0.86, 0.88] });
   page.text(margin, PH - margin + 4, `${app.manifest.crs.authid} · 02 Geo3D Analyzer`, { size: 7.5, color: muted });
@@ -200,5 +293,47 @@ export async function buildingPdf(app, layer, f) {
   const blob = new Blob([page.build({ title: `Building report: ${info.name}` })], { type: 'application/pdf' });
   return { blob, name: info.name };
 }
+
+function sign(v) { return v > 0 ? '+' : ''; }
+
+/** Wind rose of one building: EPW sector frequencies, speeds scaled by its shelter. */
+export function buildingRose(app, layer, f) {
+  const c = app.climateRoses;
+  const ratios = c?.ratios.get(featureKey(layer.index, f + 1));
+  if (!ratios) return null;
+  return { sectors: c.sectors, calm: c.calm, petals: c.freq.map((fr, k) => ({ freq: fr, speed: c.speed[k] * ratios[k] * OPEN_PEDESTRIAN_FACTOR })) };
+}
+
+const ROSE_MAX_SPEED = 8;
+function roseColor(speed) {
+  const c = rampColor(rampStops('spectral-r'), Math.min(1, speed / ROSE_MAX_SPEED), [0, 0, 0]);
+  return c;
+}
+
+/** Draw a rose on a 2D canvas, petals pointing to where the wind comes from. */
+export function drawRose(ctx, rose, cx, cy, R) {
+  const maxF = Math.max(...rose.petals.map((p) => p.freq), 0.01);
+  ctx.strokeStyle = 'rgba(120,130,140,0.35)';
+  for (const q of [0.5, 1]) { ctx.beginPath(); ctx.arc(cx, cy, R * q, 0, 2 * Math.PI); ctx.stroke(); }
+  const width = (2 * Math.PI) / rose.sectors;
+  rose.petals.forEach((p, k) => {
+    if (!p.freq) return;
+    const a = (k * 360) / rose.sectors * (Math.PI / 180) - Math.PI / 2;
+    const r = (R * p.freq) / maxF;
+    const c = roseColor(p.speed);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, a - width / 2 + 0.03, a + width / 2 - 0.03);
+    ctx.closePath();
+    ctx.fillStyle = `rgb(${c.map((v) => Math.round(v * 255)).join(',')})`;
+    ctx.fill();
+  });
+  ctx.fillStyle = '#4a5260';
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('N', cx, cy - R - 4);
+  ctx.textAlign = 'left';
+}
+function fmtOr(v, unit) { return Number.isFinite(v) ? fmt(v, unit) : '–'; }
 
 export { THREE };

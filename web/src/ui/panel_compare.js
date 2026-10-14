@@ -66,13 +66,28 @@ function scenarioCard(app) {
       }
       const st = gridStats(diff);
       const m = Math.max(Math.abs(st.min), Math.abs(st.max), tol * 2);
+      // Per building: the value in A, in B and the change, so the report can
+      // say what the proposal does to each existing building.
+      const perBuilding = [];
+      for (const fa of ra.fields || []) {
+        const fb = (rb.fields || []).find((x) => x.layer === fa.layer && x.name === fa.name);
+        if (!fb) continue;
+        const d = new Float32Array(fa.values.length).fill(NaN);
+        for (let i = 0; i < d.length; i++) if (Number.isFinite(fa.values[i]) && Number.isFinite(fb.values[i])) d[i] = fb.values[i] - fa.values[i];
+        perBuilding.push({ layer: fa.layer, name: `${fa.name}_A`, values: fa.values }, { layer: fa.layer, name: `${fa.name}_B`, values: fb.values },
+          { layer: fa.layer, name: `d_${fa.name}`, values: d });
+      }
+      for (const fb of rb.fields || []) {
+        if (!(ra.fields || []).some((x) => x.layer === fb.layer && x.name === fb.name)) perBuilding.push({ layer: fb.layer, name: `${fb.name}_B`, values: fb.values });
+      }
+      app.lastScenario = { kind: state.kind, title: ra.title };
       return [{
         kind: `diff_${state.kind}`, title: `B − A: ${ra.title}`, subtitle: 'Open ground in both scenarios; blue = more in B', unit: ra.unit,
-        grid: ra.grid, values: diff, display: { min: -m, max: m, ramp: state.kind === 'wind' ? 'rdbu-r' : 'rdbu' }, fields: [],
+        grid: ra.grid, values: diff, display: { min: -m, max: m, ramp: state.kind === 'wind' ? 'rdbu-r' : 'rdbu' }, fields: perBuilding,
         stats: [['Mean change', `${st.mean.toFixed(2)} ${ra.unit}`], ['Area gaining', `${n ? ((100 * gain) / n).toFixed(0) : 0} %`],
           ['Area losing', `${n ? ((100 * loss) / n).toFixed(0) : 0} %`]],
         notes: `Uses the parameters of the ${state.kind} card in Analyze. Changes smaller than ${tol} ${ra.unit} count as no change.`
-      }, { ...ra, title: `A: ${ra.title}` }, { ...rb, title: `B: ${rb.title}` }];
+      }, { ...ra, title: `A: ${ra.title}`, fields: [] }, { ...rb, title: `B: ${rb.title}`, fields: [] }];
     });
   };
   const body = h('div', {},
@@ -129,6 +144,9 @@ function optimiseCard(app) {
       last.fields.push({ layer, name: 'opt_floors', values: v.floors }, { layer, name: 'opt_height_m', values: v.h });
     }
     app.analyst.cache.clear();
+    // Kept for the building report and its PDF.
+    app.lastOptimisation = { targets: last.targets, now: last.baseline, design: ind, floorHeight: o.floorHeight,
+      date: { month: o.month, day: o.day }, hours: [o.startHour, o.endHour] };
     draw();
     clear(info);
     info.appendChild(stats([['Sun on open ground', `${ind.extra.sun.toFixed(2)} h (now ${last.baseline.extra.sun.toFixed(2)} h)`],

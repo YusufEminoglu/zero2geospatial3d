@@ -220,3 +220,40 @@ test('percentile rank of a building among the others', async () => {
   assert.equal(percentileRank([1, 2, 3, 4, NaN], 3), 50);
   assert.equal(percentileRank([5, 5, 5], 5), 0);
 });
+
+test('building report: scenario changes and the optimised design', async () => {
+  const { buildingFacts } = await import('../../web/src/ui/building_report.js');
+  const layer = {
+    features: [{ properties: { floors: 4, name: 'Block 7' } }, { properties: {} }],
+    heights: [12, 9], footprint: [200, 100], baseZ: [5, 5],
+    extraFields: new Map([
+      ['sun_h_roof', Float32Array.from([6, 5])],
+      ['sun_h_roof_A', Float32Array.from([6, 5])], ['sun_h_roof_B', Float32Array.from([4.5, 5])], ['d_sun_h_roof', Float32Array.from([-1.5, 0])]
+    ])
+  };
+  const app = { lastOptimisation: { targets: [{ layer, f: 0 }], now: { x: [4], extra: { sun: 3.1, gfa: 800 } },
+    design: { x: [6], extra: { sun: 2.7, gfa: 1200 } }, floorHeight: 3, date: { month: 12, day: 21 } } };
+  const info = buildingFacts(app, layer, 0);
+  assert.equal(info.name, 'Block 7');
+  assert.deepEqual(info.analyses.map((a) => a.name), ['sun_h_roof']); // A/B copies are not listed twice
+  assert.equal(info.scenario.length, 1);
+  assert.equal(info.scenario[0].a, 6);
+  assert.equal(info.scenario[0].b, 4.5);
+  assert.equal(info.scenario[0].delta, -1.5);
+  assert.match(info.scenario[0].label, /Sun on the roof/);
+  assert.equal(info.optimisation.floorsDesign, 6);
+  assert.equal(info.optimisation.gfaChange, 400);
+  assert.equal(buildingFacts(app, layer, 1).optimisation, null);
+  assert.equal(info.facts.find(([k]) => k === 'Floor area (est.)')[1], '800 m²');
+});
+
+test('building surroundings: open cells go to the nearest building, within the ring', async () => {
+  const { surroundings } = await import('../../web/src/analysis/climate.js');
+  // 11 x 1 strip: building 7 at cell 2, building 9 at cell 8, a tree (height, no id) at cell 5.
+  const ids = new Int32Array(11); ids[2] = 7; ids[8] = 9;
+  const heights = new Float32Array(11); heights[2] = 10; heights[8] = 10; heights[5] = 6;
+  const label = surroundings(ids, heights, 11, 1, 2, () => true);
+  assert.deepEqual(Array.from(label), [7, 7, 0, 7, 7, 0, 9, 9, 0, 9, 9]);
+  const none = surroundings(ids, heights, 11, 1, 2, (k) => k === 7);
+  assert.equal(none[9], 0);
+});

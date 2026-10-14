@@ -92,6 +92,13 @@ export class PdfPage {
     this.ops.push(parts.join(' '));
   }
 
+  /** A filled polygon; points are top-left based [x, y]. */
+  polygon(points, { fill = [0, 0, 0] } = {}) {
+    if (points.length < 3) return;
+    const path = points.map(([x, y], i) => `${n(x)} ${n(this._y(y))} ${i ? 'l' : 'm'}`).join(' ');
+    this.ops.push(`${rgb(fill)} rg ${path} h f`);
+  }
+
   line(x1, y1, x2, y2, { color = [0, 0, 0], width = 0.5 } = {}) {
     this.ops.push(`${rgb(color)} RG ${n(width)} w ${n(x1)} ${n(this._y(y1))} m ${n(x2)} ${n(this._y(y2))} l S`);
   }
