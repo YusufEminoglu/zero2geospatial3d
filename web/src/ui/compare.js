@@ -80,9 +80,12 @@ export class Compare {
     app.viewer.renderer.shadowMap.autoUpdate = true;
   }
 
-  _rects() {
-    const el = this.app.viewer.renderer.domElement;
-    const W = el.clientWidth, H = el.clientHeight;
+  /** Panel rectangles (top-left origin) for a W x H view; screen size by default. */
+  _rects(W, H) {
+    if (W === undefined) {
+      const el = this.app.viewer.renderer.domElement;
+      W = el.clientWidth; H = el.clientHeight;
+    }
     if (this.mode === 'swipe') {
       const x = Math.round(W * this.split);
       return [{ x: 0, y: 0, w: x, h: H, full: true }, { x, y: 0, w: W - x, h: H, full: true }];
@@ -123,9 +126,9 @@ export class Compare {
     const v = app.viewer;
     const r = v.renderer;
     const cam = v.camera;
-    const el = r.domElement;
-    const W = el.clientWidth, H = el.clientHeight;
-    const rects = this._rects();
+    const size = r.getSize(new THREE.Vector2());
+    const W = size.x, H = size.y;
+    const rects = this._rects(W, H);
     r.setScissorTest(true);
     // Shadows only change when the buildings do (a different scenario).
     r.shadowMap.autoUpdate = false;
@@ -158,6 +161,8 @@ export class Compare {
     clear(this.layer);
     const rects = this._rects();
     const opts = this.options();
+    this._boxes = [];
+    this._bar = null;
     rects.forEach((rect, i) => {
       const st = this.states[i];
       const box = h('div', { class: 'cmp-panel', style: { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.w}px`, height: `${rect.h}px` } });
@@ -177,25 +182,131 @@ export class Compare {
         if (i === 1) { head.style.left = 'auto'; head.style.right = '64px'; } // clear of the icon bar
       }
       this.layer.appendChild(box);
+      this._boxes.push(box);
     });
     if (this.mode === 'swipe') {
       const W = this.app.viewer.renderer.domElement.clientWidth;
-      const bar = h('div', { class: 'cmp-divider', style: { left: `${Math.round(W * this.split)}px` } }, h('span', { class: 'cmp-grip', text: '⇆' }));
+      const bar = h('div', { class: 'cmp-divider', title: 'Drag to swipe', style: { left: `${Math.round(W * this.split)}px` } }, h('span', { class: 'cmp-grip', text: '⇆' }));
+      // Dragging only moves the divider and the panel frames: rebuilding the
+      // DOM here would remove the element holding the pointer capture and end
+      // the drag after its first move.
       bar.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
         e.preventDefault();
+        e.stopPropagation();
         bar.setPointerCapture(e.pointerId);
+        bar.classList.add('dragging');
         const move = (ev) => {
           const rect = this.layer.getBoundingClientRect();
-          this.split = Math.max(0.05, Math.min(0.95, (ev.clientX - rect.left) / rect.width));
-          this._buildDom();
+          if (!rect.width) return;
+          this.split = Math.max(0.02, Math.min(0.98, (ev.clientX - rect.left) / rect.width));
+          this._layoutSwipe();
           this.app.viewer.requestRender();
         };
-        const up = () => { bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', up); };
+        const up = () => {
+          bar.classList.remove('dragging');
+          bar.removeEventListener('pointermove', move);
+          bar.removeEventListener('pointerup', up);
+          bar.removeEventListener('pointercancel', up);
+        };
         bar.addEventListener('pointermove', move);
         bar.addEventListener('pointerup', up);
+        bar.addEventListener('pointercancel', up);
       });
       this.layer.appendChild(bar);
+      this._bar = bar;
     }
+  }
+
+  /** Move the swipe divider and the two panel frames to the current split. */
+  _layoutSwipe() {
+    const rects = this._rects();
+    rects.forEach((rect, i) => {
+      const box = this._boxes?.[i];
+      if (!box) return;
+      box.style.left = `${rect.x}px`;
+      box.style.width = `${rect.w}px`;
+    });
+    if (this._bar) this._bar.style.left = `${rects[1].x}px`;
+  }
+
+  /** The label a panel shows: what it displays, and its scenario. */
+  caption(i) {
+    const st = this.states[i];
+    if (!st) return '';
+    const r = this.app.results.find((x) => x.id === st.result);
+    const name = r ? r.title : 'No analysis';
+    return st.scenario ? `${name} · ${st.scenario}` : name;
+  }
+
+  /**
+   * Draw the panel captions, legends and dividers on a 2D canvas of W x H
+   * (an image export or a video frame), as the page shows them over the view.
+   */
+  drawOverlay(ctx, W, H, { legends = true, reserveRight = 0, reserveBottom = 0, reserveCorner = 0 } = {}) {
+    if (!this.mode) return;
+    const u = Math.max(1, Math.min(W, H) / 900);
+    const rects = this._rects(W, H);
+    const swipe = this.mode === 'swipe';
+    ctx.save();
+    ctx.textBaseline = 'top';
+    // Panel borders and the swipe line.
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    if (swipe) ctx.fillRect(rects[1].x - 1.5 * u, 0, 3 * u, H);
+    else for (const rc of rects) {
+      if (rc.x > 0) ctx.fillRect(rc.x - 1, rc.y, Math.max(1, u), rc.h);
+      if (rc.y > 0) ctx.fillRect(rc.x, rc.y - 1, rc.w, Math.max(1, u));
+    }
+    rects.forEach((rc, i) => {
+      if (!this.states[i]) return;
+      const right = swipe && i === 1;
+      // Caption.
+      ctx.font = `600 ${13 * u}px system-ui, sans-serif`;
+      const text = this.caption(i);
+      const maxW = (swipe ? rc.w : rc.w) - 40 * u - (right ? reserveRight : 0);
+      let t = text;
+      while (t.length > 3 && ctx.measureText(t).width > maxW) t = `${t.slice(0, -2)}…`;
+      const tw = ctx.measureText(t).width;
+      const bx = right ? rc.x + rc.w - tw - 20 * u - 8 * u - reserveRight : rc.x + 8 * u;
+      const by = rc.y + 8 * u;
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.beginPath();
+      ctx.roundRect(bx, by, tw + 20 * u, 26 * u, 6 * u);
+      ctx.fill();
+      ctx.fillStyle = '#1d2430';
+      ctx.fillText(t, bx + 10 * u, by + 6 * u);
+      // Legend (a ramp, as on the page).
+      if (!legends) return;
+      const r = this.app.results.find((x) => x.id === this.states[i].result);
+      if (!r || !r.display || r.display.categorical) return;
+      const lw = Math.min(170 * u, rc.w - 16 * u), lh = 40 * u;
+      const lx = right ? rc.x + rc.w - lw - 8 * u : rc.x + 8 * u;
+      // Clear of the credits line (bottom row) and the scale bar (bottom-right corner).
+      const bottomRow = rc.y + rc.h >= H - 1;
+      const ly = rc.y + rc.h - lh - 8 * u - (bottomRow ? reserveBottom + (right ? reserveCorner : 0) : 0);
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.beginPath();
+      ctx.roundRect(lx, ly, lw, lh, 6 * u);
+      ctx.fill();
+      const stops = rampStops(r.display.ramp);
+      const grad = ctx.createLinearGradient(lx + 8 * u, 0, lx + lw - 8 * u, 0);
+      stops.forEach((s, k) => grad.addColorStop(k / Math.max(1, stops.length - 1), `rgb(${s.map((x) => Math.round(x * 255)).join(',')})`));
+      ctx.fillStyle = grad;
+      ctx.fillRect(lx + 8 * u, ly + 8 * u, lw - 16 * u, 9 * u);
+      ctx.fillStyle = '#4a5260';
+      ctx.font = `${11 * u}px system-ui, sans-serif`;
+      const lo = fmt(r.display.min, r.unit), hi = fmt(r.display.max, r.unit);
+      ctx.fillText(lo, lx + 8 * u, ly + 22 * u);
+      ctx.fillText(hi, lx + lw - 8 * u - ctx.measureText(hi).width, ly + 22 * u);
+    });
+    ctx.restore();
+  }
+
+  /** Rows of the layout, for the scale bar of one panel. */
+  panelSize(W, H) {
+    if (!this.mode || this.mode === 'swipe') return { w: W, h: H };
+    const [cols, rows] = LAYOUTS[this.mode];
+    return { w: W / cols, h: H / rows };
   }
 
   _legend(box, st) {

@@ -31,6 +31,8 @@ All notable changes to this project are documented here. The format follows
 - Shadow bias follows the shadow-map texel size, so shadows touch the walls that cast them.
 
 ### Fixed
+- The swipe divider stopped after its first movement: the drag rebuilt the panels and removed the divider it was holding. It now follows the pointer, with a wider grab area.
+- Images, PDF sheets and videos taken while compare views were on showed a single view. They now show every panel with its caption and legend (the scene title moves into the credits line), and the scale bar is measured on one panel.
 - A scene exported to the same folder as an earlier one could show the earlier scene's terrain: the server answered "not modified" for files older than the cached copy. Scene files are no longer cached.
 - Facade PV counted every wall, north walls included; now only walls that receive at least the suitability share of the best unshaded wall.
 - A layer row reported the "Existing" scenario and no bottom height while the panel was hidden.

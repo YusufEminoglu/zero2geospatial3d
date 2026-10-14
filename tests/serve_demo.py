@@ -3,7 +3,10 @@
 (no QGIS). Prints the URL and keeps running; results posted by the viewer
 are printed as they arrive.
 
-    py -3 tests/serve_demo.py <scene_dir>
+    py -3 tests/serve_demo.py <scene_dir> [first_port]
+
+The port search starts at 8660 by default, clear of 8640 where a running
+QGIS plugin serves its own viewer.
 """
 from __future__ import annotations
 
@@ -25,7 +28,8 @@ def load_server():
 
 def main() -> None:
     server_mod = load_server()
-    server = server_mod.ViewerServer(os.path.join(PLUGIN, "web"), version="demo")
+    first = int(sys.argv[2]) if len(sys.argv) > 2 else 8660
+    server = server_mod.ViewerServer(os.path.join(PLUGIN, "web"), start_port=first, end_port=first + 19, version="demo")
     server.set_scene_dir(sys.argv[1])
     print(server.start(), flush=True)
     try:

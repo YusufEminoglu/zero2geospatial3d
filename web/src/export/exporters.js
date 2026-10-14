@@ -134,12 +134,14 @@ export function drawFurniture(ctx, w, h, info, { title = true, legend = true, no
     ctx.textAlign = 'left';
   }
   if (scale) {
-    const mPerPx = (2 * info.dist * Math.tan((info.fov * Math.PI) / 360)) / h;
-    const len = niceLength(mPerPx * w * 0.16);
+    const mPerPx = (2 * info.dist * Math.tan((info.fov * Math.PI) / 360)) / (info.panelH || h);
+    const len = niceLength(mPerPx * (info.panelW || w) * 0.16);
     const px = len / mPerPx;
-    const x = w - pad - px, y = h - pad - (credits ? 40 : 18) * u;
+    ctx.font = `${10 * u}px system-ui, sans-serif`;
+    const noteW = ctx.measureText('at the view centre').width;
+    const x = w - pad - Math.max(px, noteW), y = h - pad - (credits ? 40 : 18) * u;
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.fillRect(x - 8 * u, y - 18 * u, px + 16 * u, 30 * u);
+    ctx.fillRect(x - 8 * u, y - 18 * u, Math.max(px, noteW) + 16 * u, 30 * u);
     ctx.fillStyle = '#1d2430';
     ctx.fillRect(x, y, px, 4 * u);
     ctx.fillRect(x, y - 4 * u, 2 * u, 8 * u);
@@ -190,7 +192,7 @@ export function renderImage(app, { width = 0, height = 0, furniture = {} } = {})
   cam.updateProjectionMatrix();
   v._fitClipping();
   v._fitShadow();
-  r.render(v.scene, cam);
+  v.draw(); // compare views draw their panels
   const out = document.createElement('canvas');
   out.width = W;
   out.height = H;
@@ -204,7 +206,21 @@ export function renderImage(app, { width = 0, height = 0, furniture = {} } = {})
   v.requestRender();
   const info = viewInfo(app);
   if (info.legend?.result) info.legend.stops = rampStops(app);
-  drawFurniture(ctx, W, H, info, furniture);
+  const cmp = app.compare?.mode ? app.compare : null;
+  if (cmp) {
+    // Each panel carries its own caption and legend; the scene title moves
+    // into the credits line so it does not cover the first panel's caption.
+    const ps = cmp.panelSize(W, H);
+    info.panelW = ps.w;
+    info.panelH = ps.h;
+    if (furniture.title !== false && info.title) info.attribution = `${info.title} · ${info.attribution}`;
+    const u = Math.max(1, Math.min(W, H) / 900);
+    cmp.drawOverlay(ctx, W, H, { legends: furniture.legend !== false, reserveRight: furniture.north !== false ? 70 * u : 0,
+      reserveBottom: furniture.credits !== false ? 20 * u : 0, reserveCorner: furniture.scale !== false ? 46 * u : 0 });
+    drawFurniture(ctx, W, H, info, { ...furniture, title: false, legend: false });
+  } else {
+    drawFurniture(ctx, W, H, info, furniture);
+  }
   return out;
 }
 
@@ -466,7 +482,26 @@ export class Recorder {
       v.camera.aspect = width / height;
       v.camera.updateProjectionMatrix();
     }
-    const stream = canvas.captureStream(fps);
+    // Compare views: the panel captions and legends are page elements, not
+    // part of the 3D canvas, so frames are composited on a 2D canvas.
+    let source = canvas;
+    this.unhook = null;
+    const cmp = app.compare?.mode ? app.compare : null;
+    if (cmp) {
+      const comp = document.createElement('canvas');
+      comp.width = canvas.width;
+      comp.height = canvas.height;
+      const ctx = /** @type {CanvasRenderingContext2D} */ (comp.getContext('2d'));
+      const paint = () => {
+        if (comp.width !== canvas.width || comp.height !== canvas.height) { comp.width = canvas.width; comp.height = canvas.height; }
+        ctx.drawImage(canvas, 0, 0);
+        cmp.drawOverlay(ctx, comp.width, comp.height);
+      };
+      paint();
+      this.unhook = v.onPostRender(paint);
+      source = comp;
+    }
+    const stream = source.captureStream(fps);
     const bits = (width || canvas.width) * (height || canvas.height) * fps * 0.12;
     this.rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: Math.round(Math.min(40e6, Math.max(6e6, bits))) });
     this.chunks = [];
@@ -507,6 +542,8 @@ export class Recorder {
     if (!this.active) return;
     this.active = false;
     this.rec.stop();
+    this.unhook?.();
+    this.unhook = null;
     const v = this.app.viewer;
     const r = v.renderer;
     const s = this.saved;

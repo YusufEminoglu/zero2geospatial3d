@@ -92,6 +92,7 @@ export class Viewer {
     this.extentRadius = 1000;
     this.stats = { fps: 0, frames: 0, last: performance.now(), drawCalls: 0, triangles: 0 };
     this.renderHook = null; // compare views draw several panels instead of one view
+    this._postRender = []; // run right after a frame is drawn (video compositing)
 
     window.addEventListener('resize', () => this.resize());
     if ('ResizeObserver' in window) new ResizeObserver(() => this.resize()).observe(container);
@@ -112,6 +113,17 @@ export class Viewer {
     this._dirty = true;
   }
 
+  /** Draw the view once: one camera, or the compare panels. */
+  draw() {
+    if (this.renderHook) this.renderHook();
+    else this.renderer.render(this.scene, this.camera);
+  }
+
+  onPostRender(fn) {
+    this._postRender.push(fn);
+    return () => { this._postRender = this._postRender.filter((x) => x !== fn); };
+  }
+
   onFrame(fn) {
     this._frameHooks.push(fn);
   }
@@ -123,8 +135,8 @@ export class Viewer {
     this._dirty = false;
     this._fitClipping();
     this._fitShadow();
-    if (this.renderHook) this.renderHook();
-    else this.renderer.render(this.scene, this.camera);
+    this.draw();
+    for (const fn of this._postRender) fn();
     const s = this.stats;
     s.frames++;
     s.drawCalls = this.renderer.info.render.calls;

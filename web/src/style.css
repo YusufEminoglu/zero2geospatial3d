@@ -187,7 +187,9 @@ table.stats td:last-child { text-align: right; font-variant-numeric: tabular-num
 .cmp-ramp { height: 8px; border-radius: 2px; }
 .cmp-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin-top: 2px; }
 .compare-layer.swipe .cmp-panel.right .cmp-legend { left: auto; right: 8px; }
-.cmp-divider { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: #fff; box-shadow: 0 0 6px rgba(0, 0, 0, 0.35); pointer-events: auto; cursor: ew-resize; }
+.cmp-divider { position: absolute; top: 0; bottom: 0; width: 18px; margin-left: -9px; pointer-events: auto; cursor: ew-resize; touch-action: none; }
+.cmp-divider::before { content: ''; position: absolute; top: 0; bottom: 0; left: 7.5px; width: 3px; background: #fff; box-shadow: 0 0 6px rgba(0, 0, 0, 0.35); }
+.cmp-divider.dragging .cmp-grip { transform: translate(-50%, -50%) scale(1.12); }
 .cmp-grip { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 30px; height: 30px; border-radius: 50%; background: #fff; display: grid; place-items: center; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); font-size: 14px; color: var(--accent); }
 .btn-row.study .slider { flex: 1; }
 .report { display: flex; flex-direction: column; gap: 6px; }
