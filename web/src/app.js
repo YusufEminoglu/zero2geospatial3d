@@ -61,7 +61,7 @@ export class App {
     let values = new Float32Array(g.cols * g.rows);
     if (m.terrain) {
       this.status('Loading terrain …');
-      const buf = await (await fetch(base + m.terrain.file)).arrayBuffer();
+      const buf = await (await fetch(base + m.terrain.file, { cache: 'no-store' })).arrayBuffer();
       values = new Float32Array(buf);
       if (values.length !== g.cols * g.rows) throw new Error('terrain.bin does not match the grid in scene.json');
     }
@@ -71,7 +71,7 @@ export class App {
       index++;
       this.status(`Loading ${entry.name} (${entry.count.toLocaleString('en-US')}) …`);
       await new Promise((r) => setTimeout(r, 0));
-      const data = await (await fetch(base + entry.file)).json();
+      const data = await (await fetch(base + entry.file, { cache: 'no-store' })).json();
       const layer = createLayer(this, entry, index, data);
       if (!layer) continue;
       this.layers.push(layer);
@@ -81,7 +81,7 @@ export class App {
     }
     if (m.weather) {
       try {
-        const text = await (await fetch(base + m.weather.file)).text();
+        const text = await (await fetch(base + m.weather.file, { cache: 'no-store' })).text();
         this.setWeather(parseEpw(text), m.weather.source);
       } catch (e) {
         toast(`Weather file not usable: ${e.message}`, 'warn');

@@ -155,7 +155,7 @@ function rasterCard(app, raster) {
   let values = null;
   const apply = async () => {
     if (!state.on) { app.terrain.setDrape(null); return; }
-    if (!values) values = new Float32Array(await (await fetch(app.base + raster.file)).arrayBuffer());
+    if (!values) values = new Float32Array(await (await fetch(app.base + raster.file, { cache: 'no-store' })).arrayBuffer());
     app.terrain.setDrape({ values, min: raster.min, max: raster.max, ramp: state.ramp, opacity: state.opacity });
   };
   const body = h('div', {},

@@ -89,8 +89,18 @@ class ViewerHandler(http.server.SimpleHTTPRequestHandler):
         return
 
     def end_headers(self):
-        self.send_header("Cache-Control", "no-cache")
+        # Scene files share one URL (/scene/...) across exports, so a cached
+        # copy of another scene's terrain must never be reused: no-store, and
+        # no conditional 304 answers (see send_head below).
+        self.send_header("Cache-Control", "no-store")
         super().end_headers()
+
+    def send_head(self):
+        # Drop If-Modified-Since: a newly exported file can be *older* than the
+        # one the browser cached from a previous scene at the same path.
+        if "If-Modified-Since" in self.headers:
+            del self.headers["If-Modified-Since"]
+        return super().send_head()
 
     # ------------------------------------------------------------ static
     def translate_path(self, path):

@@ -381,6 +381,12 @@ def test_server(scene_dir):
         check("server: ping, scene files, result queue", ping.get("ok") and scene.get("format") and popped == [{"type": "grid", "x": 1}],
               url)
         check("server: no path traversal out of the scene folder", blocked)
+        # Scene files share one URL across exports: a conditional request must
+        # still get the file (200), never "not modified" from another scene.
+        req = urllib.request.Request(base + "scene/scene.json", headers={"If-Modified-Since": "Fri, 01 Jan 2100 00:00:00 GMT"})
+        resp = urllib.request.urlopen(req, timeout=5)  # noqa: S310
+        check("server: scene files are never answered 304 and never cached",
+              resp.status == 200 and "no-store" in (resp.headers.get("Cache-Control") or ""), resp.headers.get("Cache-Control"))
     finally:
         server.stop()
 
