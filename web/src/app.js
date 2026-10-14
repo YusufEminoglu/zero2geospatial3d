@@ -5,13 +5,14 @@ import { Viewer } from './scene/viewer.js';
 import { Terrain } from './scene/terrain.js';
 import { createLayer, splitKey, ExtrudedLayer, SurfaceLayer } from './scene/objects.js';
 import { hideOverlay, setOverlayOpacity, resultTexture, useOverlay } from './scene/overlay.js';
-import { Analyst } from './analysis/runners.js';
+import { Analyst, frameForHour, setShadowFrame } from './analysis/runners.js';
 import { solarPosition, sunVector } from './core/solar.js';
 import { parseEpw, typicalDoy } from './core/weather.js';
 import { makeGrid, gridStats, slopeAspect, slopeAspectAt } from './core/terrain_math.js';
 import { rampStops, rampColor, fmt } from './core/classify.js';
 import { applyRule, defaultRule } from './ui/colorize.js';
 import { Tools } from './ui/tools.js';
+import { reportBlock } from './ui/building_report.js';
 import { h, clear, toast } from './ui/dom.js';
 import { qgisOnline, qgisSelection, selectInQgis } from './ui/qgis_link.js';
 
@@ -114,6 +115,15 @@ export class App {
   updateSun() {
     const p = this.sunPosition();
     this.viewer.setSun(sunVector(p.elevation, p.azimuth));
+    // A shadow study follows the clock: show the moment closest to it.
+    const r = this.activeResult;
+    if (r?.kind === 'shadowstudy' && r.date.month === this.date.month && r.date.day === this.date.day) {
+      const k = frameForHour(r, this.time);
+      if (k >= 0 && k !== r.frame) {
+        setShadowFrame(r, k);
+        this.showResult(r);
+      }
+    }
     this.emit('sun');
   }
 
@@ -449,6 +459,14 @@ export class App {
       if (v !== null) meta.push([this.activeResult.title, fmt(v, this.activeResult.unit)]);
     }
     const tbl = (pairs) => h('table', { class: 'stats' }, ...pairs.map(([k, v]) => h('tr', {}, h('td', { text: k }), h('td', { text: v }))));
+    if (layer instanceof ExtrudedLayer && !layer.isWall) {
+      // Buildings get the full report: facts, ranked results, one-click analysis, PDF.
+      el.appendChild(reportBlock(this, layer, f));
+      if (ground) { const v = this.resultValueAt(ground.local[0], ground.local[1]); if (v !== null) el.appendChild(tbl([[this.activeResult.title, fmt(v, this.activeResult.unit)]])); }
+      if (rows.length) { el.appendChild(h('div', { class: 'insp-sub', text: 'Attributes' })); el.appendChild(tbl(rows.slice(0, 60))); }
+      el.hidden = false;
+      return;
+    }
     if (meta.length) el.appendChild(tbl(meta));
     if (results.length) { el.appendChild(h('div', { class: 'insp-sub', text: 'Analysis results' })); el.appendChild(tbl(results)); }
     if (rows.length) { el.appendChild(h('div', { class: 'insp-sub', text: 'Attributes' })); el.appendChild(tbl(rows.slice(0, 60))); }

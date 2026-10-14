@@ -249,11 +249,57 @@ export class Analyst {
       ],
       notes: 'BRE 209 guidance: at least half of an amenity area should receive 2 hours of sun on 21 March.'
     }, {
-      kind: 'shadow', title: `Shadow share, ${label}`, subtitle: 'Fraction of the sunny period in shade',
-      unit: '%', grid: run.grid, values: shade.map((v) => v * 100), ids: run.ids, display: { min: 0, max: 100, ramp: 'blues' },
-      fields: this.toFields(this.aggregateGrid(run.ids, shade, cell * cell), 'shade_pct_roof', (a) => a.mean * 100),
-      stats: [['Open ground, mean shade', `${(100 * gridStats(shade.filter((_, i) => run.ids[i] === 0)).mean).toFixed(0)} %`]]
+      kind: 'shadow', title: `Hours in shade, ${label}`, subtitle: `Of ${possible.toFixed(1)} h with the sun up, ${fmtHour(startHour)}–${fmtHour(endHour)}`,
+      unit: 'h', grid: run.grid, values: run.values.map((v) => (Number.isFinite(v) ? possible - v : NaN)), ids: run.ids,
+      display: { min: 0, max: Math.ceil(possible), ramp: 'blues' },
+      fields: [
+        ...this.toFields(this.aggregateGrid(run.ids, run.values.map((v) => possible - v), cell * cell), 'shade_h_roof'),
+        ...this.toFields(this.aggregateGrid(run.ids, shade, cell * cell), 'shade_pct_roof', (a) => a.mean * 100)
+      ],
+      stats: [
+        ['Open ground, mean time in shade', `${(possible - st.mean).toFixed(2)} h`],
+        ['Open ground, mean shade share', `${(100 * gridStats(shade.filter((_, i) => run.ids[i] === 0)).mean).toFixed(0)} %`],
+        ['Open ground in shade all day', `${open.length ? ((100 * open.filter((v) => v < 0.01).length) / open.length).toFixed(0) : 0} %`]
+      ]
     }];
+  }
+
+  // ------------------------------------------------------------ shadow study (animation frames)
+  /**
+   * Sun or shade at each time step of one day: one frame per step, played in
+   * step with the sun clock (and recorded by the "sun through the day" video).
+   */
+  async shadowStudy({ area, cell, date, startHour = 6, endHour = 20, stepMinutes = 30, onProgress }) {
+    const s = this.site();
+    const doy = typicalDoy(date.month, date.day);
+    const steps = [];
+    for (let hh = startHour; hh <= endHour + 1e-9; hh += stepMinutes / 60) {
+      const p = solarPosition(doy, hh, s.lat, s.lon, s.utcOffset);
+      if (p.elevation > 0.5 * DEG) steps.push({ hour: hh, dir: sunVector(p.elevation, p.azimuth) });
+    }
+    if (!steps.length) throw new Error('The sun does not rise above the horizon in this period.');
+    let grid = null, ids = null;
+    const frames = [];
+    for (let k = 0; k < steps.length; k++) {
+      const run = await this.gridRun({ area, cell, directions: [{ dir: steps[k].dir, weight: 1 }], cosMode: 0, lift: 0.3, withIds: k === 0,
+        onProgress: (f) => onProgress?.((k + f) / steps.length) });
+      if (!grid) { grid = run.grid; ids = run.ids; }
+      // 1 sunlit, 0 shade, 255 no surface.
+      const frame = new Uint8Array(run.values.length);
+      for (let i = 0; i < frame.length; i++) frame[i] = Number.isFinite(run.values[i]) ? (run.values[i] > 0.5 ? 1 : 0) : 255;
+      frames.push(frame);
+    }
+    const label = `${date.day} ${monthName(date.month)}`;
+    const result = {
+      kind: 'shadowstudy', title: `Shadow study, ${label}`, subtitle: `${steps.length} moments, every ${stepMinutes} min`,
+      unit: '', grid, ids, frames, hours: steps.map((x) => x.hour), frame: 0, date,
+      values: new Float32Array(frames[0].length), display: { min: 0, max: 1, categorical: { 0: '#26346b', 1: '#ffd36b' } },
+      legend: [{ color: '#ffd36b', label: 'In the sun' }, { color: '#26346b', label: 'In shade' }], fields: [],
+      stats: [['Moments', String(steps.length)], ['From – to', `${fmtHour(steps[0].hour)}–${fmtHour(steps[steps.length - 1].hour)}`]],
+      notes: 'Move the sun clock or press play: the map follows the time. The "Sun through the day" video records it.'
+    };
+    setShadowFrame(result, 0);
+    return [result];
   }
 
   // ------------------------------------------------------------ sky view factor
@@ -334,8 +380,20 @@ export class Analyst {
         facade = { ...samples, values: fv, unit: 'kWh/m²', min: 0, max: 0, ramp: 'magma' };
         const facadeAcc = this.aggregateSamples(samples.keys, fv, samples.areas);
         fields.push(...this.toFields(facadeAcc, 'facade_kwh_m2'));
-        const fy = fv.map((v) => v * efficiency * performanceRatio);
-        fields.push(...this.toFields(this.aggregateSamples(samples.keys, fy, samples.areas), 'facade_pv_kwh_yr', (a) => a.total * coverage));
+        // Facade PV only where a wall keeps at least minShare of what the best
+        // unshaded wall in the scene receives (north walls never qualify).
+        let best = 0;
+        for (let i = 0; i < samples.count; i++) {
+          const pot = d.potential[i] + dhi * k.potential[i] + albedo * ghi * 0.5;
+          if (pot > best) best = pot;
+        }
+        const fy = fv.map((v) => (v >= minShare * best ? v * efficiency * performanceRatio : NaN));
+        const facadePv = this.aggregateSamples(samples.keys, fy, samples.areas);
+        // Yield is summed over suitable tiles only; buildings with none get 0.
+        const pvByKey = new Map();
+        for (const [key, a] of facadePv) pvByKey.set(key, a.total * coverage);
+        for (const key of facadeAcc.keys()) if (!pvByKey.has(key)) pvByKey.set(key, 0);
+        fields.push(...this.toFields(new Map([...pvByKey].map(([key, v]) => [key, { v }])), 'facade_pv_kwh_yr', (a) => a.v));
       }
     }
     let total = 0, area2 = 0;
@@ -354,7 +412,7 @@ export class Analyst {
         ['Horizontal, unshaded', `${ghi.toFixed(0)} kWh/m²`],
         ['Highest surface value', `${st.max.toFixed(0)} kWh/m²`]
       ],
-      notes: `PV = irradiation x efficiency ${efficiency} x performance ratio ${performanceRatio} x panel coverage ${coverage}, on roof cells keeping at least ${Math.round(minShare * 100)} % of their unshaded potential. Diffuse light: isotropic sky.`
+      notes: `PV = irradiation x efficiency ${efficiency} x performance ratio ${performanceRatio} x panel coverage ${coverage}, on roof cells keeping at least ${Math.round(minShare * 100)} % of their unshaded potential; facade panels only on walls receiving at least ${Math.round(minShare * 100)} % of what the best unshaded wall gets. Diffuse light: isotropic sky.`
     }];
   }
 
@@ -602,5 +660,24 @@ function perimeter(geom) {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export function monthName(m) { return MONTHS[m - 1]; }
+
+/** Show frame k of a shadow study (values + a fresh drape texture). */
+export function setShadowFrame(result, k) {
+  const frame = result.frames[Math.max(0, Math.min(result.frames.length - 1, k))];
+  const v = result.values;
+  for (let i = 0; i < v.length; i++) v[i] = frame[i] === 255 ? NaN : frame[i];
+  result.frame = k;
+  if (result._tex) { result._tex.dispose(); delete result._tex; }
+}
+
+/** The frame closest to a clock time, or -1 outside the study. */
+export function frameForHour(result, hour) {
+  const hs = result.hours;
+  const step = hs.length > 1 ? hs[1] - hs[0] : 1;
+  if (hour < hs[0] - step / 2 || hour > hs[hs.length - 1] + step / 2) return -1;
+  let best = 0;
+  for (let i = 1; i < hs.length; i++) if (Math.abs(hs[i] - hour) < Math.abs(hs[best] - hour)) best = i;
+  return best;
+}
 function fmtHour(h) { return `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`; }
 function fmtBig(v) { return Math.round(v).toLocaleString('en-US'); }

@@ -189,3 +189,9 @@ table.stats td:last-child { text-align: right; font-variant-numeric: tabular-num
 .compare-layer.swipe .cmp-panel.right .cmp-legend { left: auto; right: 8px; }
 .cmp-divider { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: #fff; box-shadow: 0 0 6px rgba(0, 0, 0, 0.35); pointer-events: auto; cursor: ew-resize; }
 .cmp-grip { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 30px; height: 30px; border-radius: 50%; background: #fff; display: grid; place-items: center; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); font-size: 14px; color: var(--accent); }
+.btn-row.study .slider { flex: 1; }
+.report { display: flex; flex-direction: column; gap: 6px; }
+.rep-row { padding: 4px 0; border-bottom: 1px dashed var(--line); }
+.rep-head { display: flex; justify-content: space-between; gap: 8px; }
+.rep-bar { height: 4px; background: var(--bg); border-radius: 2px; margin: 4px 0 2px; overflow: hidden; }
+.rep-bar i { display: block; height: 100%; background: var(--accent); }

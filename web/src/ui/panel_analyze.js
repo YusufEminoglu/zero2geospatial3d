@@ -118,7 +118,37 @@ function sunCard(app) {
     row('Facades too', toggle(p.facades, (v) => { p.facades = v; })),
     h('div', { class: 'btn-row' }, runButton(app, 'Run sun hours', () => app.run('Sun hours', (prog) => app.analyst.sunHours({
       area: app.area(), cell: app.cell(), date: { month: p.month, day: p.day }, startHour: p.start, endHour: p.end,
-      stepMinutes: p.step, facades: p.facades, onProgress: prog })))));
+      stepMinutes: p.step, facades: p.facades, onProgress: prog })))),
+    h('div', { class: 'btn-row' },
+      runButton(app, 'Animate shadows', async () => {
+        const res = await app.run('Shadow study', (prog) => app.analyst.shadowStudy({
+          area: app.area(), cell: app.cell(800), date: { month: p.month, day: p.day },
+          startHour: Math.max(p.start, 4), endHour: Math.min(p.end, 21), stepMinutes: 30, onProgress: prog }));
+        if (res?.[0]) {
+          app.date = { month: p.month, day: p.day };
+          app.time = res[0].hours[0];
+          app.updateSun();
+          toast('Press ▶ on the sun clock (or drag it) to play the day.');
+        }
+      }),
+      runButton(app, 'Summer ⇆ winter', async () => {
+        const run = (month) => app.analyst.sunHours({ area: app.area(), cell: app.cell(), date: { month, day: 21 }, startHour: 0, endHour: 24,
+          stepMinutes: p.step, onProgress: () => {} });
+        const out = await app.run('Summer and winter sun', async (prog) => {
+          prog(0.1);
+          const summer = await run(6);
+          prog(0.55);
+          const winter = await run(12);
+          return [summer[0], winter[0], summer[1], winter[1]];
+        });
+        if (out && app.compare) {
+          app.compare.enable('swipe');
+          app.compare.states[0].result = out[0].id;
+          app.compare.states[1].result = out[1].id;
+          app.compare._buildDom();
+          app.viewer.requestRender();
+        }
+      }, { title: 'Sun hours on 21 June and 21 December, side by side' })));
   return card('Sun hours & shadows', body, { open: true });
 }
 
@@ -277,10 +307,29 @@ function renderResults(app, box) {
       r.grid ? button('.asc', () => download(`${r.kind}.asc`, asciiGrid(app, r)), { title: 'ESRI ASCII grid in the scene CRS' }) : null,
       r.fields?.length ? button('CSV', () => download(`${r.kind}_buildings.csv`, fieldsCsv(r.fields), 'text/csv')) : null,
       button('×', () => { app.results.splice(app.results.indexOf(r), 1); if (active) app.hideResult(); app.emit('results'); }, { title: 'Remove' }));
+    let studyControls = null;
+    if (r.kind === 'shadowstudy') {
+      const label = (k) => { const hr = r.hours[k]; return `${String(Math.floor(hr)).padStart(2, '0')}:${String(Math.round((hr % 1) * 60)).padStart(2, '0')}`; };
+      const go = (k) => { app.date = { ...r.date }; app.time = r.hours[k]; if (app.activeResult !== r) app.showResult(r); app.updateSun(); };
+      const sl = slider(r.frame, { min: 0, max: r.hours.length - 1, step: 1, format: label, onInput: go });
+      let timer = 0;
+      const play = button('▶', () => {
+        if (timer) { clearInterval(timer); timer = 0; play.textContent = '▶'; return; }
+        play.textContent = '❚❚';
+        let k = r.frame;
+        timer = window.setInterval(() => {
+          k = (k + 1) % r.hours.length;
+          go(k);
+          sl.set(k);
+        }, 450);
+      }, { title: 'Play the day' });
+      studyControls = h('div', { class: 'btn-row study' }, play, sl);
+    }
     const el = h('div', { class: `result ${active ? 'active' : ''}` },
       h('div', { class: 'result-title', text: r.title }),
       h('div', { class: 'muted small', text: `${r.subtitle || ''}${r.seconds ? ` · ${r.seconds.toFixed(1)} s` : ''}` }),
       actions,
+      studyControls,
       r.stats?.length ? stats(r.stats) : null,
       r.fields?.length ? h('div', { class: 'muted small', text: `Building fields: ${[...new Set(r.fields.map((f) => f.name))].join(', ')} (colour by them in Layers)` }) : null,
       r.notes ? h('div', { class: 'note', text: r.notes }) : null);
