@@ -330,6 +330,29 @@ def test_results(scene_dir, manifest, b):
               and abs(by_src[2][2] - 1234) < 1e-9 and pv1_empty)
         detail = str(by_src)
     check("feature results joined onto the right features in a GeoPackage", ok, detail)
+    # QGIS 3D: the results copy is extruded and coloured like its 2D classes.
+    ok3d, detail3d = False, ""
+    if res:
+        from qgis.PyQt import sip
+        from qgis._3d import QgsPolygon3DSymbol, QgsRuleBased3DRenderer
+
+        r3 = res[0].renderer3D()
+        renderer2 = res[0].renderer()
+        if r3 is not None and r3.type() == "rulebased":
+            # The bindings hand back base classes; cast to reach rules and materials.
+            r3 = sip.cast(r3, QgsRuleBased3DRenderer)
+            rules = r3.rootRule().children()
+            first = sip.cast(rules[0].symbol(), QgsPolygon3DSymbol)
+            from qgis.core import QgsAbstract3DSymbol
+
+            expr = first.dataDefinedProperties().property(QgsAbstract3DSymbol.PropertyExtrusionHeight).expressionString()
+            ranges = list(renderer2.ranges()) if hasattr(renderer2, "ranges") else []
+            colour_ok = bool(ranges) and first.materialSettings().diffuse().name() == ranges[0].symbol().color().name()
+            ok3d = (len(rules) == len(ranges) + 1 and colour_ok and expr == '"floors" * 3'
+                    and int(getattr(first.altitudeClamping(), "value", first.altitudeClamping())) ==
+                    int(getattr(__import__("qgis.core", fromlist=["Qgis"]).Qgis.AltitudeClamping.Terrain, "value", 2)))
+            detail3d = f"rules={len(rules)} classes={len(ranges)} expr={expr} colour_ok={colour_ok}"
+    check("results copy gets a QGIS 3D style: extruded, clamped to terrain, coloured per class", ok3d, detail3d)
     msg = select_in_qgis(manifest, scene_dir, {"layer": "L1", "ids": [2, 3]})
     check("viewer pick selects the source features", sorted(b.selectedFeatureIds()) == sorted(ids[1:3]), msg)
     back = viewer_ids_for_selection(manifest, scene_dir)
@@ -398,6 +421,12 @@ def test_dock_flow(folder, iface):
         panel._poll_viewer()
         got = [lyr for lyr in QgsProject.instance().mapLayers().values() if lyr.name() == "Posted grid"]
         check("panel: a result posted by the viewer becomes a QGIS layer", bool(got) and got[0].isValid())
+        panel.setup_qgis_3d()
+        terrain = QgsProject.instance().elevationProperties().terrainProvider()
+        blayer = rows["Test buildings"].layer
+        check("panel: QGIS 3D view uses the DEM as terrain and extrudes the buildings",
+              terrain is not None and terrain.type() == "raster" and terrain.layer() is dem
+              and blayer.renderer3D() is not None, f"terrain={terrain.type() if terrain else None}")
     finally:
         dock_mod.QDesktopServices.openUrl = original
         if panel is not None:

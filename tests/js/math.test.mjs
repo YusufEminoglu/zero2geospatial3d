@@ -214,3 +214,9 @@ test('one-pass hillshade equals the slope/aspect formula', async () => {
   const flat = hillshade(planeGrid(5, 5, 1, () => 3), 315, 40);
   assert.ok(Math.abs(flat[12] - Math.cos((50 * Math.PI) / 180)) < 1e-6);
 });
+
+test('percentile rank of a building among the others', async () => {
+  const { percentileRank } = await import('../../web/src/ui/building_report.js');
+  assert.equal(percentileRank([1, 2, 3, 4, NaN], 3), 50);
+  assert.equal(percentileRank([5, 5, 5], 5), 0);
+});

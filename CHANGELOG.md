@@ -13,6 +13,10 @@ All notable changes to this project are documented here. The format follows
 - Quick 3D: show a DEM alone in 3D with one click, from the panel or the toolbar.
 - Export icons on the view: images up to 8K with title, legend, north arrow, scale bar and credits; a one-page PDF sheet (view, legend, statistics, notes, sun and CRS); an interactive single-file HTML that opens offline; a GLB model for Blender or SketchUp (CRS and origin in its extras); video of a 360° orbit, the sun through the day or free movement (MP4 where supported, else WebM).
 - Compare views: swipe between two states, or 2, 4, 6 or 8 synced panels, each with its own analysis, scenario and legend.
+- Shadow study: sun or shade at every half hour of a day, played with the sun clock (and recorded by the "sun through the day" video); "Summer ⇆ winter" opens 21 June and 21 December sun hours side by side.
+- Hours in shade map (replaces the shade share map; the share stays in its statistics, with the share of ground shaded all day).
+- Building report: click a building for its facts and every analysis result with its rank among the buildings; "Analyse this building" runs winter sun, sky view and annual solar (facades included) around it; a one-page PDF sheet.
+- QGIS 3D view: results GeoPackages are extruded and coloured by class in QGIS's own 3D view; "QGIS 3D view" in the panel sets the DEM as terrain, extrudes the ticked building layers and opens a 3D map view.
 
 ### Changed
 - No 20 km limit on the scene area any more (a 250 km sanity limit remains); large scenes get a warning, analysis grids stay within 4096 cells a side, and the camera's clipping planes follow its distance.
@@ -23,6 +27,7 @@ All notable changes to this project are documented here. The format follows
 - Shadow bias follows the shadow-map texel size, so shadows touch the walls that cast them.
 
 ### Fixed
+- Facade PV counted every wall, north walls included; now only walls that receive at least the suitability share of the best unshaded wall.
 - A layer row reported the "Existing" scenario and no bottom height while the panel was hidden.
 
 ## [1.0.0] - 2026-10-14

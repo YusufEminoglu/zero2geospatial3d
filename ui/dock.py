@@ -317,9 +317,14 @@ class Geo3DDock(QDockWidget):
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self._request_cancel)
         self.cancel_button.setVisible(False)
+        self.qgis3d_button = QPushButton("QGIS 3D view")
+        self.qgis3d_button.setToolTip("Use the DEM as the project's 3D terrain, extrude the ticked building layers "
+                                      "with their height expressions and colours, and open a QGIS 3D map view")
+        self.qgis3d_button.clicked.connect(self.setup_qgis_3d)
         open_folder = QPushButton("Open folder")
         open_folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(self.folder.filePath())))
         actions.addWidget(self.reopen)
+        actions.addWidget(self.qgis3d_button)
         actions.addWidget(open_folder)
         actions.addWidget(self.cancel_button)
         l3.addLayout(actions)
@@ -534,6 +539,31 @@ class Geo3DDock(QDockWidget):
         self.message(f"Quick 3D: {dem.name()}, {g['cols']} x {g['rows']} cells of {g['cell']:.1f} m.")
         self._activate_scene(out_dir)
         self.show_viewer()
+
+    def setup_qgis_3d(self) -> None:
+        """QGIS's own 3D view: DEM terrain plus extruded, coloured building layers."""
+        from ..core import qgis3d
+
+        done = []
+        dem = self.dem.currentLayer()
+        if dem is not None:
+            qgis3d.set_terrain(dem)
+            done.append(f"terrain from {dem.name()}")
+        for row in self.rows:
+            spec = row.spec()
+            if not row.check.isChecked() or spec.role != sx.ROLE_BUILDINGS:
+                continue
+            try:
+                qgis3d.style_layer_3d(row.layer, spec.height_expr or sx.DEFAULT_HEIGHT[sx.ROLE_BUILDINGS])
+                done.append(row.layer.name())
+            except Exception as exc:  # noqa: BLE001
+                self.message(f"No 3D style for '{row.layer.name()}': {exc}", error=True)
+        if not done:
+            self.message("Pick a DEM or tick a building layer first.", error=True)
+            return
+        opened = qgis3d.open_3d_view(self.iface)
+        self.message("QGIS 3D: " + ", ".join(done) + (". A 3D map view is open." if opened else
+                     ". Open it with View > 3D Map Views > New 3D Map View."))
 
     def show_viewer(self) -> None:
         url = self.server.viewer_url()

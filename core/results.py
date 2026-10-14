@@ -190,6 +190,7 @@ class ResultWriter:
         target.triggerRepaint()
         last = names[list(fields_in)[-1]]
         self._style_graduated(target, last, str((payload.get("style") or {}).get("ramp") or "viridis"))
+        self._style_3d(target, entry)
         return f"Updated {len(changes)} features of '{target.name()}' with {', '.join(names.values())}."
 
     def _result_layer(self, entry: dict) -> QgsVectorLayer:
@@ -253,6 +254,17 @@ class ResultWriter:
             layer.triggerRepaint()
         except Exception as exc:  # noqa: BLE001 - styling is optional, but say so
             self._log(f"Could not style '{layer.name()}' by {field}: {exc}")
+
+    def _style_3d(self, layer: QgsVectorLayer, entry: dict) -> None:
+        """Extrude the results copy in QGIS's 3D view, coloured like its 2D classes."""
+        if entry.get("kind") != "polygon":
+            return
+        try:
+            from .qgis3d import style_layer_3d
+
+            style_layer_3d(layer, entry.get("heightExpr") or "")
+        except Exception as exc:  # noqa: BLE001 - the 3D style is a bonus, but say so
+            self._log(f"No 3D style for '{layer.name()}': {exc}")
 
     # ------------------------------------------------------------ project
     def _add_to_group(self, layer) -> None:
