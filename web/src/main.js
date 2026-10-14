@@ -6,6 +6,7 @@ import { buildAnalyzePanel } from './ui/panel_analyze.js';
 import { buildTerrainPanel } from './ui/panel_terrain.js';
 import { buildComparePanel } from './ui/panel_compare.js';
 import { buildSunClock } from './ui/sunclock.js';
+import { buildViewTools } from './ui/viewtools.js';
 import { toast } from './ui/dom.js';
 
 const TABS = [
@@ -33,6 +34,7 @@ async function start() {
   const title = document.getElementById('scene-title');
   if (title) title.textContent = app.manifest.title;
   buildSunClock(app, document.getElementById('sun-clock'));
+  buildViewTools(app);
   const nav = document.getElementById('tabs');
   const panels = document.getElementById('panels');
   const built = new Map();

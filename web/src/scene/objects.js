@@ -16,6 +16,10 @@ export const KEY_SHIFT = 1 << 20;
 export const SINK = 0.6; // metres a building is pushed into the ground
 const CHUNK_FEATURES = 3000;
 
+export function srgbToLinear(v) {
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+}
+
 export function featureKey(layerIndex, id) {
   return layerIndex * KEY_SHIFT + id;
 }
@@ -365,9 +369,12 @@ export class ExtrudedLayer extends ObjectLayer {
   _writeColors(c) {
     const col = c.mesh.geometry.attributes.color;
     const arr = col.array;
+    // Layer colours are sRGB (as in QGIS); vertex colours are linear.
     for (let i = 0; i < c.feat.length; i++) {
       const f = c.feat[i];
-      arr[i * 3] = this.colors[f * 3]; arr[i * 3 + 1] = this.colors[f * 3 + 1]; arr[i * 3 + 2] = this.colors[f * 3 + 2];
+      arr[i * 3] = srgbToLinear(this.colors[f * 3]);
+      arr[i * 3 + 1] = srgbToLinear(this.colors[f * 3 + 1]);
+      arr[i * 3 + 2] = srgbToLinear(this.colors[f * 3 + 2]);
     }
     col.needsUpdate = true;
   }
@@ -472,7 +479,7 @@ export class PointLayer extends ObjectLayer {
     const target = this.isTree ? this.crowns : this.poles;
     const c = new THREE.Color();
     this.points.forEach(([f], i) => {
-      c.setRGB(this.colors[f * 3], this.colors[f * 3 + 1], this.colors[f * 3 + 2]);
+      c.setRGB(this.colors[f * 3], this.colors[f * 3 + 1], this.colors[f * 3 + 2], THREE.SRGBColorSpace);
       target.setColorAt(i, c);
     });
     if (target.instanceColor) target.instanceColor.needsUpdate = true;

@@ -11,8 +11,12 @@ All notable changes to this project are documented here. The format follows
 - OSM building parts (Simple 3D Buildings): parts replace their outline, keep their own height and min_height (towers on podiums, raised sections), inherit the outline's name and type, and stand on one common ground.
 - Optional "Bottom" expression for building layers (e.g. min_height).
 - Quick 3D: show a DEM alone in 3D with one click, from the panel or the toolbar.
+- Export icons on the view: images up to 8K with title, legend, north arrow, scale bar and credits; a one-page PDF sheet (view, legend, statistics, notes, sun and CRS); an interactive single-file HTML that opens offline; a GLB model for Blender or SketchUp (CRS and origin in its extras); video of a 360° orbit, the sun through the day or free movement (MP4 where supported, else WebM).
+- Compare views: swipe between two states, or 2, 4, 6 or 8 synced panels, each with its own analysis, scenario and legend.
 
 ### Changed
+- No 20 km limit on the scene area any more (a 250 km sanity limit remains); large scenes get a warning, analysis grids stay within 4096 cells a side, and the camera's clipping planes follow its distance.
+- Building colours match QGIS exactly (they were drawn too light: sRGB colours were treated as linear).
 - Automatic grid uses the DEM's own resolution.
 - The sun clock uses the computer's standard time zone when it matches the scene's longitude.
 - Contours are traced in one pass over the grid; hillshade no longer allocates slope and aspect grids (large DEMs use about half the memory).

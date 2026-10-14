@@ -34,6 +34,8 @@ answer ends up in your project, not in a screenshot.
 - **Climate** — EnergyPlus weather files (or the nearest TMYx station, downloaded in one click), UTCI heat stress with a SolarCal mean radiant temperature, pedestrian wind screening, heat-island morphology and approximate Local Climate Zones; climate rasters draped on the ground and averaged per building.
 - **Terrain** — shading by slope, aspect or elevation, contours, vertical exaggeration, sections with building silhouettes (PNG, CSV, DXF), water-level flooding, cut and fill with a balancing level.
 - **Compare and optimise** — scenario A and B difference maps; an NSGA-II search over floor counts that trades floor area against sun on the open ground.
+- **Share** — images up to 8K with legend and north arrow, a one-page PDF sheet, an interactive single-file HTML, a GLB model and orbit or sun-through-the-day videos.
+- **Compare** — swipe between two analyses or scenarios, or 2, 4, 6 or 8 synced panels.
 - **Back to QGIS** — GeoTIFF layers and a results GeoPackage per building layer; selection is shared both ways.
 
 ## 🚀 Installation

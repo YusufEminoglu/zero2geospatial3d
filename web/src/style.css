@@ -146,3 +146,46 @@ table.stats td:last-child { text-align: right; font-variant-numeric: tabular-num
 .slider input { min-width: 0; }
 .row > * { min-width: 0; }
 .slider-value { min-width: 3.4em; }
+
+/* view tools: minimal icon bar */
+.viewtools {
+  position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; gap: 4px; z-index: 5;
+  background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line); border-radius: 10px; padding: 4px;
+  box-shadow: 0 4px 18px rgba(20, 30, 50, 0.12);
+}
+.vt-btn {
+  width: 34px; height: 34px; border: 0; background: none; border-radius: 7px; cursor: pointer; color: #3a4350;
+  display: grid; place-items: center; padding: 0;
+}
+.vt-btn:hover { background: var(--bg); color: var(--ink); }
+.vt-btn.on { background: var(--accent-soft); color: var(--accent); }
+.vt-icon svg { width: 20px; height: 20px; display: block; }
+.vt-sep { height: 1px; background: var(--line); margin: 2px 4px; }
+.viewtools.recording .vt-btn[title="Record a video"] { color: #d6352e; animation: rec 1s infinite; }
+@keyframes rec { 50% { opacity: 0.35; } }
+.vt-pop {
+  position: absolute; right: 62px; width: 270px; z-index: 6; background: rgba(255, 255, 255, 0.97);
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; box-shadow: 0 8px 28px rgba(20, 30, 50, 0.16);
+  display: flex; flex-direction: column; gap: 7px;
+}
+.vt-title { font-weight: 600; }
+.vt-row { display: grid; grid-template-columns: 34% 1fr; align-items: center; gap: 8px; }
+.vt-row > span { color: var(--muted); }
+.vt-checks { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.vt-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.vt-note { color: var(--muted); font-size: 11px; line-height: 1.4; }
+.inspector { right: 64px; }
+
+/* compare views */
+.compare-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.cmp-panel { position: absolute; box-sizing: border-box; }
+.compare-layer.grid .cmp-panel { outline: 1px solid rgba(255, 255, 255, 0.85); }
+.cmp-head { position: absolute; left: 8px; top: 8px; display: flex; gap: 4px; pointer-events: auto; max-width: calc(100% - 60px); }
+.cmp-head select { height: 26px; font-size: 12px; max-width: 220px; background: rgba(255, 255, 255, 0.95); }
+.cmp-head .cmp-scn { width: auto; }
+.cmp-legend { position: absolute; left: 8px; bottom: 8px; width: 150px; background: rgba(255, 255, 255, 0.92); border-radius: 6px; padding: 5px 7px; }
+.cmp-ramp { height: 8px; border-radius: 2px; }
+.cmp-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin-top: 2px; }
+.compare-layer.swipe .cmp-panel.right .cmp-legend { left: auto; right: 8px; }
+.cmp-divider { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: #fff; box-shadow: 0 0 6px rgba(0, 0, 0, 0.35); pointer-events: auto; cursor: ew-resize; }
+.cmp-grip { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 30px; height: 30px; border-radius: 50%; background: #fff; display: grid; place-items: center; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); font-size: 14px; color: var(--accent); }
