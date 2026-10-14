@@ -1,0 +1,29 @@
+[general]
+name=02 Geo3D Analyzer
+qgisMinimumVersion=3.28
+qgisMaximumVersion=4.99
+description=3D viewer and analyzer for terrain and extruded layers: sun hours, sky view factor, shadows, solar PV, visibility, wind and thermal-comfort screening, terrain sections, flooding and cut/fill, with results returned to QGIS.
+version=1.0.0
+author=Yusuf Eminoglu
+email=yusuf.eminoglu@deu.edu.tr
+about=02 Geo3D Analyzer turns a DEM and your vector layers into a 3D scene in the browser in three steps (terrain, objects, open in 3D) and runs the analyses planners ask of a 3D model. Buildings, walls, trees and poles are extruded from any height field or expression and coloured by the QGIS style or any attribute. GPU analyses cover sun hours and shadow share for a day, sky view factor, annual solar irradiation and rooftop and facade PV yield (with an EnergyPlus weather file or a clear-sky estimate), viewsheds, pedestrian wind screening, UTCI heat stress with a SolarCal mean radiant temperature, and heat-island morphology indicators (plan and frontal area fractions, canyon ratio, roughness, approximate Local Climate Zones). Terrain tools draw sections with building silhouettes, flood a water level and compute cut and fill. Scenario A and B layers are compared as difference maps, and an NSGA-II search trades floor area against sun on open ground. Every result can go back to QGIS as a GeoTIFF and as fields on a copy of the building layer. Climate rasters are draped on the ground and averaged per building, and the nearest TMYx weather file can be downloaded from climate.onebuilding.org. Developed with feedback from educational workflows at Dokuz Eylul University, Department of City and Regional Planning.
+tracker=https://github.com/YusufEminoglu/zero2geospatial3d/issues
+repository=https://github.com/YusufEminoglu/zero2geospatial3d
+homepage=https://github.com/YusufEminoglu/zero2geospatial3d
+category=Web
+tags=3d,three.js,dem,terrain,sun hours,shadow,sky view factor,solar,pv,irradiation,viewshed,wind,utci,thermal comfort,urban heat island,local climate zone,profile,flood,cut and fill,epw,nsga-ii,urban planning,extrusion
+icon=icons/icon.png
+experimental=False
+deprecated=False
+hasProcessingProvider=no
+plugin_dependencies=
+license=MIT
+changelog=
+    1.0.0 - First release.
+        - Three-step panel: terrain (DEM), objects (role, height expression, QGIS colours, scenario) and Open in 3D; OSM buildings and trees download; nearest TMYx weather station download.
+        - Browser viewer: terrain shading, contours and exaggeration; extruded buildings and walls, trees and poles; colour and filter by any field; heights from any field.
+        - GPU analyses on ground, roofs and facades: sun hours and shadow share, sky view factor, annual irradiation and PV yield, viewshed.
+        - Pedestrian wind screening, UTCI and mean radiant temperature, heat-island morphology and approximate Local Climate Zones.
+        - Terrain sections with building silhouettes (PNG, CSV, DXF), water level flooding, cut and fill with a balancing level.
+        - Scenario A and B difference maps; NSGA-II building-height optimisation.
+        - Results back to QGIS as GeoTIFF layers and building fields; two-way selection.

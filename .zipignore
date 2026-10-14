@@ -1,0 +1,10 @@
+# Plugin Hub package excludes (path-prefix match, relative to the plugin folder).
+#
+# Nothing at runtime opens tests/ or tools/: the viewer is web/, the station
+# index is data/epw_stations.json.gz, and help links point online.
+tests
+tools
+.github
+__pycache__
+*.pyc
+docs

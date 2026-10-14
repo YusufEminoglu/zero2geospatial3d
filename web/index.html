@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>02 Geo3D Analyzer</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./src/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.js",
+        "three/addons/": "./vendor/three/addons/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="brand"><span class="logo">02</span><span>Geo3D Analyzer</span></div>
+      <div id="scene-title" class="scene-title"></div>
+      <div id="sun-clock" class="sun-clock"></div>
+      <div id="fps" class="fps"></div>
+    </header>
+    <aside id="sidebar">
+      <nav id="tabs"></nav>
+      <div id="panels"></div>
+    </aside>
+    <main id="view">
+      <div id="tool-hint" class="tool-hint" hidden></div>
+      <div id="legend" class="legend" hidden></div>
+      <div id="inspector" class="inspector" hidden></div>
+      <div id="empty" class="empty" hidden>
+        <h2>No scene to show</h2>
+        <p>Open the viewer from QGIS: <b>02 Geo3D Analyzer</b> panel → <b>Open in 3D</b>.</p>
+        <p class="detail"></p>
+      </div>
+      <div id="toast" class="toast"></div>
+    </main>
+    <footer id="statusbar">
+      <span id="status-text">Starting …</span>
+      <span id="status-progress" class="progress" hidden><span></span></span>
+      <span class="hint">Drag to orbit · right-drag to pan · wheel to zoom · click a building to inspect</span>
+    </footer>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
