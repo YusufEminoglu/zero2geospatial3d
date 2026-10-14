@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- Tiled terrain with level of detail: DEMs up to 4096 x 4096 cells (new "Detail limit" in step 1) stay smooth; tiles near the camera are drawn at full resolution, distant ones coarser, with skirts against cracks; analysis areas are drawn at the analysis resolution while they run.
+- Buildings on slopes: stand them on the lowest, average or highest ground under the footprint; walls reach down to the ground at every corner, so a plinth shows on the downhill side.
+- OSM building parts (Simple 3D Buildings): parts replace their outline, keep their own height and min_height (towers on podiums, raised sections), inherit the outline's name and type, and stand on one common ground.
+- Optional "Bottom" expression for building layers (e.g. min_height).
+- Quick 3D: show a DEM alone in 3D with one click, from the panel or the toolbar.
+
+### Changed
+- Automatic grid uses the DEM's own resolution.
+- The sun clock uses the computer's standard time zone when it matches the scene's longitude.
+- Contours are traced in one pass over the grid; hillshade no longer allocates slope and aspect grids (large DEMs use about half the memory).
+- Shadow bias follows the shadow-map texel size, so shadows touch the walls that cast them.
+
+### Fixed
+- A layer row reported the "Existing" scenario and no bottom height while the panel was hidden.
+
 ## [1.0.0] - 2026-10-14
 
 First release.

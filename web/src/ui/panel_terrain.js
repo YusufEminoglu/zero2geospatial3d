@@ -24,6 +24,9 @@ function displayCard(app) {
     row('Vertical exaggeration', exSlider, 'Display only: analyses reset it to 1'),
     row('Contours', select([[0, 'Off'], [0.5, '0.5 m'], [1, '1 m'], [2, '2 m'], [5, '5 m'], [10, '10 m'], [25, '25 m'], [50, '50 m']], t.contourInterval,
       (v) => t.setContours(Number(v))), 'Every fifth line is drawn darker'),
+    row('Buildings on slopes', select([['lowest', 'Lowest ground (buried uphill)'], ['average', 'Average ground (half plinth)'],
+      ['highest', 'Highest ground (plinth downhill)']], app.slopeMode, (v) => app.setSlopeMode(v)),
+      'The level a building stands on; heights count from it. A plinth fills the gap down to the ground.'),
     row('Live shadows', toggle(app.viewer.shadowsOn, (v) => app.viewer.setShadows(v))));
   return card('Display', body, { open: true });
 }
@@ -147,8 +150,9 @@ function floodCard(app) {
       for (let f = 0; f < layer.count; f++) {
         const c = Math.round((layer.centroid[f * 2] - g.minX) / g.cell), r = Math.round((g.maxY - layer.centroid[f * 2 + 1]) / g.cell);
         if (c < 0 || r < 0 || c >= g.cols || r >= g.rows) continue;
-        const wet = Number.isFinite(res.depth[r * g.cols + c]) || (!state.seed && layer.baseZ[f] < state.level);
-        if (wet && layer.baseZ[f] < state.level) { depth[f] = state.level - layer.baseZ[f]; hit++; }
+        const wet = Number.isFinite(res.depth[r * g.cols + c]) || (!state.seed && layer.zMin[f] < state.level);
+        // Water reaches a building at its lowest ground point, whatever the slope setting.
+        if (wet && layer.zMin[f] < state.level) { depth[f] = state.level - layer.zMin[f]; hit++; }
       }
       layer.setResultField('flood_depth_m', depth);
       fields.push({ layer, name: 'flood_depth_m', values: depth });

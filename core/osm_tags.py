@@ -54,12 +54,14 @@ def parse_number(value):
 
 
 def building_height(tags: dict) -> tuple[float, int, str]:
-    """(height_m, levels, source) for an OSM building.
+    """(top_m, levels, source) for an OSM building or building:part.
 
-    source is 'height', 'levels' or 'default' so a user can tell measured
-    heights from guesses.
+    top_m is the height of the top above the ground, as the OSM ``height``
+    key defines it (Simple 3D Buildings); the bottom of a raised part is
+    min_height(). source is 'height', 'levels' or 'default' so a user can tell
+    measured heights from guesses.
     """
-    kind = (tags.get("building") or "").strip().lower()
+    kind = (tags.get("building") or tags.get("building:part") or "").strip().lower()
     levels = None
     for key in ("building:levels", "levels"):
         n = parse_number(tags.get(key))
@@ -70,9 +72,8 @@ def building_height(tags: dict) -> tuple[float, int, str]:
     roof_levels = max(0, int(round(roof))) if roof else 0
     height = parse_number(tags.get("height"))
     if height is not None and 0 < height < 1000:
-        min_height = parse_number(tags.get("min_height")) or 0.0
         total_levels = levels or max(1, int(round(height / FLOOR_HEIGHT_M)))
-        return round(max(1.0, height - max(0.0, min_height)), 2), total_levels, "height"
+        return round(max(1.0, height), 2), total_levels, "height"
     if levels is not None:
         total = levels + roof_levels
         return round(total * FLOOR_HEIGHT_M, 2), total, "levels"
@@ -80,6 +81,18 @@ def building_height(tags: dict) -> tuple[float, int, str]:
     if floors == 1 and kind in TALL_SINGLE_STOREY:
         return TALL_SINGLE_STOREY[kind], 1, "default"
     return round((floors + roof_levels) * FLOOR_HEIGHT_M, 2), floors + roof_levels, "default"
+
+
+def min_height(tags: dict) -> float:
+    """Bottom of a building part above the ground: min_height, else
+    building:min_level floors (levels the part skips, Simple 3D Buildings)."""
+    h = parse_number(tags.get("min_height"))
+    if h is not None and 0 < h < 1000:
+        return round(h, 2)
+    lv = parse_number(tags.get("building:min_level"))
+    if lv is not None and lv > 0:
+        return round(lv * FLOOR_HEIGHT_M, 2)
+    return 0.0
 
 
 def tree_height(tags: dict) -> float:

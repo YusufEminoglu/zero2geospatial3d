@@ -27,8 +27,9 @@ answer ends up in your project, not in a screenshot.
 
 ## ✨ Features
 
-- **Three steps** — pick a DEM, tick the layers (each with a role, a height expression and its QGIS colours), press *Open in 3D*.
-- **Any extrusion** — buildings and walls from any field or expression, trees and poles from points; colour and filter by any attribute or analysis result; heights from any field for 3D bar maps.
+- **Three steps** — pick a DEM, tick the layers (each with a role, a height expression and its QGIS colours), press *Open in 3D*; or *Quick 3D* to see a DEM alone in one click.
+- **Large DEMs** — tiled terrain with level of detail keeps grids up to 4096 × 4096 cells smooth.
+- **Any extrusion** — buildings and walls from any field or expression (with a bottom height for raised parts and OSM building parts), stood on the lowest, average or highest ground of a slope, trees and poles from points; colour and filter by any attribute or analysis result; heights from any field for 3D bar maps.
 - **Sun and sky** — sun hours and shadow share for any day, sky view factor, annual irradiation with rooftop and facade PV yield; ground, roofs and facades are all analysed.
 - **Climate** — EnergyPlus weather files (or the nearest TMYx station, downloaded in one click), UTCI heat stress with a SolarCal mean radiant temperature, pedestrian wind screening, heat-island morphology and approximate Local Climate Zones; climate rasters draped on the ground and averaged per building.
 - **Terrain** — shading by slope, aspect or elevation, contours, vertical exaggeration, sections with building silhouettes (PNG, CSV, DXF), water-level flooding, cut and fill with a balancing level.

@@ -125,9 +125,55 @@ export class ExtrudedLayer extends ObjectLayer {
     this.material = patchMaterial(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0.02 }));
     this.footprint = new Float32Array(this.count);   // m2 (buildings)
     this.centroid = new Float32Array(this.count * 2);
-    this.baseZ = new Float32Array(this.count);       // min ground under the footprint
+    this.baseZ = new Float32Array(this.count);       // reference ground level (depends on slopeMode)
+    this.zMin = new Float32Array(this.count);        // lowest / highest / mean ground under the footprint
+    this.zMax = new Float32Array(this.count);
+    this.zMean = new Float32Array(this.count);
+    // Bottom of the extrusion above the reference level (OSM min_height): a
+    // part that starts in the air, like a tower over a podium or a bridge.
+    this.minH = new Float32Array(this.count);
+    for (let i = 0; i < this.count; i++) {
+      const b = Number(this.features[i].properties._b);
+      this.minH[i] = Number.isFinite(b) && b > 0 ? b : 0;
+    }
+    this.slopeMode = app.slopeMode || 'lowest';
     this.chunks = [];
     this._build();
+    this._groupGround();
+    this._applySlopeMode();
+    for (const c of this.chunks) { this._writePositions(c); this._writeColors(c); }
+  }
+
+  /** Parts of one building (same _grp) share one ground: the union of their footprints. */
+  _groupGround() {
+    const groups = new Map();
+    for (let f = 0; f < this.count; f++) {
+      const g = this.features[f].properties._grp;
+      if (g === undefined || g === null || g === '') continue;
+      let a = groups.get(g);
+      if (!a) { a = { min: Infinity, max: -Infinity, sum: 0, n: 0, members: [] }; groups.set(g, a); }
+      a.min = Math.min(a.min, this.zMin[f]);
+      a.max = Math.max(a.max, this.zMax[f]);
+      a.sum += this.zMean[f];
+      a.n++;
+      a.members.push(f);
+    }
+    for (const a of groups.values()) {
+      if (a.n < 2) continue;
+      for (const f of a.members) { this.zMin[f] = a.min; this.zMax[f] = a.max; this.zMean[f] = a.sum / a.n; }
+    }
+  }
+
+  _applySlopeMode() {
+    const src = this.slopeMode === 'highest' ? this.zMax : this.slopeMode === 'average' ? this.zMean : this.zMin;
+    if (!this.isWall) this.baseZ.set(src);
+  }
+
+  /** Where a building stands on a slope: 'lowest' (buried uphill), 'average' or 'highest' (plinth downhill). */
+  setSlopeMode(mode) {
+    this.slopeMode = mode;
+    this._applySlopeMode();
+    this.applyHeights();
   }
 
   _build() {
@@ -151,12 +197,21 @@ export class ExtrudedLayer extends ObjectLayer {
   _addPolygon(chunk, f, geom, terrain) {
     const polys = ringsOf(geom).map((poly) => poly.map(openRing).filter((r) => r.length >= 3)).filter((p) => p.length);
     if (!polys.length) return;
-    let zmin = Infinity, area = 0, cx = 0, cy = 0, n = 0;
+    let zmin = Infinity, zmax = -Infinity, zsum = 0, area = 0, cx = 0, cy = 0, n = 0;
     for (const poly of polys) {
-      for (const [x, y] of poly[0]) { zmin = Math.min(zmin, terrain.heightAt(x, y)); cx += x; cy += y; n++; }
+      for (const [x, y] of poly[0]) {
+        const z = terrain.heightAt(x, y);
+        zmin = Math.min(zmin, z); zmax = Math.max(zmax, z); zsum += z;
+        cx += x; cy += y; n++;
+      }
       area += Math.abs(signedArea(poly[0])) - poly.slice(1).reduce((s, h) => s + Math.abs(signedArea(h)), 0);
     }
-    this.baseZ[f] = zmin;
+    // Sample the centre too, so a footprint over a ridge or hollow has a fair mean.
+    const zc = terrain.heightAt(cx / n, cy / n);
+    this.zMin[f] = Math.min(zmin, zc);
+    this.zMax[f] = Math.max(zmax, zc);
+    this.zMean[f] = (zsum + zc) / (n + 1);
+    this.baseZ[f] = this.zMin[f];
     this.footprint[f] = area;
     this.centroid[f * 2] = cx / n;
     this.centroid[f * 2 + 1] = cy / n;
@@ -175,7 +230,7 @@ export class ExtrudedLayer extends ObjectLayer {
           if (len < 1e-6) continue;
           let nx = dy / len, ny = -dx / len;
           if (flip) { nx = -nx; ny = -ny; }
-          this._quad(chunk, f, [x0, y0, zmin], [x1, y1, zmin], nx, ny);
+          this._quad(chunk, f, [x0, y0, terrain.heightAt(x0, y0)], [x1, y1, terrain.heightAt(x1, y1)], nx, ny);
         }
       });
       // Roof.
@@ -192,7 +247,7 @@ export class ExtrudedLayer extends ObjectLayer {
       for (const p of all) {
         chunk.pos.push(p.x, 0, -p.y);
         chunk.nrm.push(0, 1, 0);
-        chunk.feat.push(f); chunk.top.push(1); chunk.base.push(zmin);
+        chunk.feat.push(f); chunk.top.push(1); chunk.base.push(terrain.heightAt(p.x, p.y));
       }
       for (const t of tris) {
         // In (x, -y) the winding flips; emit so the face points up.
@@ -233,6 +288,7 @@ export class ExtrudedLayer extends ObjectLayer {
     this.footprint[f] = len * this.thickness;
     if (n) { this.centroid[f * 2] = cx / n; this.centroid[f * 2 + 1] = cy / n; }
     this.baseZ[f] = n ? terrain.heightAt(cx / n, cy / n) : 0;
+    this.zMin[f] = this.zMax[f] = this.zMean[f] = this.baseZ[f];
   }
 
   /** A vertical quad from p0 to p1 (each [x, y, baseZ]) facing (nx, ny). */
@@ -288,7 +344,18 @@ export class ExtrudedLayer extends ObjectLayer {
     for (let i = 0; i < c.feat.length; i++) {
       const f = c.feat[i];
       const h = this.heights[f];
-      arr[i * 3 + 1] = terrain.toY(c.base[i]) + (c.top[i] ? Math.max(0.05, h) : -SINK);
+      if (this.isWall) {
+        // Walls follow the ground along their length.
+        arr[i * 3 + 1] = terrain.toY(c.base[i]) + (c.top[i] ? Math.max(0.05, h) : -SINK);
+        continue;
+      }
+      const ref = terrain.toY(this.baseZ[f]);
+      const top = ref + Math.max(0.05, h);
+      if (c.top[i]) { arr[i * 3 + 1] = top; continue; }
+      // Bottom: from min_height for a raised part, else down into the ground
+      // at this vertex, which shows a plinth on the downhill side.
+      const bottom = this.minH[f] > 0 ? ref + this.minH[f] : terrain.toY(c.base[i]) - SINK;
+      arr[i * 3 + 1] = Math.min(bottom, top - 0.05);
     }
     pos.needsUpdate = true;
     c.mesh.geometry.computeBoundingBox();

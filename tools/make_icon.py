@@ -66,7 +66,33 @@ def main():
     out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "icons", "icon.png")
     img.save(out)
     print("wrote", out)
+    quick_icon(os.path.join(os.path.dirname(out), "quick3d.png"))
     del app
+
+
+def quick_icon(out):
+    """Toolbar icon for Quick 3D: a shaded terrain wedge with a bolt."""
+    img = QImage(SIZE, SIZE, QImage.Format.Format_ARGB32)
+    img.fill(QColor(0, 0, 0, 0))
+    p = QPainter(img)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    path = QPainterPath()
+    path.addRoundedRect(8, 8, SIZE - 16, SIZE - 16, 44, 44)
+    bg = QLinearGradient(0, 0, 0, SIZE)
+    bg.setColorAt(0, QColor("#2e8b57"))
+    bg.setColorAt(1, QColor("#14532d"))
+    p.fillPath(path, QBrush(bg))
+    p.setPen(QPen(QColor("#0b2a1a"), 3))
+    p.setBrush(QColor("#c9e4a5"))
+    p.drawPolygon(poly((24, 200), (84, 104), (122, 150), (164, 86), (232, 196), (232, 232), (24, 232)))
+    p.setBrush(QColor("#8fbf6a"))
+    p.drawPolygon(poly((84, 104), (122, 150), (104, 210), (24, 200)))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor("#ffc83d"))
+    p.drawPolygon(poly((150, 24), (112, 104), (142, 104), (124, 168), (190, 76), (158, 76), (182, 24)))
+    p.end()
+    img.save(out)
+    print("wrote", out)
 
 
 if __name__ == "__main__":

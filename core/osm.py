@@ -26,6 +26,7 @@ from qgis.core import (
     QgsPointXY,
     QgsProject,
     QgsRectangle,
+    QgsSpatialIndex,
     QgsVectorFileWriter,
     QgsVectorLayer,
     QgsWkbTypes,
@@ -60,6 +61,8 @@ def _query(s: float, w: float, n: float, e: float) -> str:
     return (f"[out:json][timeout:{TIMEOUT_S}];\n(\n"
             f"  way[\"building\"]({bbox});\n"
             f"  relation[\"building\"][\"type\"=\"multipolygon\"]({bbox});\n"
+            f"  way[\"building:part\"]({bbox});\n"
+            f"  relation[\"building:part\"][\"type\"=\"multipolygon\"]({bbox});\n"
             f"  node[\"natural\"=\"tree\"]({bbox});\n"
             f");\nout body geom;")
 
@@ -251,45 +254,9 @@ def download_to_gpkg(extent: QgsRectangle, extent_crs: QgsCoordinateReferenceSys
     xform = QgsCoordinateTransform(wgs, dest, QgsProject.instance())
     clip = QgsGeometry.fromRect(bbox)
 
-    buildings = QgsVectorLayer(
-        f"MultiPolygon?crs=EPSG:{epsg}&field=osm_id:string(32)&field=building:string(40)"
-        "&field=name:string(120)&field=height_m:double&field=levels:integer&field=height_src:string(10)",
-        "OSM buildings", "memory")
-    trees = QgsVectorLayer(f"Point?crs=EPSG:{epsg}&field=osm_id:string(32)&field=height_m:double",
-                           "OSM trees", "memory")
-    b_feats, t_feats = [], []
-    for element in payload.get("elements", []):
-        tags = element.get("tags") or {}
-        etype = element.get("type")
-        if etype == "node" and tags.get("natural") == "tree":
-            try:
-                point = QgsGeometry.fromPointXY(QgsPointXY(float(element["lon"]), float(element["lat"])))
-            except (KeyError, TypeError, ValueError):
-                continue
-            point.transform(xform)
-            feat = QgsFeature(trees.fields())
-            feat.setGeometry(point)
-            feat.setAttributes([f"n{element.get('id')}", osm_tags.tree_height(tags)])
-            t_feats.append(feat)
-            continue
-        if "building" not in tags or tags.get("building") in ("no", "construction"):
-            continue
-        geom = _relation_polygon(element) if etype == "relation" else _ring_polygon(_points(element.get("geometry")))
-        if geom is None or not _is_polygon(geom):
-            continue
-        centre_pt = geom.pointOnSurface()
-        if centre_pt.isEmpty() or not clip.contains(centre_pt):
-            continue
-        geom.transform(xform)
-        height, levels, source = osm_tags.building_height(tags)
-        feat = QgsFeature(buildings.fields())
-        feat.setGeometry(geom)
-        feat.setAttributes([f"{etype[0]}{element.get('id')}", str(tags.get("building"))[:40],
-                            str(tags.get("name") or "")[:120], height, levels, source])
-        b_feats.append(feat)
-    buildings.dataProvider().addFeatures(b_feats)
-    trees.dataProvider().addFeatures(t_feats)
-    if not b_feats and not t_feats:
+    buildings, trees = payload_to_layers(payload, clip, xform, epsg)
+    b_count, t_count = buildings.featureCount(), trees.featureCount()
+    if not b_count and not t_count:
         raise OsmError("OSM has no buildings or trees in this area.")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     first = True
@@ -306,4 +273,98 @@ def download_to_gpkg(extent: QgsRectangle, extent_crs: QgsCoordinateReferenceSys
         if result[0] != QgsVectorFileWriter.NoError:
             raise OsmError(f"Cannot write {out_path}: {result[1]}")
         first = False
-    return {"buildings": len(b_feats), "trees": len(t_feats), "crs": dest.authid()}
+    return {"buildings": b_count, "trees": t_count, "crs": dest.authid(),
+            "parts": sum(1 for f in buildings.getFeatures() if f["part"])}
+
+
+BUILDING_FIELDS = ("&field=osm_id:string(32)&field=building:string(40)&field=name:string(120)"
+                   "&field=height_m:double&field=min_height_m:double&field=levels:integer"
+                   "&field=height_src:string(10)&field=part:integer&field=bldg_group:string(32)")
+
+
+def payload_to_layers(payload: dict, clip: QgsGeometry, xform: QgsCoordinateTransform, epsg: int):
+    """Overpass JSON -> (buildings, trees) memory layers in EPSG:epsg.
+
+    Simple 3D Buildings: when building:part elements lie inside a building
+    outline, the parts replace the outline (it is not drawn); each part keeps
+    its own height and min_height, inherits the outline's name and type when it
+    has none, and carries the outline's id in ``bldg_group`` so the viewer
+    stands all parts of one building on the same ground.
+    """
+    buildings = QgsVectorLayer(f"MultiPolygon?crs=EPSG:{epsg}{BUILDING_FIELDS}", "OSM buildings", "memory")
+    trees = QgsVectorLayer(f"Point?crs=EPSG:{epsg}&field=osm_id:string(32)&field=height_m:double",
+                           "OSM trees", "memory")
+    outlines, parts, t_feats = [], [], []
+    for element in payload.get("elements", []):
+        tags = element.get("tags") or {}
+        etype = element.get("type")
+        if etype == "node" and tags.get("natural") == "tree":
+            try:
+                point = QgsGeometry.fromPointXY(QgsPointXY(float(element["lon"]), float(element["lat"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+            point.transform(xform)
+            feat = QgsFeature(trees.fields())
+            feat.setGeometry(point)
+            feat.setAttributes([f"n{element.get('id')}", osm_tags.tree_height(tags)])
+            t_feats.append(feat)
+            continue
+        is_part = tags.get("building:part") not in (None, "", "no")
+        is_building = tags.get("building") not in (None, "", "no", "construction")
+        if not (is_part or is_building):
+            continue
+        geom = _relation_polygon(element) if etype == "relation" else _ring_polygon(_points(element.get("geometry")))
+        if geom is None or not _is_polygon(geom):
+            continue
+        centre_pt = geom.pointOnSurface()
+        if centre_pt.isEmpty():
+            continue
+        record = {"id": f"{etype[0]}{element.get('id')}", "geom": geom, "tags": tags, "centre": centre_pt}
+        (parts if is_part else outlines).append(record)
+    # Which parts belong to which outline (outlines are matched by containment
+    # of each part's interior point).
+    index = QgsSpatialIndex()
+    for k, o in enumerate(outlines):
+        f = QgsFeature(k)
+        f.setGeometry(o["geom"])
+        index.addFeature(f)
+    replaced = set()
+    for part in parts:
+        part["outline"] = None
+        for k in index.intersects(part["centre"].boundingBox()):
+            if outlines[k]["geom"].contains(part["centre"]):
+                part["outline"] = outlines[k]
+                replaced.add(k)
+                break
+    b_feats = []
+
+    def add(record, tags, group, is_part):
+        if not clip.contains(record["centre"]):
+            return
+        geom = QgsGeometry(record["geom"])
+        geom.transform(xform)
+        top, levels, source = osm_tags.building_height(tags)
+        bottom = osm_tags.min_height(tags)
+        if bottom >= top:
+            bottom = 0.0
+        feat = QgsFeature(buildings.fields())
+        feat.setGeometry(geom)
+        feat.setAttributes([record["id"], str(tags.get("building") or tags.get("building:part") or "yes")[:40],
+                            str(tags.get("name") or "")[:120], top, bottom, levels, source,
+                            1 if is_part else 0, group])
+        b_feats.append(feat)
+
+    for k, o in enumerate(outlines):
+        if k not in replaced:
+            add(o, o["tags"], o["id"], False)
+    for part in parts:
+        outline = part["outline"]
+        tags = dict(part["tags"])
+        if outline is not None:
+            for key in ("name", "building"):
+                if not tags.get(key) and outline["tags"].get(key):
+                    tags[key] = outline["tags"][key]
+        add(part, tags, outline["id"] if outline is not None else part["id"], True)
+    buildings.dataProvider().addFeatures(b_feats)
+    trees.dataProvider().addFeatures(t_feats)
+    return buildings, trees

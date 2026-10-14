@@ -380,6 +380,9 @@ def test_dock_flow(folder, iface):
         panel.dem.setLayer(dem)
         for name, row in rows.items():
             row.check.setChecked(name == "Test buildings")
+        rows["Test buildings"].scenario.setCurrentIndex(rows["Test buildings"].scenario.findData("A"))
+        check("panel row keeps scenario and role while the panel is hidden",
+              rows["Test buildings"].spec().scenario == "A" and not panel.isVisible())
         panel.folder.setFilePath(os.path.join(folder, "dock_scene"))
         panel.open_in_3d()
         scene = Path(folder, "dock_scene", "scene.json")
@@ -395,6 +398,98 @@ def test_dock_flow(folder, iface):
         panel._poll_viewer()
         got = [lyr for lyr in QgsProject.instance().mapLayers().values() if lyr.name() == "Posted grid"]
         check("panel: a result posted by the viewer becomes a QGIS layer", bool(got) and got[0].isValid())
+    finally:
+        dock_mod.QDesktopServices.openUrl = original
+        if panel is not None:
+            panel.shutdown()
+            panel.deleteLater()
+
+
+def test_building_parts(folder):
+    """OSM building:part replaces its outline; the exporter writes _b and _grp."""
+    from qgis.core import QgsCoordinateTransform
+
+    from zero2geospatial3d.core import osm
+    from zero2geospatial3d.core import scene_export as sx
+
+    def ring(lon0, lat0, d):
+        pts = [(lon0, lat0), (lon0 + d, lat0), (lon0 + d, lat0 + d), (lon0, lat0 + d), (lon0, lat0)]
+        return [{"lon": x, "lat": y} for x, y in pts]
+
+    payload = {"elements": [
+        {"type": "way", "id": 1, "tags": {"building": "apartments", "name": "Complex", "building:levels": "58"},
+         "geometry": ring(27.000, 38.000, 0.001)},
+        {"type": "way", "id": 2, "tags": {"building:part": "yes", "height": "12"}, "geometry": ring(27.0001, 38.0001, 0.0008)},
+        {"type": "way", "id": 3, "tags": {"building:part": "yes", "building:levels": "40", "building:min_level": "4"},
+         "geometry": ring(27.0003, 38.0003, 0.0002)},
+        {"type": "way", "id": 4, "tags": {"building": "house"}, "geometry": ring(27.003, 38.003, 0.0002)},
+        {"type": "node", "id": 9, "lon": 27.002, "lat": 38.002, "tags": {"natural": "tree", "height": "11"}},
+    ]}
+    wgs = QgsCoordinateReferenceSystem("EPSG:4326")
+    xform = QgsCoordinateTransform(wgs, QgsCoordinateReferenceSystem("EPSG:32635"), QgsProject.instance())
+    clip = QgsGeometry.fromRect(QgsRectangle(26.99, 37.99, 27.01, 38.01))
+    b, t = osm.payload_to_layers(payload, clip, xform, 32635)
+    rows = {f["osm_id"]: f for f in b.getFeatures()}
+    check("OSM parts replace their outline", "w1" not in rows and {"w2", "w3", "w4"} <= set(rows), str(sorted(rows)))
+    tower, podium, house = rows.get("w3"), rows.get("w2"), rows.get("w4")
+    ok = (tower is not None and tower["height_m"] == 120 and tower["min_height_m"] == 12 and tower["part"] == 1
+          and tower["bldg_group"] == "w1" and tower["name"] == "Complex" and podium["bldg_group"] == "w1"
+          and podium["min_height_m"] == 0 and house["part"] == 0 and house["bldg_group"] == "w4")
+    check("tower part: top 120 m, bottom 12 m, grouped with the podium, name inherited", ok,
+          f"tower={tower and (tower['height_m'], tower['min_height_m'], tower['bldg_group'], tower['name'])}")
+    check("trees parsed", t.featureCount() == 1 and list(t.getFeatures())[0]["height_m"] == 11)
+    QgsProject.instance().addMapLayer(b)
+    out = os.path.join(folder, "parts_scene")
+    spec = sx.ExportSpec(out_dir=out, extent=b.extent(), extent_crs=b.crs(),
+                         layers=[sx.LayerSpec(b, "buildings", '"height_m"', base_expr='"min_height_m"')])
+    sx.SceneExporter(spec).run()
+    feats = json.loads(Path(out, "L1.geojson").read_text(encoding="utf-8"))["features"]
+    by = {f["properties"]["osm_id"]: f["properties"] for f in feats}
+    check("exporter writes the bottom (_b) and the building group (_grp)",
+          by["w3"].get("_b") == 12 and by["w3"].get("_grp") == "w1" and "_b" not in by["w2"] and by["w4"].get("_grp") == "w4",
+          str({k: (v.get("_b"), v.get("_grp")) for k, v in by.items()}))
+
+
+def test_detail_limit(folder):
+    """Large DEMs keep their resolution up to the chosen limit; the viewer tiles them."""
+    import numpy as np
+    from osgeo import gdal, osr
+
+    from zero2geospatial3d.core import scene_export as sx
+
+    path = os.path.join(folder, "big_dem.tif")
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(32635)
+    ds = gdal.GetDriverByName("GTiff").Create(path, 2400, 1800, 1, gdal.GDT_Float32)
+    ds.SetGeoTransform((X0, 1.0, 0, Y0, 0, -1.0))
+    ds.SetProjection(srs.ExportToWkt())
+    ds.GetRasterBand(1).WriteArray(np.fromfunction(lambda r, c: 50 + 0.01 * c, (1800, 2400), dtype="float32"))
+    ds = None
+    dem = QgsRasterLayer(path, "big")
+    out = {}
+    for limit in (2048, 4096):
+        spec = sx.ExportSpec(out_dir=os.path.join(folder, f"big_{limit}"), extent=dem.extent(), extent_crs=dem.crs(),
+                             dem=dem, max_cells=limit)
+        g = sx.SceneExporter(spec).run().manifest["grid"]
+        out[limit] = (g["cols"], g["rows"], round(g["cell"], 4))
+    check("detail limit: 2048 coarsens a 2400-column DEM, 4096 keeps its own 1 m cells",
+          out[2048][0] == 2048 and out[2048][2] > 1 and out[4096] == (2400, 1800, 1.0), str(out))
+
+
+def test_quick_3d(folder, iface):
+    from zero2geospatial3d.ui import dock as dock_mod
+
+    opened = []
+    original = dock_mod.QDesktopServices.openUrl
+    dock_mod.QDesktopServices.openUrl = staticmethod(lambda url: opened.append(url.toString()) or True)
+    panel = None
+    try:
+        panel = dock_mod.Geo3DDock(iface, str(PLUGIN_DIR))
+        dem = next(lyr for lyr in QgsProject.instance().mapLayers().values() if lyr.name() == "DEM")
+        panel.folder.setFilePath(os.path.join(folder, "q"))
+        panel.quick_3d(dem)
+        m = json.loads(Path(folder, "q", "quick", "scene.json").read_text(encoding="utf-8"))
+        check("Quick 3D: DEM alone, opened in the viewer", m["terrain"] and not m["layers"] and opened, m["title"])
     finally:
         dock_mod.QDesktopServices.openUrl = original
         if panel is not None:
@@ -441,6 +536,9 @@ def main():
         test_results(scene_dir, manifest, b)
         test_server(scene_dir)
         test_dock_flow(folder, iface)
+        test_quick_3d(folder, iface)
+        test_building_parts(folder)
+        test_detail_limit(folder)
         test_epw_and_osm(folder)
     except Exception as exc:  # noqa: BLE001 - a crash is a failure with a trace
         import traceback

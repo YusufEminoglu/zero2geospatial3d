@@ -17,6 +17,7 @@ class Geo3DAnalyzerPlugin:
         self.plugin_dir = os.path.dirname(__file__)
         self.toolbar: QToolBar | None = None
         self.action: QAction | None = None
+        self.quick_action: QAction | None = None
         self.dock = None
 
     def initGui(self) -> None:  # noqa: N802 (QGIS plugin API name)
@@ -29,6 +30,11 @@ class Geo3DAnalyzerPlugin:
         self.action.setStatusTip("Open the 02 Geo3D Analyzer panel")
         self.action.triggered.connect(self.toggle_dock)
         self.toolbar.addAction(self.action)
+        self.quick_action = QAction(QIcon(os.path.join(self.plugin_dir, "icons", "quick3d.png")),
+                                    "Quick 3D of the selected raster (DEM)", self.iface.mainWindow())
+        self.quick_action.setStatusTip("Show the selected raster layer as 3D terrain in the browser, with nothing else to set")
+        self.quick_action.triggered.connect(self.quick_3d)
+        self.toolbar.addAction(self.quick_action)
 
     def unload(self) -> None:
         if self.dock is not None:
@@ -42,10 +48,25 @@ class Geo3DAnalyzerPlugin:
             self.toolbar.setParent(None)
             self.toolbar.deleteLater()
             self.toolbar = None
-        if self.action is not None:
-            self.action.setParent(None)
-            self.action.deleteLater()
-            self.action = None
+        for name in ("action", "quick_action"):
+            act = getattr(self, name)
+            if act is not None:
+                act.setParent(None)
+                act.deleteLater()
+                setattr(self, name, None)
+
+    def quick_3d(self) -> None:
+        from qgis.core import QgsRasterLayer
+
+        layer = self.iface.activeLayer()
+        if not isinstance(layer, QgsRasterLayer):
+            QMessageBox.information(self.iface.mainWindow(), PLUGIN_TITLE,
+                                    "Select a raster layer (a DEM) in the Layers panel first.")
+            return
+        if self.dock is None or not self.dock.isVisible():
+            self.toggle_dock()
+        if self.dock is not None:
+            self.dock.quick_3d(layer)
 
     def toggle_dock(self) -> None:
         if self.dock is None:

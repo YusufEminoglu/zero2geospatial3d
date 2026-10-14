@@ -166,7 +166,9 @@ export class Viewer {
     this.sun.position.copy(target).addScaledVector(this.sunDir, 2 * r + 800);
     this.sun.target.position.copy(target);
     this.sun.target.updateMatrixWorld();
-    this.sun.shadow.normalBias = Math.max(0.3, (2 * r) / 4096);
+    // Bias in proportion to the shadow-map texel: enough to avoid acne, small
+    // enough that shadows still touch the walls that cast them up close.
+    this.sun.shadow.normalBias = Math.min(1.5, Math.max(0.03, ((2 * r) / 4096) * 0.8));
   }
 
   /** Frame a box (three coordinates). */

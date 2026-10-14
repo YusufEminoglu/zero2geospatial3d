@@ -53,7 +53,12 @@ def test_parse_number(text, expected):
 
 
 def test_building_height_priority():
-    assert osm_tags.building_height({"building": "yes", "height": "20", "min_height": "5"}) == (15.0, 7, "height")
+    assert osm_tags.building_height({"building": "yes", "height": "20", "min_height": "5"}) == (20.0, 7, "height")
+    assert osm_tags.min_height({"min_height": "5"}) == 5.0
+    assert osm_tags.min_height({"building:min_level": "4"}) == 12.0
+    assert osm_tags.min_height({}) == 0.0
+    # A tower part: levels count from the ground, min_level is skipped.
+    assert osm_tags.building_height({"building:part": "yes", "building:levels": "40"})[:2] == (120.0, 40)
     assert osm_tags.building_height({"building": "yes", "building:levels": "4", "roof:levels": "1"}) == (15.0, 5, "levels")
     assert osm_tags.building_height({"building": "house"}) == (6.0, 2, "default")
     assert osm_tags.building_height({"building": "warehouse"}) == (7.0, 1, "default")

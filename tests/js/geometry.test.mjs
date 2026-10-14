@@ -97,3 +97,43 @@ test('tiles cover the area exactly, north first', () => {
   assert.equal(grid.minX, -99.5);
   assert.equal(grid.maxY, 949.5);
 });
+
+test('slope modes move the reference level; the bottom follows the ground (plinth)', () => {
+  const app = mockApp((x) => 0.5 * x); // 10 m rise across a 20 m footprint
+  const features = [{ properties: { _id: 1, _h: 9 }, geometry: { type: 'MultiPolygon', coordinates: [[square(10, 0, 10)]] } }];
+  const layer = new ExtrudedLayer(app, entry('buildings'), 1, { features });
+  const ys = () => {
+    const pos = layer.chunks[0].mesh.geometry.attributes.position;
+    let top = -Infinity, low = Infinity;
+    for (let i = 0; i < pos.count; i++) { top = Math.max(top, pos.getY(i)); low = Math.min(low, pos.getY(i)); }
+    return { top, low };
+  };
+  assert.equal(ys().top, 0 + 9);                 // lowest ground (x = 0) + height
+  layer.setSlopeMode('highest');
+  assert.equal(ys().top, 10 + 9);                // highest ground (x = 20) + height
+  assert.ok(Math.abs(ys().low - (0 - 0.6)) < 1e-5, 'downhill wall reaches the ground: a plinth'); // float32 positions
+  layer.setSlopeMode('average');
+  assert.ok(Math.abs(ys().top - (5 + 9)) < 1e-9, `average ${ys().top}`);
+  assert.equal(layer.baseZ[0], 5);
+  assertOutward(layer);
+});
+
+test('a raised part starts at min_height and parts of one building share their ground', () => {
+  const app = mockApp((x) => 0.1 * x);
+  const features = [
+    { properties: { _id: 1, _h: 12, _grp: 'w1' }, geometry: { type: 'MultiPolygon', coordinates: [[square(0, 0, 20)]] } },           // podium
+    { properties: { _id: 2, _h: 60, _b: 12, _grp: 'w1' }, geometry: { type: 'MultiPolygon', coordinates: [[square(10, 0, 5)]] } }    // tower on it
+  ];
+  const layer = new ExtrudedLayer(app, entry('buildings'), 1, { features });
+  assert.equal(layer.baseZ[0], layer.baseZ[1], 'shared ground');
+  assert.ok(Math.abs(layer.baseZ[1] - -2) < 1e-9, `group lowest ground ${layer.baseZ[1]}`);
+  const c = layer.chunks[0];
+  const pos = c.mesh.geometry.attributes.position;
+  let towerLow = Infinity, towerTop = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    if (c.feat[i] !== 1) continue;
+    towerLow = Math.min(towerLow, pos.getY(i)); towerTop = Math.max(towerTop, pos.getY(i));
+  }
+  assert.ok(Math.abs(towerLow - (-2 + 12)) < 1e-9, `tower bottom ${towerLow}`);
+  assert.ok(Math.abs(towerTop - (-2 + 60)) < 1e-9, `tower top ${towerTop}`);
+});
