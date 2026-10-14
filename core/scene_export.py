@@ -190,8 +190,8 @@ class SceneExporter:
             raise ExportError("The scene area is empty. Pick a DEM, a layer or a map view with an extent.")
         if max(width, height) > geo.MAX_SCENE_SIDE_M:
             raise ExportError(
-                f"The scene area is {max(width, height) / 1000:.1f} km across; the limit is "
-                f"{geo.MAX_SCENE_SIDE_M / 1000:.0f} km. Zoom in or pick a smaller extent.")
+                f"The scene area is {max(width, height) / 1000:.0f} km across; the limit is "
+                f"{geo.MAX_SCENE_SIDE_M / 1000:.0f} km. Pick a smaller extent.")
         cell_size = spec.cell_size
         if not cell_size:
             # Automatic: the DEM's own resolution (never finer), else 1/512 of
@@ -202,6 +202,10 @@ class SceneExporter:
             else:
                 cell_size = max(1.0, max(width, height) / 512)
         cols, rows, cell = geo.grid_shape(width, height, cell_size, max(256, min(4096, int(spec.max_cells))))
+        if max(width, height) > geo.LARGE_SCENE_SIDE_M:
+            self.warnings.append(
+                f"Large scene ({max(width, height) / 1000:.1f} km across): the terrain grid is {cell:.0f} m. "
+                "For detailed analyses draw a smaller analysis area in the viewer, or raise the detail limit.")
         cx, cy = extent.center().x(), extent.center().y()
         origin = (round(cx, 3), round(cy, 3))
         grid = {

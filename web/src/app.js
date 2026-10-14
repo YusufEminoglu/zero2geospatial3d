@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { Viewer } from './scene/viewer.js';
 import { Terrain } from './scene/terrain.js';
 import { createLayer, splitKey, ExtrudedLayer, SurfaceLayer } from './scene/objects.js';
-import { showOverlay, hideOverlay, setOverlayOpacity } from './scene/overlay.js';
+import { hideOverlay, setOverlayOpacity, resultTexture, useOverlay } from './scene/overlay.js';
 import { Analyst } from './analysis/runners.js';
 import { solarPosition, sunVector } from './core/solar.js';
 import { parseEpw, typicalDoy } from './core/weather.js';
@@ -148,7 +148,16 @@ export class App {
   }
 
   cell(perSide = 1024) {
-    return this.cellSize > 0 ? this.cellSize : this.analyst.defaultCell(this.area(), perSide);
+    const a = this.area();
+    const side = Math.max(a.maxX - a.minX, a.maxY - a.minY);
+    const chosen = this.cellSize > 0 ? this.cellSize : this.analyst.defaultCell(a, perSide);
+    // Never more than 4096 cells a side: a 1 m cell over a 20 km area would be 400 M cells.
+    const floor = Math.ceil((side / 4096) * 2) / 2;
+    if (chosen < floor && this.cellSize > 0 && !this._cellWarned) {
+      this._cellWarned = true;
+      toast(`${chosen} m cells are too fine for this area; using ${floor} m. Draw a smaller area for more detail.`);
+    }
+    return Math.max(chosen, floor);
   }
 
   showAreaOutline() {
@@ -194,9 +203,8 @@ export class App {
 
   showResult(r) {
     this.activeResult = r;
-    if (r?.grid) {
-      showOverlay(r.grid, r.values, r.display);
-    } else hideOverlay();
+    if (r?.grid) useOverlay(resultTexture(r), r.grid);
+    else hideOverlay();
     this._showFacade(r?.facade && r.showFacade !== false ? r.facade : null);
     this._showMarker(r?.marker);
     this.renderLegend();
@@ -234,11 +242,16 @@ export class App {
   _showFacade(f) {
     if (this.facadeMesh) {
       this.viewer.helpers.remove(this.facadeMesh);
-      this.facadeMesh.geometry.dispose();
-      /** @type {any} */ (this.facadeMesh.material).dispose();
       this.facadeMesh = null;
     }
     if (!f || !f.count) return;
+    this.facadeMesh = this.facadeMeshFor(f);
+    this.viewer.helpers.add(this.facadeMesh);
+  }
+
+  /** Facade tiles of a result, built once and kept on it. */
+  facadeMeshFor(f) {
+    if (f._mesh) return f._mesh;
     const geom = new THREE.PlaneGeometry(1, 1);
     const mat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const mesh = new THREE.InstancedMesh(geom, mat, f.count);
@@ -264,8 +277,8 @@ export class App {
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.computeBoundingSphere();
-    this.facadeMesh = mesh;
-    this.viewer.helpers.add(mesh);
+    f._mesh = mesh;
+    return mesh;
   }
 
   /** Legend for the active result, else for the coloured layer. */
@@ -305,8 +318,22 @@ export class App {
     if (rule.color.mode !== 'source') { this.layerLegend = legend; this.renderLegend(); }
   }
 
+  /** Facade tiles sit on building walls: drop the cached ones when the geometry moves. */
+  _dropFacadeCache() {
+    for (const r of this.results) {
+      const m = r.facade?._mesh;
+      if (!m) continue;
+      this.viewer.helpers.remove(m);
+      m.geometry.dispose();
+      m.material.dispose();
+      delete r.facade._mesh;
+    }
+    this.facadeMesh = null;
+  }
+
   setSlopeMode(mode) {
     this.slopeMode = mode;
+    this._dropFacadeCache();
     for (const l of this.layers) if (l instanceof ExtrudedLayer && !l.isWall) l.setSlopeMode(mode);
     if (this.activeResult?.facade) this._showFacade(null);
     this.analyst?.cache.clear();
@@ -314,6 +341,7 @@ export class App {
   }
 
   setExaggeration(ex) {
+    this._dropFacadeCache();
     this.terrain.setExaggeration(ex);
     for (const l of this.layers) l.updateElevation();
     if (this.activeResult?.facade) this._showFacade(null);
@@ -323,6 +351,7 @@ export class App {
 
   // ------------------------------------------------------------ picking and selection
   onClick(e) {
+    if (this.compare?.mode) return; // panels share one camera; picking is for the single view
     const key = this.viewer.pickKey(e.clientX, e.clientY);
     if (key) {
       const { layerIndex, id } = splitKey(key);

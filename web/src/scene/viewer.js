@@ -91,6 +91,7 @@ export class Viewer {
     this._frameHooks = [];
     this.extentRadius = 1000;
     this.stats = { fps: 0, frames: 0, last: performance.now(), drawCalls: 0, triangles: 0 };
+    this.renderHook = null; // compare views draw several panels instead of one view
 
     window.addEventListener('resize', () => this.resize());
     if ('ResizeObserver' in window) new ResizeObserver(() => this.resize()).observe(container);
@@ -120,8 +121,10 @@ export class Viewer {
     for (const fn of this._frameHooks) if (fn()) this._dirty = true;
     if (!this._dirty && !moved) return;
     this._dirty = false;
+    this._fitClipping();
     this._fitShadow();
-    this.renderer.render(this.scene, this.camera);
+    if (this.renderHook) this.renderHook();
+    else this.renderer.render(this.scene, this.camera);
     const s = this.stats;
     s.frames++;
     s.drawCalls = this.renderer.info.render.calls;
@@ -151,6 +154,19 @@ export class Viewer {
     this.shadowsOn = on;
     this.sun.castShadow = on;
     this.requestRender();
+  }
+
+  /** Near/far planes follow the camera distance, so a 50 km scene keeps depth precision up close. */
+  _fitClipping() {
+    const cam = this.camera;
+    const dist = cam.position.distanceTo(this.controls.target);
+    const near = Math.max(0.2, Math.min(50, dist / 1500));
+    const far = Math.max(dist * 40, this.extentRadius * 6, 5000);
+    if (Math.abs(cam.near - near) / near > 0.1 || Math.abs(cam.far - far) / far > 0.1) {
+      cam.near = near;
+      cam.far = far;
+      cam.updateProjectionMatrix();
+    }
   }
 
   /** Fit the sun's shadow camera around the area the camera looks at. */

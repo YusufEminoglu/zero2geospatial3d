@@ -10,7 +10,8 @@ from __future__ import annotations
 import math
 
 MAX_GRID_CELLS = 1024          # longest side of an exported raster grid
-MAX_SCENE_SIDE_M = 20000.0     # refuse scenes larger than 20 km across
+MAX_SCENE_SIDE_M = 250000.0    # sanity limit only: local float32 coordinates stay sub-centimetre
+LARGE_SCENE_SIDE_M = 20000.0   # above this the export warns about coarse cells
 
 
 def utm_epsg_for(lon: float, lat: float) -> int:

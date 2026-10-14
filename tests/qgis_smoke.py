@@ -474,6 +474,18 @@ def test_detail_limit(folder):
         out[limit] = (g["cols"], g["rows"], round(g["cell"], 4))
     check("detail limit: 2048 coarsens a 2400-column DEM, 4096 keeps its own 1 m cells",
           out[2048][0] == 2048 and out[2048][2] > 1 and out[4096] == (2400, 1800, 1.0), str(out))
+    # A 30 km DEM: no longer refused (the old limit was 20 km), only a warning.
+    path = os.path.join(folder, "wide_dem.tif")
+    ds = gdal.GetDriverByName("GTiff").Create(path, 300, 250, 1, gdal.GDT_Float32)
+    ds.SetGeoTransform((X0, 100.0, 0, Y0, 0, -100.0))
+    ds.SetProjection(srs.ExportToWkt())
+    ds.GetRasterBand(1).WriteArray(np.full((250, 300), 80, dtype="float32"))
+    ds = None
+    wide = QgsRasterLayer(path, "wide")
+    res = sx.SceneExporter(sx.ExportSpec(out_dir=os.path.join(folder, "wide"), extent=wide.extent(),
+                                         extent_crs=wide.crs(), dem=wide)).run()
+    check("a 30 km scene exports with a large-scene warning", res.manifest["grid"]["cols"] == 300 and
+          any("Large scene" in w for w in res.warnings), str(res.warnings))
 
 
 def test_quick_3d(folder, iface):
