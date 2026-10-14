@@ -41,6 +41,12 @@ export const FIELD_INFO = {
 
 function infoFor(name) {
   if (FIELD_INFO[name]) return FIELD_INFO[name];
+  const sm = name.match(/^(.+)_(djf|mam|jja|son)$/);
+  if (sm && FIELD_INFO[sm[1]]) {
+    const season = { djf: 'winter', mam: 'spring', jja: 'summer', son: 'autumn' }[sm[2]];
+    const [label, unit, help] = FIELD_INFO[sm[1]];
+    return [`${label}, ${season}`, unit, `${help} (${season} only)`];
+  }
   const m = name.match(/^(d_)?(.+?)(_A|_B)?$/);
   if (m && (m[1] || m[3]) && FIELD_INFO[m[2]]) {
     const [label, unit, help] = FIELD_INFO[m[2]];
@@ -136,13 +142,32 @@ export function reportBlock(app, layer, f) {
       h('td', { text: s.label }),
       h('td', { class: s.delta < 0 ? 'neg' : s.delta > 0 ? 'pos' : '', text: `${fmtOr(s.a, s.unit)} → ${fmtOr(s.b, s.unit)} (${sign(s.delta)}${fmt(s.delta, s.unit)})` })))));
   }
+  const seasons = buildingSeasons(app, layer, f);
+  if (seasons) {
+    wrapEl.appendChild(h('div', { class: 'insp-sub', text: 'Seasons around it' }));
+    wrapEl.appendChild(h('table', { class: 'stats seasons' },
+      h('tr', {}, h('td', { text: '' }), ...SEASON_NAMES.map((s) => h('td', { text: s }))),
+      h('tr', {}, h('td', { text: 'Comfortable' }), ...seasons.map((x) => h('td', { text: x ? `${x.comfort.toFixed(0)} %` : '–' }))),
+      h('tr', {}, h('td', { text: 'Heat stress' }), ...seasons.map((x) => h('td', { text: x ? `${x.heat} h` : '–' }))),
+      h('tr', {}, h('td', { text: 'Cold stress' }), ...seasons.map((x) => h('td', { text: x ? `${x.cold} h` : '–' }))),
+      h('tr', {}, h('td', { text: 'Wind' }), ...seasons.map((x) => h('td', { text: x ? `${x.wind.toFixed(1)} m/s` : '–' })))));
+  }
   const rose = buildingRose(app, layer, f);
   if (rose) {
-    wrapEl.appendChild(h('div', { class: 'insp-sub', text: 'Wind around it (year)' }));
+    wrapEl.appendChild(h('div', { class: 'insp-sub', text: 'Wind around it' }));
     const cv = h('canvas', { class: 'rose', width: 220, height: 220 });
-    drawRose(cv.getContext('2d'), rose, 110, 110, 92);
-    wrapEl.appendChild(h('div', { class: 'rose-wrap' }, cv,
-      h('div', { class: 'muted small', text: `Petal length: how often the wind blows from there; colour: the sheltered pedestrian speed beside this building (blue calm, red strong). Calm ${(rose.calm * 100).toFixed(0)} %.` })));
+    const note = h('div', { class: 'muted small' });
+    const show = (season) => {
+      const r2 = buildingRose(app, layer, f, season) || rose;
+      const ctx = cv.getContext('2d');
+      ctx.clearRect(0, 0, 220, 220);
+      drawRose(ctx, r2, 110, 110, 92);
+      note.textContent = `Petal length: how often the wind blows from there; colour: the sheltered pedestrian speed beside this building (blue calm, red strong). Calm ${(r2.calm * 100).toFixed(0)} %.`;
+      chips.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', (i === 0 && season === null) || i - 1 === season));
+    };
+    const chips = h('div', { class: 'btn-row chips' }, button('Year', () => show(null)), ...SEASON_NAMES.map((s, i) => button(s, () => show(i))));
+    wrapEl.appendChild(h('div', { class: 'rose-wrap' }, app.climateRoses?.bySeason ? chips : null, cv, note));
+    show(null);
   }
   if (info.optimisation) {
     const o = info.optimisation;
@@ -280,6 +305,21 @@ export async function buildingPdf(app, layer, f) {
     }
     y += 2 * R + 30;
   }
+  const seasonsPdf = buildingSeasons(app, layer, f);
+  if (seasonsPdf && y < PH - margin - 90) {
+    page.text(x, y, 'Seasons around it', { size: 10, bold: true, color: ink });
+    y += 14;
+    const colW = (side - 70) / 4;
+    SEASON_NAMES.forEach((s, i) => page.text(x + 70 + colW * i, y, s, { size: 7.5, color: muted }));
+    const rows2 = [['Comfortable', (v) => `${v.comfort.toFixed(0)} %`], ['Heat stress', (v) => `${v.heat} h`],
+      ['Cold stress', (v) => `${v.cold} h`], ['Wind', (v) => `${v.wind.toFixed(1)} m/s`]];
+    for (const [label2, fmt2] of rows2) {
+      y += 12;
+      page.text(x, y, label2, { size: 8, color: muted });
+      seasonsPdf.forEach((v, i) => page.text(x + 70 + colW * i, y, v ? fmt2(v) : '–', { size: 8, color: ink }));
+    }
+    y += 18;
+  }
   if (info.optimisation && y < PH - margin - 80) {
     const o = info.optimisation;
     table('Optimisation (applied design)', [['Floors', `${o.floorsNow} → ${o.floorsDesign}`],
@@ -296,13 +336,21 @@ export async function buildingPdf(app, layer, f) {
 
 function sign(v) { return v > 0 ? '+' : ''; }
 
-/** Wind rose of one building: EPW sector frequencies, speeds scaled by its shelter. */
-export function buildingRose(app, layer, f) {
+/** Wind rose of one building (season: null for the year, or 0-3): EPW sector frequencies, speeds scaled by its shelter. */
+export function buildingRose(app, layer, f, season = null) {
   const c = app.climateRoses;
   const ratios = c?.ratios.get(featureKey(layer.index, f + 1));
   if (!ratios) return null;
-  return { sectors: c.sectors, calm: c.calm, petals: c.freq.map((fr, k) => ({ freq: fr, speed: c.speed[k] * ratios[k] * OPEN_PEDESTRIAN_FACTOR })) };
+  const src = season === null || !c.bySeason ? c : c.bySeason[season];
+  return { sectors: c.sectors, calm: src.calm, petals: src.freq.map((fr, k) => ({ freq: fr, speed: src.speed[k] * ratios[k] * OPEN_PEDESTRIAN_FACTOR })) };
 }
+
+/** Per-season comfort, heat, cold and wind around one building, or null. */
+export function buildingSeasons(app, layer, f) {
+  return app.climateSeasonal?.get(featureKey(layer.index, f + 1)) || null;
+}
+
+const SEASON_NAMES = ['Winter', 'Spring', 'Summer', 'Autumn'];
 
 const ROSE_MAX_SPEED = 8;
 function roseColor(speed) {

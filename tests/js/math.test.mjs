@@ -257,3 +257,19 @@ test('building surroundings: open cells go to the nearest building, within the r
   const none = surroundings(ids, heights, 11, 1, 2, (k) => k === 7);
   assert.equal(none[9], 0);
 });
+
+test('meteorological seasons', async () => {
+  const { seasonOf } = await import('../../web/src/analysis/climate.js');
+  assert.deepEqual([1, 2, 3, 5, 6, 8, 9, 11, 12].map(seasonOf), [0, 0, 1, 1, 2, 2, 3, 3, 0]);
+});
+
+test('planning check verdicts: min and max criteria, missing values', async () => {
+  const { judge, CRITERIA } = await import('../../web/src/analysis/compliance.js');
+  const byId = Object.fromEntries(CRITERIA.map((c) => [c.id, c]));
+  assert.equal(judge(byId.amenity_sun, 50), true);
+  assert.equal(judge(byId.amenity_sun, 49.9), false);
+  assert.equal(judge(byId.neighbour_daylight, 0.79), false);
+  assert.equal(judge(byId.wind, 5), true);
+  assert.equal(judge(byId.wind, 5.1), false);
+  assert.equal(judge(byId.heat, NaN), null);
+});

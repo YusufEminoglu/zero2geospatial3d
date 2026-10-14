@@ -15,6 +15,12 @@ import { splitKey, ExtrudedLayer } from '../scene/objects.js';
 
 const DEG = Math.PI / 180;
 
+/** Meteorological seasons: winter Dec-Feb, spring Mar-May, summer Jun-Aug, autumn Sep-Nov. */
+export const SEASONS = [['djf', 'Winter'], ['mam', 'Spring'], ['jja', 'Summer'], ['son', 'Autumn']];
+export function seasonOf(month) {
+  return month === 12 || month <= 2 ? 0 : month <= 5 ? 1 : month <= 8 ? 2 : 3;
+}
+
 /** Open cells within `rings` steps of a building, labelled with its key (multi-source BFS). */
 export function surroundings(ids, heights, cols, rows, rings, isBuilding) {
   const label = new Int32Array(cols * rows);
@@ -88,15 +94,22 @@ export async function climateAroundBuildings(analyst, { area, cell, sectors = 8,
   const svfB = meansByKey(label, sky.values);
   // 3. Wind per sector from the EPW, sheltering ratio per sector.
   const sectorFreq = new Float64Array(sectors), sectorSpeed = new Float64Array(sectors);
+  const seasonFreq = SEASONS.map(() => new Float64Array(sectors));
+  const seasonSpeed = SEASONS.map(() => new Float64Array(sectors));
+  const seasonHours = new Float64Array(4), seasonCalm = new Float64Array(4);
   let calmHours = 0, windowHours = 0;
   const inWindow = (i) => w.hour[i] - 1 >= hourFrom && w.hour[i] - 1 < hourTo;
   for (let i = 0; i < w.hours; i++) {
     if (!inWindow(i)) continue;
     windowHours++;
-    if (w.windSpeed[i] < 0.5) { calmHours++; continue; }
+    const sea = seasonOf(w.month[i]);
+    seasonHours[sea]++;
+    if (w.windSpeed[i] < 0.5) { calmHours++; seasonCalm[sea]++; continue; }
     const k = Math.floor((((w.windDir[i] % 360) + 360) % 360) / (360 / sectors) + 0.5) % sectors;
     sectorFreq[k]++;
     sectorSpeed[k] += w.windSpeed[i];
+    seasonFreq[sea][k]++;
+    seasonSpeed[sea][k] += w.windSpeed[i];
   }
   const ratioB = new Map(); // key -> Float32Array(sectors)
   const annualWind = new Float32Array(n);
@@ -143,13 +156,15 @@ export async function climateAroundBuildings(analyst, { area, cell, sectors = 8,
   }
   // 5. Every hour of the window, for every building.
   const keys = [...svfB.keys()];
-  const stats = new Map(keys.map((k) => [k, { comfort: 0, heat: 0, cold: 0, windSum: 0, windy: 0, hours: 0 }]));
+  const blank = () => ({ comfort: 0, heat: 0, cold: 0, windSum: 0, windy: 0, hours: 0 });
+  const stats = new Map(keys.map((k) => [k, { ...blank(), seasons: SEASONS.map(blank) }]));
   for (let i = 0; i < w.hours; i++) {
     if (!inWindow(i)) continue;
     const ta = w.dryBulb[i], rh = w.rh[i], ws = w.windSpeed[i];
     const k = ws < 0.5 ? -1 : Math.floor((((w.windDir[i] % 360) + 360) % 360) / (360 / sectors) + 0.5) % sectors;
     const tSky = skyTemperature(ta, w.ir[i]);
     const bin = binOfHour[i];
+    const sea = seasonOf(w.month[i]);
     for (const key of keys) {
       const svf = svfB.get(key);
       const r = k < 0 ? 1 : (ratioB.get(key)?.[k] ?? 1);
@@ -157,14 +172,16 @@ export async function climateAroundBuildings(analyst, { area, cell, sectors = 8,
       const tr = meanRadiantTemperature({ airTemp: ta, skyTemp: tSky, svf, sunlit, dni: w.dni[i], dhi: w.dhi[i], ghi: w.ghi[i], elevationDeg: elevOfHour[i] });
       const v10 = Math.max(0.5, Math.min(17, ws * r));
       const u = utci(ta, tr, v10, rh);
-      const st = stats.get(key);
-      st.hours++;
-      if (u >= 9 && u < 26) st.comfort++;
-      else if (u >= 32) st.heat++;
-      else if (u < 0) st.cold++;
       const ped = ws * r * OPEN_PEDESTRIAN_FACTOR;
-      st.windSum += ped;
-      if (ped > 5) st.windy++;
+      const all = stats.get(key);
+      for (const st of [all, all.seasons[sea]]) {
+        st.hours++;
+        if (u >= 9 && u < 26) st.comfort++;
+        else if (u >= 32) st.heat++;
+        else if (u < 0) st.cold++;
+        st.windSum += ped;
+        if (ped > 5) st.windy++;
+      }
     }
     if (i % 400 === 0) { onProgress?.(0.85 + (0.15 * i) / w.hours); await new Promise((res) => setTimeout(res, 0)); }
   }
@@ -177,6 +194,8 @@ export async function climateAroundBuildings(analyst, { area, cell, sectors = 8,
     return m.get(name);
   };
   const comfortOfKey = new Map();
+  const seasonComfortOfKey = SEASONS.map(() => new Map());
+  const seasonal = new Map(); // key -> per-season summary for the report
   for (const [key, st] of stats) {
     const { layerIndex, id } = splitKey(key);
     const layer = app.layers.find((l) => l.index === layerIndex);
@@ -190,15 +209,41 @@ export async function climateAroundBuildings(analyst, { area, cell, sectors = 8,
     field(layer, 'ped_wind_ms')[f] = st.windSum / st.hours;
     field(layer, 'windy_pct')[f] = (100 * st.windy) / st.hours;
     field(layer, 'svf_ground')[f] = svfB.get(key);
+    const rows = st.seasons.map((x) => (x.hours ? { comfort: (100 * x.comfort) / x.hours, heat: x.heat, cold: x.cold,
+      wind: x.windSum / x.hours, windy: (100 * x.windy) / x.hours, hours: x.hours } : null));
+    seasonal.set(key, rows);
+    SEASONS.forEach(([code], s) => {
+      if (!rows[s]) return;
+      seasonComfortOfKey[s].set(key, rows[s].comfort);
+      field(layer, `comfort_pct_${code}`)[f] = rows[s].comfort;
+    });
+    if (rows[2]) field(layer, 'heat_stress_h_jja')[f] = rows[2].heat;
+    if (rows[0]) {
+      field(layer, 'cold_stress_h_djf')[f] = rows[0].cold;
+      field(layer, 'ped_wind_ms_djf')[f] = rows[0].wind;
+      field(layer, 'windy_pct_djf')[f] = rows[0].windy;
+    }
   }
   const fields = [];
   for (const [layer, m] of perLayer) for (const [name, values] of m) fields.push({ layer, name, values });
-  const halo = new Float32Array(n).fill(NaN);
-  for (let i = 0; i < n; i++) if (label[i] && comfortOfKey.has(label[i])) halo[i] = comfortOfKey.get(label[i]);
+  const haloOf = (map) => {
+    const out = new Float32Array(n).fill(NaN);
+    for (let i = 0; i < n; i++) if (label[i] && map.has(label[i])) out[i] = map.get(label[i]);
+    return out;
+  };
+  const halo = haloOf(comfortOfKey);
+  const haloSeasons = { year: halo };
+  SEASONS.forEach(([code], s) => { haloSeasons[code] = haloOf(seasonComfortOfKey[s]); });
+  const allComfort = [...comfortOfKey.values(), ...seasonComfortOfKey.flatMap((m) => [...m.values()])];
   // Per-building wind roses for the report.
   const freq = Array.from(sectorFreq, (x) => x / Math.max(1, windowHours));
+  const bySeason = SEASONS.map(([code, name], s) => ({ code, name,
+    freq: Array.from(seasonFreq[s], (x) => x / Math.max(1, seasonHours[s])),
+    speed: Array.from(seasonSpeed[s], (x, k) => (seasonFreq[s][k] ? x / seasonFreq[s][k] : 0)),
+    calm: seasonCalm[s] / Math.max(1, seasonHours[s]) }));
   app.climateRoses = { sectors, freq, speed: Array.from(sectorSpeed), calm: calmHours / Math.max(1, windowHours), ratios: ratioB,
-    window: [hourFrom, hourTo], source: w.location.city || app.weatherSource };
+    window: [hourFrom, hourTo], source: w.location.city || app.weatherSource, bySeason };
+  app.climateSeasonal = seasonal;
   const windowLabel = `${String(hourFrom).padStart(2, '0')}:00–${String(hourTo).padStart(2, '0')}:00`;
   let sum = 0, cnt = 0;
   for (const v of comfortOfKey.values()) { sum += v; cnt++; }
@@ -206,10 +251,11 @@ export async function climateAroundBuildings(analyst, { area, cell, sectors = 8,
   for (const v of annualWind) if (v > windMax) windMax = v; // no spread: the grid can hold millions of cells
   return [{
     kind: 'climate', title: 'Comfortable hours around buildings (year)', subtitle: `${windowLabel}, ${w.location.city || 'EPW'}; UTCI 9–26 °C`,
-    unit: '%', grid, values: halo, ids: og.ids, display: { ...rangeOf(comfortOfKey.values()), ramp: 'rdylbu' }, fields,
+    unit: '%', grid, values: halo, ids: og.ids, display: { ...rangeOf(allComfort), ramp: 'rdylbu' }, fields,
+    seasonal: haloSeasons, season: 'year',
     stats: [['Buildings', String(cnt)], ['Mean comfortable share', `${cnt ? (sum / cnt).toFixed(0) : 0} %`],
       ['Hours evaluated per building', String(windowHours)], ['Sun positions', String(binList.length)]],
-    notes: 'Each building\'s surroundings: open ground within ' + ringMetres + ' m. Hourly UTCI from the EPW weather with the local sky view, sun and sheltered wind (screening model). Fields: comfort_pct, heat_stress_h, cold_stress_h, ped_wind_ms, windy_pct, svf_ground.'
+    notes: 'Each building\'s surroundings: open ground within ' + ringMetres + ' m. Hourly UTCI from the EPW weather with the local sky view, sun and sheltered wind (screening model). Fields: comfort_pct, heat_stress_h, cold_stress_h, ped_wind_ms, windy_pct, svf_ground; per season comfort_pct_djf/mam/jja/son, heat_stress_h_jja, cold_stress_h_djf, ped_wind_ms_djf, windy_pct_djf.'
   }, {
     kind: 'windyear', title: 'Annual pedestrian wind', subtitle: `${windowLabel}, frequency-weighted over ${sectors} directions`,
     unit: 'm/s', grid, values: annualWind, ids: og.ids, display: { min: 0, max: Math.ceil(windMax), ramp: 'spectral-r' },

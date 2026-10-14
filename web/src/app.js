@@ -212,7 +212,9 @@ export class App {
   }
 
   showResult(r) {
+    if (this.activeResult && this.activeResult !== r) this.activeResult.onHide?.();
     this.activeResult = r;
+    r?.onShow?.();
     if (r?.grid) useOverlay(resultTexture(r), r.grid);
     else hideOverlay();
     this._showFacade(r?.facade && r.showFacade !== false ? r.facade : null);
@@ -223,6 +225,7 @@ export class App {
   }
 
   hideResult() {
+    this.activeResult?.onHide?.();
     this.activeResult = null;
     hideOverlay();
     this._showFacade(null);

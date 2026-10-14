@@ -199,3 +199,16 @@ table.stats td:last-child { text-align: right; font-variant-numeric: tabular-num
 .stats td.pos { color: #1f7a3f; }
 .rose-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .rose { width: 180px; height: 180px; }
+.btn-row.chips .btn { padding: 2px 8px; font-size: 11px; }
+.stats.seasons td { text-align: right; }
+.stats.seasons td:first-child { text-align: left; }
+.checks { display: flex; flex-direction: column; gap: 4px; }
+.check-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 6px; align-items: center; }
+.check-table-wrap { overflow-x: auto; max-height: 260px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; }
+.check-table { border-collapse: collapse; font-size: 11px; width: 100%; }
+.check-table th { position: sticky; top: 0; background: var(--bg); text-align: left; padding: 4px; font-weight: 600; }
+.check-table td { padding: 3px 4px; border-top: 1px solid var(--line); }
+.check-table tr:hover td { background: var(--accent-soft); cursor: pointer; }
+.check-table td.pass { color: #1f7a3f; font-weight: 700; text-align: center; }
+.check-table td.fail { color: #c0392b; font-weight: 700; text-align: center; }
+.check-table td.na { color: var(--muted); text-align: center; }

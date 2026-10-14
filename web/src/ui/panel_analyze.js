@@ -6,6 +6,8 @@ import { sendGrid, sendFields } from './qgis_link.js';
 import { clearSkyYear, conditionsAt, typicalDoy } from '../core/weather.js';
 import { solarPosition } from '../core/solar.js';
 import { ExtrudedLayer } from '../scene/objects.js';
+import { CRITERIA, planningCheck } from '../analysis/compliance.js';
+import { planningSheet, planningCsv } from '../export/check_pdf.js';
 
 const MONTHS = MONTH_NAMES.map((m, i) => [i + 1, m]);
 const DATE_PRESETS = [['3-21', '21 Mar (equinox)'], ['6-21', '21 Jun (summer solstice)'], ['12-21', '21 Dec (winter solstice)'], ['custom', 'Custom date']];
@@ -22,7 +24,8 @@ export function defaultParams(app) {
     wind: { from: rose ? rose.prevailingDirection : 270, speed: rose ? Math.max(1, rose.prevailingSpeed) : 4, cell: 0 },
     comfort: { month: 7, day: 21, hour: 15, manual: !app.weather?.dryBulb, airTemp: 32, rh: 45, windSpeed: 2.5, windDir: rose ? rose.prevailingDirection : 270 },
     morph: { block: 100, from: rose ? rose.prevailingDirection : 270 },
-    climate: { from: 7, to: 22, sectors: 8, ring: 15 }
+    climate: { from: 7, to: 22, sectors: 8, ring: 15 },
+    check: { scope: 'selected', criteria: CRITERIA.map((c) => c.id), thresholds: Object.fromEntries(CRITERIA.map((c) => [c.id, c.threshold])) }
   };
 }
 
@@ -40,6 +43,7 @@ export function buildAnalyzePanel(app, root) {
     root.appendChild(comfortCard(app));
     root.appendChild(morphCard(app));
     root.appendChild(climateCard(app));
+    root.appendChild(checkCard(app));
     root.appendChild(h('h3', { class: 'section', text: 'Results' }));
     root.appendChild(resultsBox);
     renderResults(app, resultsBox);
@@ -304,6 +308,27 @@ function climateCard(app) {
   return card('Climate around buildings (year)', body, { badge: has ? 'EPW' : 'needs EPW' });
 }
 
+function checkCard(app) {
+  const p = app.params.check;
+  const hasB = app.layers.some((l) => l.entry.scenario === 'B');
+  const crit = h('div', { class: 'checks' });
+  for (const c of CRITERIA) {
+    const on = p.criteria.includes(c.id);
+    crit.appendChild(h('div', { class: 'check-row', title: c.help },
+      toggle(on, (v) => { p.criteria = v ? [...new Set([...p.criteria, c.id])] : p.criteria.filter((x) => x !== c.id); }, c.short),
+      h('span', { class: 'muted small', text: c.test === 'min' ? '≥' : '≤' }),
+      number(p.thresholds[c.id], { step: c.unit === '' || c.unit === '×' ? 0.01 : 1, width: '5em', onChange: (v) => { p.thresholds[c.id] = v; } }),
+      h('span', { class: 'muted small', text: c.unit })));
+  }
+  const body = h('div', {},
+    h('p', { class: 'muted small', text: 'Pass or fail for each building: sun on the open ground around it, facade daylight, daylight kept after scenario B, windy and summer heat-stress hours. Missing analyses run on their own.' }),
+    row('Buildings', select([['selected', 'Selected buildings'], ['area', 'All in the analysis area'], ...(hasB ? [['scenarioB', 'Scenario B buildings']] : [])], p.scope, (v) => { p.scope = v; })),
+    crit,
+    h('div', { class: 'btn-row' }, runButton(app, 'Run planning check', () => app.run('Planning check', (prog) => planningCheck(app, {
+      scope: p.scope, criteria: p.criteria, thresholds: p.thresholds, onProgress: prog })))));
+  return card('Planning check', body);
+}
+
 // ---------------------------------------------------------------- results
 function renderResults(app, box) {
   clear(box);
@@ -346,16 +371,50 @@ function renderResults(app, box) {
       }, { title: 'Play the day' });
       studyControls = h('div', { class: 'btn-row study' }, play, sl);
     }
+    let seasonControls = null;
+    if (r.seasonal) {
+      const names = [['year', 'Year'], ['djf', 'Winter'], ['mam', 'Spring'], ['jja', 'Summer'], ['son', 'Autumn']];
+      seasonControls = h('div', { class: 'btn-row chips' }, ...names.map(([code, label]) => button(label, () => {
+        r.season = code;
+        r.values = r.seasonal[code];
+        r.title = `Comfortable hours around buildings (${label.toLowerCase()})`;
+        if (r._tex) { r._tex.dispose(); delete r._tex; }
+        app.showResult(r);
+        app.emit('results');
+      }, { kind: r.season === code ? 'on' : '' })));
+    }
+    let checkTable = null;
+    if (r.kind === 'compliance') {
+      const head = h('tr', {}, h('th', { text: 'Building' }), ...r.criteria.map((c) => h('th', { text: c.short, title: c.help })));
+      const body = r.rows.slice(0, 40).map((row2) => h('tr', { onclick: () => { app.select(row2.layer, [row2.f]); app.inspect(row2.layer, row2.f); } },
+        h('td', { text: row2.name }),
+        ...row2.checks.map((ch, i) => h('td', { class: ch.pass === null ? 'na' : ch.pass ? 'pass' : 'fail',
+          title: Number.isFinite(ch.value) ? fmtValue(ch.value, r.criteria[i].unit) : 'not available',
+          text: ch.pass === null ? '–' : ch.pass ? '✓' : '✗' }))));
+      checkTable = h('div', {},
+        h('div', { class: 'check-table-wrap' }, h('table', { class: 'check-table' }, head, ...body)),
+        r.rows.length > 40 ? h('div', { class: 'muted small', text: `${r.rows.length - 40} more in the CSV and the PDF order (worst first).` }) : null,
+        h('div', { class: 'btn-row' },
+          button('Planning sheet (PDF)', () => download('planning_check.pdf', planningSheet(app, r)), { kind: 'primary' }),
+          button('CSV', () => download('planning_check.csv', planningCsv(r), 'text/csv'))));
+    }
     const el = h('div', { class: `result ${active ? 'active' : ''}` },
       h('div', { class: 'result-title', text: r.title }),
       h('div', { class: 'muted small', text: `${r.subtitle || ''}${r.seconds ? ` · ${r.seconds.toFixed(1)} s` : ''}` }),
       actions,
       studyControls,
+      seasonControls,
+      checkTable,
       r.stats?.length ? stats(r.stats) : null,
       r.fields?.length ? h('div', { class: 'muted small', text: `Building fields: ${[...new Set(r.fields.map((f) => f.name))].join(', ')} (colour by them in Layers)` }) : null,
       r.notes ? h('div', { class: 'note', text: r.notes }) : null);
     box.appendChild(el);
   }
+}
+
+function fmtValue(v, unit) {
+  const s = Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2);
+  return unit ? `${s} ${unit}` : s;
 }
 
 function asciiGrid(app, r) {
