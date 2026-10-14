@@ -362,6 +362,46 @@ def test_server(scene_dir):
         server.stop()
 
 
+def test_dock_flow(folder, iface):
+    """Drive the panel like a user: rows, DEM, Open in 3D, then a result posted to the server."""
+    from qgis.PyQt.QtGui import QDesktopServices
+
+    from zero2geospatial3d.ui import dock as dock_mod
+
+    opened = []
+    original = QDesktopServices.openUrl
+    dock_mod.QDesktopServices.openUrl = staticmethod(lambda url: opened.append(url.toString()) or True)
+    panel = None
+    try:
+        panel = dock_mod.Geo3DDock(iface, str(PLUGIN_DIR))
+        panel.refresh_layers()
+        rows = {r.layer.name(): r for r in panel.rows}
+        dem = next(lyr for lyr in QgsProject.instance().mapLayers().values() if lyr.name() == "DEM")
+        panel.dem.setLayer(dem)
+        for name, row in rows.items():
+            row.check.setChecked(name == "Test buildings")
+        panel.folder.setFilePath(os.path.join(folder, "dock_scene"))
+        panel.open_in_3d()
+        scene = Path(folder, "dock_scene", "scene.json")
+        ok_scene = scene.is_file() and json.loads(scene.read_text(encoding="utf-8"))["layers"][0]["heightExpr"] == '"floors" * 3'
+        check("panel: Open in 3D writes the scene with the guessed height expression", ok_scene)
+        check("panel: the viewer URL is opened on the local server", opened and opened[0].startswith("http://127.0.0.1:"), str(opened))
+        values = (b"\x00\x00\x80\x3f" * 4)  # four float32 ones
+        body = json.dumps({"type": "grid", "name": "Posted grid", "key": "posted", "unit": "",
+                           "grid": {"cols": 2, "rows": 2, "cell": 5, "minX": 0, "maxY": 0},
+                           "data": base64.b64encode(values).decode()}).encode()
+        req = urllib.request.Request(panel.server.base_url + "api/result", data=body, headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=5).read()  # noqa: S310 - local test server
+        panel._poll_viewer()
+        got = [lyr for lyr in QgsProject.instance().mapLayers().values() if lyr.name() == "Posted grid"]
+        check("panel: a result posted by the viewer becomes a QGIS layer", bool(got) and got[0].isValid())
+    finally:
+        dock_mod.QDesktopServices.openUrl = original
+        if panel is not None:
+            panel.shutdown()
+            panel.deleteLater()
+
+
 def test_epw_and_osm(folder):
     from zero2geospatial3d.core import epw, osm_tags
 
@@ -400,6 +440,7 @@ def main():
         scene_dir, manifest, b = test_export(folder, iface)
         test_results(scene_dir, manifest, b)
         test_server(scene_dir)
+        test_dock_flow(folder, iface)
         test_epw_and_osm(folder)
     except Exception as exc:  # noqa: BLE001 - a crash is a failure with a trace
         import traceback
