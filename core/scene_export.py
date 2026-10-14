@@ -223,7 +223,7 @@ class SceneExporter:
             "origin": list(origin),
             "extent": {"minX": -width / 2, "minY": -height / 2, "maxX": width / 2, "maxY": height / 2},
             "geo": {"lat": centre_ll.y(), "lon": centre_ll.x(),
-                    "utcOffset": geo.utc_offset_guess(centre_ll.x())},
+                    "utcOffset": geo.choose_utc_offset(centre_ll.x(), _machine_standard_offset())},
             "grid": grid,
             "terrain": None,
             "layers": [],
@@ -511,6 +511,15 @@ class SceneExporter:
         points = geom.asMultiPoint() if geom.isMultipart() else [geom.asPoint()]
         out = [[r(p.x() - ox), r(p.y() - oy)] for p in points if extent_geom.contains(QgsGeometry.fromPointXY(p))]
         return ("MultiPoint", out) if out else None
+
+
+def _machine_standard_offset() -> float | None:
+    """This computer's standard (non-DST) UTC offset in hours."""
+    with contextlib.suppress(Exception):
+        from qgis.PyQt.QtCore import QDateTime, QTimeZone
+
+        return QTimeZone.systemTimeZone().standardTimeOffset(QDateTime.currentDateTime()) / 3600.0
+    return None
 
 
 def _default_height_value(role: str) -> float:

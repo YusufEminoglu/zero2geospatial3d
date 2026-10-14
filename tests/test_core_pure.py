@@ -83,3 +83,9 @@ def test_extract_epw_rejects_bad_archives(tmp_path):
         z.writestr("w.epw", "NOT,A,LOCATION\n")
     with pytest.raises(epw.EpwError):
         epw.extract_epw(buf.getvalue(), str(tmp_path / "c.epw"))
+
+
+def test_utc_offset_choice():
+    assert geo.choose_utc_offset(27.14, 3.0) == 3.0      # Izmir analysed from Turkey
+    assert geo.choose_utc_offset(-74.0, 3.0) == -5.0     # New York analysed from Turkey
+    assert geo.choose_utc_offset(27.14, None) == 2.0     # no machine zone: nautical guess

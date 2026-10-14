@@ -58,6 +58,16 @@ def utc_offset_guess(lon: float) -> float:
     return float(round(lon / 15.0))
 
 
+def choose_utc_offset(lon: float, machine_offset: float | None) -> float:
+    """Clock time zone for the sun: the computer's standard offset when it is
+    within 1.5 h of the longitude's nautical zone (the usual case: people
+    analyse places in their own country), else the nautical zone."""
+    nautical = utc_offset_guess(lon)
+    if machine_offset is not None and abs(machine_offset - lon / 15.0) <= 1.5:
+        return float(machine_offset)
+    return nautical
+
+
 def safe_name(text: str, fallback: str = "layer") -> str:
     out = []
     for ch in str(text or ""):
