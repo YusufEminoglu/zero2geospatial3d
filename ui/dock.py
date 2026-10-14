@@ -48,7 +48,8 @@ from ..core import scene_export as sx
 from ..core.server import ViewerServer, web_root_for
 
 AREA_DEM, AREA_VIEW, AREA_OBJECTS = range(3)
-GRID_CHOICES = [("Automatic (up to 1024 cells a side)", None), ("1 m", 1.0), ("2 m", 2.0),
+DETAIL_CHOICES = [("1024 cells (light)", 1024), ("2048 cells", 2048), ("4096 cells (large, fine DEMs)", 4096)]
+GRID_CHOICES = [("Automatic (DEM resolution)", None), ("1 m", 1.0), ("2 m", 2.0),
                 ("5 m", 5.0), ("10 m", 10.0), ("25 m", 25.0)]
 
 _HEIGHT_FIELDS = ("height_m", "height", "yukseklik", "yükseklik", "bina_yuk", "bina_yukseklik", "h", "hgt", "elev_top")
@@ -77,6 +78,15 @@ def guess_role(layer: QgsVectorLayer) -> tuple[str, bool]:
     if kind == "polygon" and names & set(_HEIGHT_FIELDS + _FLOOR_FIELDS):
         return sx.ROLE_BUILDINGS, True
     return roles[0], False
+
+
+def guess_base_expression(layer: QgsVectorLayer) -> str:
+    """A bottom-height field (OSM min_height and the like), or empty."""
+    by_lower = {f.name().lower(): f.name() for f in layer.fields() if f.isNumeric()}
+    for name in ("min_height_m", "min_height", "base_height", "bottom_m"):
+        if name in by_lower:
+            return f'"{by_lower[name]}"'
+    return ""
 
 
 def guess_height_expression(layer: QgsVectorLayer, role: str) -> str:
@@ -122,23 +132,34 @@ class LayerRow(QFrame):
         self.height.setToolTip("Height in metres above the ground, e.g. \"floors\" * 3.2")
         grid.addWidget(self.height, 2, 1, 1, 2)
 
+        self.base_label = QLabel("Bottom")
+        self.base = QgsFieldExpressionWidget()
+        self.base.setLayer(layer)
+        self.base.setExpression(guess_base_expression(layer))
+        self.base.setToolTip("Optional: where the extrusion starts above the ground, e.g. \"min_height\" for a "
+                             "tower part standing on a podium. Leave empty to start at the ground.")
+        grid.addWidget(self.base_label, 3, 0)
+        grid.addWidget(self.base, 3, 1, 1, 2)
+
         self.color = QComboBox()
         self.color.addItem("QGIS style colours", "qgis")
         self.color.addItem("Single colour", "single")
         self.color.setToolTip("Colours come from the layer's QGIS symbology; you can recolour by any field in the viewer")
-        grid.addWidget(self.color, 3, 0, 1, 2)
+        grid.addWidget(self.color, 4, 0, 1, 2)
         self.scenario = QComboBox()
         self.scenario.addItem("Existing", "both")
         self.scenario.addItem("Scenario A", "A")
         self.scenario.addItem("Scenario B", "B")
         self.scenario.setToolTip("Existing buildings appear in every scenario; A/B layers are compared in the viewer")
-        grid.addWidget(self.scenario, 3, 2)
+        grid.addWidget(self.scenario, 4, 2)
         self.role.currentIndexChanged.connect(self._role_changed)
         self._role_changed()
 
     def _role_changed(self) -> None:
         role = self.role.currentData()
         self.scenario.setVisible(role == sx.ROLE_BUILDINGS)
+        self.base.setVisible(role == sx.ROLE_BUILDINGS)
+        self.base_label.setVisible(role == sx.ROLE_BUILDINGS)
         uses_height = role in (sx.ROLE_BUILDINGS, sx.ROLE_WALLS, sx.ROLE_TREES, sx.ROLE_POLES, sx.ROLE_PLATFORMS)
         self.height.setEnabled(uses_height)
         if role == sx.ROLE_PLATFORMS:
@@ -147,10 +168,13 @@ class LayerRow(QFrame):
             self.height.setToolTip("Height in metres above the ground, e.g. \"floors\" * 3.2")
 
     def spec(self) -> sx.LayerSpec:
+        is_building = self.role.currentData() == sx.ROLE_BUILDINGS
         return sx.LayerSpec(layer=self.layer, role=self.role.currentData(),
                             height_expr=self.height.expression().strip(),
                             color_mode=self.color.currentData(),
-                            scenario=self.scenario.currentData() if self.scenario.isVisible() else "both")
+                            # By role, not isVisible(): that is False whenever the panel is hidden.
+                            scenario=self.scenario.currentData() if is_building else "both",
+                            base_expr=self.base.expression().strip() if is_building else "")
 
 
 class Geo3DDock(QDockWidget):
@@ -207,9 +231,22 @@ class Geo3DDock(QDockWidget):
         self.cell = QComboBox()
         for label, value in GRID_CHOICES:
             self.cell.addItem(label, value)
-        self.cell.setToolTip("Terrain grid resolution. Large areas are coarsened so no side exceeds 1024 cells.")
+        self.cell.setToolTip("Terrain grid resolution. Automatic uses the DEM's own resolution.")
         l1.addWidget(QLabel("Grid"), 2, 0)
         l1.addWidget(self.cell, 2, 1)
+        self.detail = QComboBox()
+        for label, value in DETAIL_CHOICES:
+            self.detail.addItem(label, value)
+        self.detail.setCurrentIndex(1)
+        self.detail.setToolTip("Most cells on the longest side. Above 1024 the viewer draws the terrain in tiles "
+                               "whose density follows the camera, so large fine DEMs stay smooth.")
+        l1.addWidget(QLabel("Detail limit"), 3, 0)
+        l1.addWidget(self.detail, 3, 1)
+        self.quick_button = QPushButton("Quick 3D: show this DEM now")
+        self.quick_button.setToolTip("Open the DEM alone in 3D, over the current map view (or the whole DEM), "
+                                     "without exporting any layer")
+        self.quick_button.clicked.connect(lambda: self.quick_3d())
+        l1.addWidget(self.quick_button, 4, 0, 1, 2)
         root.addWidget(g1)
 
         # 2 Objects
@@ -322,6 +359,7 @@ class Geo3DDock(QDockWidget):
                     row.check.setChecked(True)
                     row.role.setCurrentIndex(max(0, row.role.findData(old.role)))
                     row.height.setExpression(old.height_expr)
+                    row.base.setExpression(old.base_expr)
                     row.color.setCurrentIndex(max(0, row.color.findData(old.color_mode)))
                     row.scenario.setCurrentIndex(max(0, row.scenario.findData(old.scenario)))
                 self.rows.append(row)
@@ -391,6 +429,7 @@ class Geo3DDock(QDockWidget):
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
         self.open_button.setEnabled(not busy)
+        self.quick_button.setEnabled(not busy)
         self.osm_button.setEnabled(not busy)
         self.progress.setVisible(busy)
         self.cancel_button.setVisible(busy)
@@ -416,7 +455,7 @@ class Geo3DDock(QDockWidget):
                     climate.append(layer)
         spec = sx.ExportSpec(out_dir=out_dir, extent=extent, extent_crs=extent_crs, dem=dem,
                              cell_size=self.cell.currentData(), layers=specs, climate_rasters=climate,
-                             epw_path=self.epw.filePath().strip(),
+                             epw_path=self.epw.filePath().strip(), max_cells=self.detail.currentData(),
                              title=os.path.splitext(os.path.basename(QgsProject.instance().fileName()))[0] or "Scene")
         self._set_busy(True)
         try:
@@ -457,6 +496,44 @@ class Geo3DDock(QDockWidget):
         self.reopen.setEnabled(True)
         self.timer.start()
         self._watch_selection()
+
+    def quick_3d(self, raster=None) -> None:
+        """The DEM alone in 3D: no layers, the map view's part of the DEM (or all of it)."""
+        dem = raster or self.dem.currentLayer()
+        if dem is None:
+            active = self.iface.activeLayer()
+            dem = active if isinstance(active, QgsRasterLayer) else None
+        if dem is None:
+            QMessageBox.information(self, "02 Geo3D Analyzer", "Pick a DEM in step 1, or select a raster layer in the Layers panel.")
+            return
+        if self.dem.currentLayer() is not dem:
+            self.dem.setLayer(dem)
+        canvas = self.iface.mapCanvas()
+        view = QgsCoordinateTransform(canvas.mapSettings().destinationCrs(), dem.crs(),
+                                      QgsProject.instance()).transformBoundingBox(canvas.extent())
+        extent = QgsRectangle(dem.extent())
+        if view.intersects(extent) and view.area() < extent.area():
+            extent = view.intersect(extent)
+        out_dir = os.path.join(self.folder.filePath().strip() or self._default_scene_dir(), "quick")
+        spec = sx.ExportSpec(out_dir=out_dir, extent=extent, extent_crs=dem.crs(), dem=dem, layers=[],
+                             cell_size=self.cell.currentData(), max_cells=self.detail.currentData(),
+                             title=f"{dem.name()} (quick 3D)")
+        self._set_busy(True)
+        try:
+            result = sx.SceneExporter(spec, self._progress, lambda: self._cancel).run()
+        except sx.ExportCancelled:
+            self.message("Quick 3D cancelled.")
+            return
+        except sx.ExportError as exc:
+            self.message(str(exc), error=True)
+            QMessageBox.warning(self, "02 Geo3D Analyzer", str(exc))
+            return
+        finally:
+            self._set_busy(False)
+        g = result.manifest["grid"]
+        self.message(f"Quick 3D: {dem.name()}, {g['cols']} x {g['rows']} cells of {g['cell']:.1f} m.")
+        self._activate_scene(out_dir)
+        self.show_viewer()
 
     def show_viewer(self) -> None:
         url = self.server.viewer_url()
@@ -535,6 +612,8 @@ class Geo3DDock(QDockWidget):
             if row.layer.id() in added:
                 row.check.setChecked(True)
                 row.height.setExpression('"height_m"')
+                if row.layer.fields().indexOf("min_height_m") >= 0:
+                    row.base.setExpression('"min_height_m"')
         self.message(f"OSM: {info['buildings']} buildings and {info['trees']} trees ({info['crs']}). "
                      "Heights come from OSM height/levels tags, otherwise from the building type.")
 

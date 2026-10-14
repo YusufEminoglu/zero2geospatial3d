@@ -8,7 +8,7 @@ import { showOverlay, hideOverlay, setOverlayOpacity } from './scene/overlay.js'
 import { Analyst } from './analysis/runners.js';
 import { solarPosition, sunVector } from './core/solar.js';
 import { parseEpw, typicalDoy } from './core/weather.js';
-import { makeGrid, gridStats, slopeAspect } from './core/terrain_math.js';
+import { makeGrid, gridStats, slopeAspect, slopeAspectAt } from './core/terrain_math.js';
 import { rampStops, rampColor, fmt } from './core/classify.js';
 import { applyRule, defaultRule } from './ui/colorize.js';
 import { Tools } from './ui/tools.js';
@@ -32,6 +32,7 @@ export class App {
     this.time = 12;
     this.analysisArea = { mode: 'scene', rect: null, radius: 400 };
     this.cellSize = 0;                 // 0 = automatic
+    this.slopeMode = 'lowest';         // building reference ground on slopes
     this.busy = false;
     this.listeners = new Set();
     this.qgis = false;
@@ -304,6 +305,14 @@ export class App {
     if (rule.color.mode !== 'source') { this.layerLegend = legend; this.renderLegend(); }
   }
 
+  setSlopeMode(mode) {
+    this.slopeMode = mode;
+    for (const l of this.layers) if (l instanceof ExtrudedLayer && !l.isWall) l.setSlopeMode(mode);
+    if (this.activeResult?.facade) this._showFacade(null);
+    this.analyst?.cache.clear();
+    this.emit('slope');
+  }
+
   setExaggeration(ex) {
     this.terrain.setExaggeration(ex);
     for (const l of this.layers) l.updateElevation();
@@ -427,9 +436,8 @@ export class App {
     const c = Math.round((x - g.minX) / g.cell), r = Math.round((g.maxY - y) / g.cell);
     const pairs = [['Elevation', `${z.toFixed(1)} m`]];
     if (c >= 0 && r >= 0 && c < g.cols && r < g.rows && this.terrain.max - this.terrain.min > 0.5) {
-      const d = this.terrain._derived();
-      const i = r * g.cols + c;
-      pairs.push(['Slope', `${d.slope[i].toFixed(1)}°`], ['Aspect', d.aspect[i] < 0 ? 'flat' : `${d.aspect[i].toFixed(0)}°`]);
+      const sa = slopeAspectAt(g, c, r);
+      pairs.push(['Slope', `${sa.slope.toFixed(1)}°`], ['Aspect', sa.aspect < 0 ? 'flat' : `${sa.aspect.toFixed(0)}°`]);
     }
     const v = this.resultValueAt(x, y);
     if (v !== null) pairs.push([this.activeResult.title, fmt(v, this.activeResult.unit)]);

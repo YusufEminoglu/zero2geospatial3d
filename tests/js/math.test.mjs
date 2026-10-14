@@ -199,3 +199,18 @@ test('wind: open ground is unaffected, the lee of a wall is sheltered', async ()
   assert.equal(lawsonClass(3).key, 'sitting');
   assert.equal(lawsonClass(12).key, 'uncomfortable');
 });
+
+test('one-pass hillshade equals the slope/aspect formula', async () => {
+  const { slopeAspectAt } = await import('../../web/src/core/terrain_math.js');
+  const g = planeGrid(30, 25, 3, (x, y) => 20 * Math.sin(x / 17) + 9 * Math.cos(y / 11) + 0.2 * x);
+  const hs = hillshade(g, 300, 35, 1);
+  const zen = (55 * Math.PI) / 180, az = (300 * Math.PI) / 180;
+  for (const [c, r] of [[5, 5], [12, 20], [29, 0], [0, 24], [17, 9]]) {
+    const { slope, aspect } = slopeAspectAt(g, c, r);
+    const s = (slope * Math.PI) / 180, a = aspect < 0 ? 0 : (aspect * Math.PI) / 180;
+    const expect = Math.max(0, Math.cos(zen) * Math.cos(s) + Math.sin(zen) * Math.sin(s) * Math.cos(az - a));
+    assert.ok(Math.abs(hs[r * 30 + c] - expect) < 1e-5, `cell ${c},${r}: ${hs[r * 30 + c]} vs ${expect}`);
+  }
+  const flat = hillshade(planeGrid(5, 5, 1, () => 3), 315, 40);
+  assert.ok(Math.abs(flat[12] - Math.cos((50 * Math.PI) / 180)) < 1e-6);
+});

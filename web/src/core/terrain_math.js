@@ -52,17 +52,43 @@ export function slopeAspect(g) {
   return { slope, aspect };
 }
 
-/** Hillshade 0..1 for a light from azimuth/altitude (degrees). */
+/** Horn slope (degrees) and aspect (degrees, -1 flat) of one cell. */
+export function slopeAspectAt(g, c, r) {
+  const { cols, rows, cell, values: z } = g;
+  const at = (cc, rr) => z[Math.max(0, Math.min(rows - 1, rr)) * cols + Math.max(0, Math.min(cols - 1, cc))];
+  const dzdx = ((at(c + 1, r - 1) + 2 * at(c + 1, r) + at(c + 1, r + 1)) - (at(c - 1, r - 1) + 2 * at(c - 1, r) + at(c - 1, r + 1))) / (8 * cell);
+  const dzdy = ((at(c - 1, r - 1) + 2 * at(c, r - 1) + at(c + 1, r - 1)) - (at(c - 1, r + 1) + 2 * at(c, r + 1) + at(c + 1, r + 1))) / (8 * cell);
+  const slope = Math.atan(Math.hypot(dzdx, dzdy)) * 180 / Math.PI;
+  if (dzdx === 0 && dzdy === 0) return { slope, aspect: -1 };
+  let aspect = Math.atan2(-dzdx, -dzdy) * 180 / Math.PI;
+  if (aspect < 0) aspect += 360;
+  return { slope, aspect };
+}
+
+/**
+ * Hillshade 0..1 for a light from azimuth/altitude (degrees), in one pass
+ * without slope/aspect arrays (a 16 M-cell DEM would need 128 MB for them).
+ */
 export function hillshade(g, azimuthDeg = 315, altitudeDeg = 45, zFactor = 1) {
-  const { slope, aspect } = slopeAspect(zFactor === 1 ? g : { ...g, values: g.values.map((v) => v * zFactor) });
-  const out = new Float32Array(slope.length);
+  const { cols, rows, cell, values: z } = g;
+  const out = new Float32Array(cols * rows);
   const zen = (90 - altitudeDeg) * Math.PI / 180;
   const az = azimuthDeg * Math.PI / 180;
-  for (let i = 0; i < out.length; i++) {
-    const s = slope[i] * Math.PI / 180;
-    // aspect is the downslope bearing; the surface faces that way.
-    const a = aspect[i] < 0 ? 0 : aspect[i] * Math.PI / 180;
-    out[i] = Math.max(0, Math.cos(zen) * Math.cos(s) + Math.sin(zen) * Math.sin(s) * Math.cos(az - a));
+  // Unit vector towards the light in (east, north, up).
+  const lx = Math.sin(zen) * Math.sin(az), ly = Math.sin(zen) * Math.cos(az), lz = Math.cos(zen);
+  const k = zFactor / (8 * cell);
+  for (let r = 0; r < rows; r++) {
+    const ru = r > 0 ? r - 1 : 0, rd = r < rows - 1 ? r + 1 : rows - 1;
+    for (let c = 0; c < cols; c++) {
+      const cl = c > 0 ? c - 1 : 0, cr = c < cols - 1 ? c + 1 : cols - 1;
+      const a = z[ru * cols + cl], b = z[ru * cols + c], cc = z[ru * cols + cr];
+      const d = z[r * cols + cl], f = z[r * cols + cr];
+      const gg = z[rd * cols + cl], hh = z[rd * cols + c], i = z[rd * cols + cr];
+      const dzdx = ((cc + 2 * f + i) - (a + 2 * d + gg)) * k;  // towards east
+      const dzdy = ((a + 2 * b + cc) - (gg + 2 * hh + i)) * k;  // towards north
+      // Surface normal (-dz/dx, -dz/dy, 1), normalised, dotted with the light.
+      out[r * cols + c] = Math.max(0, (-dzdx * lx - dzdy * ly + lz) / Math.sqrt(dzdx * dzdx + dzdy * dzdy + 1));
+    }
   }
   return out;
 }
@@ -76,33 +102,42 @@ export function contours(g, interval, { base = 0, maxLevels = 400 } = {}) {
   let lo = Infinity, hi = -Infinity;
   for (const v of z) { if (v < lo) lo = v; if (v > hi) hi = v; }
   if (!(interval > 0) || !Number.isFinite(lo)) return [];
-  const first = Math.ceil((lo - base) / interval) * interval + base;
-  const out = [];
-  for (let level = first; level <= hi && out.length < maxLevels; level += interval) {
-    const seg = [];
-    for (let r = 0; r < rows - 1; r++) {
-      for (let c = 0; c < cols - 1; c++) {
-        const v0 = z[r * cols + c], v1 = z[r * cols + c + 1];
-        const v2 = z[(r + 1) * cols + c + 1], v3 = z[(r + 1) * cols + c];
-        const pts = [];
-        const edge = (va, vb, ca, ra, cb, rb) => {
-          if ((va < level) === (vb < level)) return;
-          const t = (level - va) / (vb - va);
-          const [xa, ya] = cellCentre(g, ca, ra);
-          const [xb, yb] = cellCentre(g, cb, rb);
-          pts.push(xa + (xb - xa) * t, ya + (yb - ya) * t);
-        };
-        edge(v0, v1, c, r, c + 1, r);
-        edge(v1, v2, c + 1, r, c + 1, r + 1);
-        edge(v2, v3, c + 1, r + 1, c, r + 1);
-        edge(v3, v0, c, r + 1, c, r);
-        if (pts.length === 4) seg.push(...pts);
-        else if (pts.length === 8) seg.push(...pts); // saddle: two segments
+  // One pass over the cells: each cell emits segments only for the levels
+  // between its lowest and highest corner, so the cost does not grow with
+  // the number of levels (a 4096 x 4096 DEM stays interactive).
+  const kFirst = Math.ceil((lo - base) / interval);
+  const kLast = Math.min(Math.floor((hi - base) / interval), kFirst + maxLevels - 1);
+  const segs = new Map();
+  const { cell, minX, maxY } = g;
+  const pts = [];
+  for (let r = 0; r < rows - 1; r++) {
+    const ya = maxY - r * cell;
+    const yb = ya - cell;
+    for (let c = 0; c < cols - 1; c++) {
+      const v0 = z[r * cols + c], v1 = z[r * cols + c + 1];
+      const v2 = z[(r + 1) * cols + c + 1], v3 = z[(r + 1) * cols + c];
+      const cmin = Math.min(v0, v1, v2, v3);
+      const cmax = Math.max(v0, v1, v2, v3);
+      const k0 = Math.max(kFirst, Math.ceil((cmin - base) / interval));
+      const k1 = Math.min(kLast, Math.floor((cmax - base) / interval));
+      if (k1 < k0) continue;
+      const xa = minX + c * cell;
+      const xb = xa + cell;
+      for (let k = k0; k <= k1; k++) {
+        const level = base + k * interval;
+        pts.length = 0;
+        if ((v0 < level) !== (v1 < level)) { const t = (level - v0) / (v1 - v0); pts.push(xa + cell * t, ya); }
+        if ((v1 < level) !== (v2 < level)) { const t = (level - v1) / (v2 - v1); pts.push(xb, ya - cell * t); }
+        if ((v2 < level) !== (v3 < level)) { const t = (level - v2) / (v3 - v2); pts.push(xb - cell * t, yb); }
+        if ((v3 < level) !== (v0 < level)) { const t = (level - v3) / (v0 - v3); pts.push(xa, yb + cell * t); }
+        if (pts.length !== 4 && pts.length !== 8) continue; // 8: a saddle, two segments
+        let arr = segs.get(k);
+        if (!arr) { arr = []; segs.set(k, arr); }
+        for (const p of pts) arr.push(p);
       }
     }
-    if (seg.length) out.push({ level, segments: seg });
   }
-  return out;
+  return [...segs.keys()].sort((a, b) => a - b).map((k) => ({ level: base + k * interval, segments: segs.get(k) }));
 }
 
 /** Sample heights along a polyline every `step` metres: [{ d, x, y, z }]. */

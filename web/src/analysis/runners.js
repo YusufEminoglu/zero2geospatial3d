@@ -44,6 +44,16 @@ export class Analyst {
   // ------------------------------------------------------------ core runs
   /** Height-field run over an area, tiled. */
   async gridRun({ area, cell, directions = [], cosMode = 0, normal = [0, 1, 0], lift = 0.3, eye = null, maxDistance = 1000, withIds = false, onProgress = null }) {
+    // Terrain tiles in the area are drawn at the analysis resolution while it runs.
+    this.app.terrain.lockForAnalysis(area, cell);
+    try {
+      return await this._gridRun({ area, cell, directions, cosMode, normal, lift, eye, maxDistance, withIds, onProgress });
+    } finally {
+      this.app.terrain.lockForAnalysis(null);
+    }
+  }
+
+  async _gridRun({ area, cell, directions, cosMode, normal, lift, eye, maxDistance, withIds, onProgress }) {
     const { grid, tiles } = planTiles(area, cell, Math.min(1024, this.engine.maxTexture));
     const n = grid.cols * grid.rows;
     const values = new Float32Array(n).fill(NaN);
@@ -132,6 +142,15 @@ export class Analyst {
   }
 
   async facadeRun(samples, { directions, cosMode, lift = 0.35, area, onProgress = null }) {
+    this.app.terrain.lockForAnalysis(area, samples.spacing);
+    try {
+      return await this._facadeRun(samples, { directions, cosMode, lift, area, onProgress });
+    } finally {
+      this.app.terrain.lockForAnalysis(null);
+    }
+  }
+
+  async _facadeRun(samples, { directions, cosMode, lift, area, onProgress }) {
     const b = this.sceneBounds();
     const tile = { minX: area.minX, maxX: area.maxX, minZ: -area.maxY, maxZ: -area.minY, minY: b.minY, maxY: b.maxY };
     const res = await this.engine.run({ scene: this.app.viewer.scene, tile, cols: 1, rows: 1, directions, cosMode, lift,

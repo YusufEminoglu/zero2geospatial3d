@@ -7,6 +7,11 @@ import { patchMaterial } from './overlay.js';
 import { sample, slopeAspect, hillshade, contours as contourLines } from '../core/terrain_math.js';
 import { rampStops, rampColor, hexToRgb } from '../core/classify.js';
 
+const TILE_CELLS = 256;
+const LOD_STEPS = [1, 2, 4, 8, 16];
+const LOD_THRESHOLD = 1100 * 1100;
+const VERTEX_BUDGET = 6_000_000;
+
 export const SHADING_MODES = {
   natural: 'Natural',
   elevation: 'Elevation',
@@ -41,12 +46,18 @@ export class Terrain {
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.anisotropy = 8;
     this.material = patchMaterial(new THREE.MeshStandardMaterial({ map: this.texture, roughness: 0.96, metalness: 0 }));
-    this.mesh = this._buildMesh();
-    this.mesh.receiveShadow = true;
-    this.mesh.layers.enable(LAYER_SURFACE);
-    this.mesh.layers.enable(LAYER_OCCLUDER);
-    this.mesh.name = 'terrain';
-    viewer.world.add(this.mesh);
+    this.group = new THREE.Group();
+    this.group.name = 'terrain';
+    viewer.world.add(this.group);
+    // Grids above about 1024 x 1024 are drawn in tiles whose density follows
+    // the distance to the camera; smaller ones are drawn whole, at full
+    // resolution, exactly as before.
+    this.lodEnabled = grid.cols * grid.rows > LOD_THRESHOLD;
+    this.lock = null;
+    this._makeTiles();
+    this._lastCam = new THREE.Vector3(Infinity, Infinity, Infinity);
+    this.updateLod(true);
+    viewer.onFrame(() => this.updateLod());
     this.contourGroup = new THREE.Group();
     viewer.helpers.add(this.contourGroup);
     this.water = null;
@@ -72,69 +83,231 @@ export class Terrain {
     return this.toY(this.heightAt(x, y));
   }
 
-  _buildMesh() {
-    const { cols, rows, cell, minX, maxY, values } = this.grid;
-    const n = cols * rows;
-    const pos = new Float32Array(n * 3);
-    const uv = new Float32Array(n * 2);
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const i = r * cols + c;
-        pos[i * 3] = minX + c * cell;
-        pos[i * 3 + 1] = this.toY(values[i]);
-        pos[i * 3 + 2] = -(maxY - r * cell);
-        uv[i * 2] = (c + 0.5) / cols;
-        uv[i * 2 + 1] = (r + 0.5) / rows;
+  // ------------------------------------------------------------ tiled mesh
+  /** Vertex normal at grid point (c, r) from its neighbours, so tiles meet without seams. */
+  _normalAt(c, r, out, k) {
+    const { cols, rows, cell, values: z } = this.grid;
+    const ex = this.exaggeration;
+    const ru = Math.max(0, r - 1), rd = Math.min(rows - 1, r + 1);
+    const cl = Math.max(0, c - 1), cr = Math.min(cols - 1, c + 1);
+    const dx = ((z[r * cols + cr] - z[r * cols + cl]) * ex) / (cell * (cr - cl || 1));
+    // Rows run north -> south, i.e. towards +z in the scene.
+    const dz = ((z[rd * cols + c] - z[ru * cols + c]) * ex) / (cell * (rd - ru || 1));
+    const len = Math.hypot(dx, 1, dz);
+    out[k * 3] = -dx / len; out[k * 3 + 1] = 1 / len; out[k * 3 + 2] = -dz / len;
+  }
+
+  _makeTiles() {
+    const { cols, rows, cell, minX, maxY } = this.grid;
+    const size = this.lodEnabled ? TILE_CELLS : Math.max(cols, rows);
+    this.tiles = [];
+    for (let r0 = 0; r0 < rows - 1; r0 += size) {
+      for (let c0 = 0; c0 < cols - 1; c0 += size) {
+        const c1 = Math.min(cols - 1, c0 + size);
+        const r1 = Math.min(rows - 1, r0 + size);
+        const cx = minX + ((c0 + c1) / 2) * cell;
+        const cz = -(maxY - ((r0 + r1) / 2) * cell);
+        this.tiles.push({ c0, r0, c1, r1, cx, cz, radius: (Math.hypot(c1 - c0, r1 - r0) * cell) / 2, meshes: new Map(), step: 0 });
       }
     }
-    const index = new Uint32Array((cols - 1) * (rows - 1) * 6);
-    let k = 0;
-    for (let r = 0; r < rows - 1; r++) {
-      for (let c = 0; c < cols - 1; c++) {
-        const a = r * cols + c, b = a + 1, d = a + cols, e = d + 1;
+  }
+
+  _indices(from, to, step) {
+    const out = [];
+    for (let i = from; i < to; i += step) out.push(i);
+    out.push(to);
+    return out;
+  }
+
+  _buildTileMesh(tile, step) {
+    const { cols, rows, cell, minX, maxY, values } = this.grid;
+    const cs = this._indices(tile.c0, tile.c1, step);
+    const rs = this._indices(tile.r0, tile.r1, step);
+    const nc = cs.length, nr = rs.length;
+    const skirt = this.lodEnabled;
+    const ring = [];
+    if (skirt) {
+      for (let i = 0; i < nc; i++) ring.push([i, 0]);
+      for (let j = 1; j < nr; j++) ring.push([nc - 1, j]);
+      for (let i = nc - 2; i >= 0; i--) ring.push([i, nr - 1]);
+      for (let j = nr - 2; j >= 0; j--) ring.push([0, j]);
+    }
+    const count = nc * nr + ring.length;
+    const pos = new Float32Array(count * 3);
+    const nrm = new Float32Array(count * 3);
+    const uv = new Float32Array(count * 2);
+    const put = (k, c, r, drop) => {
+      const g = r * cols + c;
+      pos[k * 3] = minX + c * cell;
+      pos[k * 3 + 1] = this.toY(values[g]) - drop;
+      pos[k * 3 + 2] = -(maxY - r * cell);
+      this._normalAt(c, r, nrm, k);
+      uv[k * 2] = (c + 0.5) / cols;
+      uv[k * 2 + 1] = (r + 0.5) / rows;
+    };
+    for (let j = 0; j < nr; j++) for (let i = 0; i < nc; i++) put(j * nc + i, cs[i], rs[j], 0);
+    // Typed index of the exact size: no growing JS array to collect later.
+    const index = new (count > 65535 ? Uint32Array : Uint16Array)((nc - 1) * (nr - 1) * 6 + ring.length * 12);
+    let q6 = 0;
+    for (let j = 0; j < nr - 1; j++) {
+      for (let i = 0; i < nc - 1; i++) {
+        const a = j * nc + i, b = a + 1, d = a + nc, e = d + 1;
         // Counter-clockwise seen from above (+y): a(north-west) -> d(south-west) -> b.
-        index[k++] = a; index[k++] = d; index[k++] = b;
-        index[k++] = b; index[k++] = d; index[k++] = e;
+        index[q6++] = a; index[q6++] = d; index[q6++] = b;
+        index[q6++] = b; index[q6++] = d; index[q6++] = e;
+      }
+    }
+    if (skirt) {
+      // A curtain hanging below each tile edge hides the cracks where a fine
+      // tile meets a coarser neighbour. Both windings, so it shows from any side.
+      const drop = cell * step * 2 + 2 * this.exaggeration;
+      let k = nc * nr;
+      const top = [];
+      const bottom = [];
+      for (const [i, j] of ring) {
+        top.push(j * nc + i);
+        put(k, cs[i], rs[j], drop);
+        bottom.push(k++);
+      }
+      top.push(top[0]);
+      bottom.push(bottom[0]);
+      for (let q = 0; q < top.length - 1; q++) {
+        const a = top[q], b = top[q + 1], c2 = bottom[q], d = bottom[q + 1];
+        index.set([a, c2, b, b, c2, d, a, b, c2, b, d, c2], q6);
+        q6 += 12;
       }
     }
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geom.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
     geom.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     geom.setIndex(new THREE.BufferAttribute(index, 1));
-    geom.computeVertexNormals();
     geom.computeBoundingBox();
     geom.computeBoundingSphere();
-    return new THREE.Mesh(geom, this.material);
+    const mesh = new THREE.Mesh(geom, this.material);
+    mesh.receiveShadow = true;
+    mesh.castShadow = true;
+    mesh.layers.enable(LAYER_SURFACE);
+    mesh.layers.enable(LAYER_OCCLUDER);
+    mesh.visible = false;
+    mesh.userData.vertices = count;
+    this.group.add(mesh);
+    return mesh;
+  }
+
+  _stepFor(tile, cam) {
+    if (!this.lodEnabled) return 1;
+    const cell = this.grid.cell;
+    const L = this.lock;
+    if (L && tile.cx + tile.radius >= L.minX && tile.cx - tile.radius <= L.maxX &&
+        -tile.cz + tile.radius >= L.minY && -tile.cz - tile.radius <= L.maxY) return L.step;
+    const dist = Math.max(0, Math.hypot(cam.x - tile.cx, cam.y - this.toY((this.min + this.max) / 2), cam.z - tile.cz) - tile.radius);
+    const spacing = Math.max(cell, dist * 0.003);
+    let step = 1;
+    for (const s of LOD_STEPS) if (s * cell <= spacing) step = s;
+    return step;
+  }
+
+  /** Pick a density per tile for the current camera. Returns true when the scene changed. */
+  updateLod(force = false) {
+    const cam = this.viewer.camera.position;
+    if (!force) {
+      if (!this.lodEnabled) return false;
+      const moved = cam.distanceTo(this._lastCam);
+      if (!this._pending && moved < Math.max(1, 0.02 * cam.distanceTo(this.viewer.controls.target))) return false;
+    }
+    this._lastCam.copy(cam);
+    const wanted = this.tiles.map((t) => this._stepFor(t, cam));
+    // Keep the total under the vertex budget by coarsening the farthest tiles first.
+    const verts = (t, s) => (Math.floor((t.c1 - t.c0) / s) + 2) * (Math.floor((t.r1 - t.r0) / s) + 2);
+    let total = this.tiles.reduce((sum, t, i) => sum + verts(t, wanted[i]), 0);
+    if (total > VERTEX_BUDGET) {
+      const order = this.tiles.map((t, i) => [Math.hypot(cam.x - t.cx, cam.z - t.cz), i]).sort((a, b) => b[0] - a[0]);
+      for (const [, i] of order) {
+        while (total > VERTEX_BUDGET && wanted[i] < LOD_STEPS[LOD_STEPS.length - 1]) {
+          total -= verts(this.tiles[i], wanted[i]);
+          wanted[i] *= 2;
+          total += verts(this.tiles[i], wanted[i]);
+        }
+        if (total <= VERTEX_BUDGET) break;
+      }
+    }
+    let changed = false;
+    // Building tiles costs time: spread it over frames (about 12 ms each) so a
+    // jump of the camera never freezes the view. Nearest tiles go first; a
+    // forced update (analysis, first frame) builds everything at once.
+    const deadline = performance.now() + (force ? Infinity : 12);
+    this._pending = false;
+    const order = this.tiles.map((t, i) => [Math.hypot(cam.x - t.cx, cam.z - t.cz), i]).sort((a, b) => a[0] - b[0]);
+    for (const [, i] of order) {
+      const t = this.tiles[i];
+      const step = wanted[i];
+      if (t.step === step) continue;
+      let mesh = t.meshes.get(step);
+      if (!mesh) {
+        if (performance.now() > deadline && t.step) { this._pending = true; continue; }
+        mesh = this._buildTileMesh(t, step);
+        t.meshes.set(step, mesh);
+      }
+      const old = t.meshes.get(t.step);
+      if (old) old.visible = false;
+      mesh.visible = true;
+      t.step = step;
+      changed = true;
+      // Keep at most two densities per tile in memory.
+      for (const [s, m] of t.meshes) {
+        if (s !== step && t.meshes.size > 2) { this.group.remove(m); m.geometry.dispose(); t.meshes.delete(s); }
+      }
+    }
+    this.stats = { tiles: this.tiles.length, vertices: total };
+    return changed;
+  }
+
+  /** Draw an area at (at least) a given cell size for an analysis; null releases it. */
+  lockForAnalysis(area, cell) {
+    if (!this.lodEnabled) return;
+    if (!area) { this.lock = null; this.updateLod(true); return; }
+    const g = this.grid.cell;
+    let step = 1;
+    for (const s of LOD_STEPS) if (s * g <= Math.max(g, cell)) step = s;
+    const cells = ((area.maxX - area.minX) / g) * ((area.maxY - area.minY) / g);
+    while (cells / (step * step) > VERTEX_BUDGET && step < LOD_STEPS[LOD_STEPS.length - 1]) step *= 2;
+    this.lock = { ...area, step };
+    this.updateLod(true);
+  }
+
+  _disposeTiles() {
+    for (const t of this.tiles) {
+      for (const m of t.meshes.values()) { this.group.remove(m); m.geometry.dispose(); }
+      t.meshes.clear();
+      t.step = 0;
+    }
   }
 
   setExaggeration(ex) {
     this.exaggeration = ex;
-    const pos = this.mesh.geometry.attributes.position;
-    const v = this.grid.values;
-    for (let i = 0; i < v.length; i++) pos.array[i * 3 + 1] = this.toY(v[i]);
-    pos.needsUpdate = true;
-    this.mesh.geometry.computeVertexNormals();
-    this.mesh.geometry.computeBoundingBox();
-    this.mesh.geometry.computeBoundingSphere();
+    this._disposeTiles();
+    this.updateLod(true);
     if (this.contourInterval) this.setContours(this.contourInterval);
     if (this.water) this.setWater(this.water.level, this.water.depth);
     this.viewer.requestRender();
   }
 
-  _derived() {
-    if (!this.derived) {
-      const sa = slopeAspect(this.grid);
-      this.derived = { ...sa, shade: hillshade(this.grid, 315, 40, 1.5) };
-    }
+  /** Hillshade always; slope and aspect only while a mode shows them (64 MB each on a 4096 grid). */
+  _derived(needSlope = false) {
+    if (!this.derived) this.derived = { shade: hillshade(this.grid, 315, 40, 1.5) };
+    if (needSlope && !this.derived.slope) Object.assign(this.derived, slopeAspect(this.grid));
+    if (!needSlope && this.derived.slope) { delete this.derived.slope; delete this.derived.aspect; }
     return this.derived;
   }
 
   /** Repaint the terrain texture: shading, raster drape, then surfaces. */
   paint() {
     const { cols, rows } = this.grid;
-    const scale = Math.max(1, Math.min(4, Math.floor(2048 / Math.max(cols, rows))));
-    const W = cols * scale;
-    const H = rows * scale;
+    const longest = Math.max(cols, rows);
+    const scale = Math.min(4, Math.min(4096, Math.max(2048, longest)) / longest);
+    const W = Math.round(cols * scale);
+    const H = Math.round(rows * scale);
     this.canvas.width = W;
     this.canvas.height = H;
     const ctx = /** @type {CanvasRenderingContext2D} */ (this.canvas.getContext('2d'));
@@ -145,7 +318,7 @@ export class Terrain {
     const bctx = /** @type {CanvasRenderingContext2D} */ (base.getContext('2d'));
     const img = bctx.createImageData(cols, rows);
     const flat = this.max - this.min < 0.5;
-    const d = flat ? null : this._derived();
+    const d = flat ? null : this._derived(this.shading === 'slope' || this.shading === 'aspect');
     const elevStops = rampStops('terrain');
     const slopeStops = rampStops('magma-r');
     const c = [0, 0, 0];

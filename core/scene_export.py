@@ -104,6 +104,7 @@ class LayerSpec:
     height_expr: str = ""
     color_mode: str = "qgis"          # "qgis" | "single"
     scenario: str = "both"            # "both" | "A" | "B"
+    base_expr: str = ""               # optional bottom above the ground (OSM min_height)
 
 
 @dataclass
@@ -117,6 +118,7 @@ class ExportSpec:
     climate_rasters: list = field(default_factory=list)  # [QgsRasterLayer]
     epw_path: str = ""
     title: str = "Scene"
+    max_cells: int = 2048             # longest side of the terrain grid (viewer tiles above 1024)
 
 
 @dataclass
@@ -199,7 +201,7 @@ class SceneExporter:
                 cell_size = dem_ext.width() / spec.dem.width()
             else:
                 cell_size = max(1.0, max(width, height) / 512)
-        cols, rows, cell = geo.grid_shape(width, height, cell_size)
+        cols, rows, cell = geo.grid_shape(width, height, cell_size, max(256, min(4096, int(spec.max_cells))))
         cx, cy = extent.center().x(), extent.center().y()
         origin = (round(cx, 3), round(cy, 3))
         grid = {
@@ -388,6 +390,15 @@ class SceneExporter:
         if height_expr.hasParserError():
             raise ExportError(f"Height expression of '{layer.name()}' is invalid: {height_expr.parserErrorString()}")
         height_expr.prepare(context)
+        base_expr = None
+        if lspec.base_expr and lspec.role == ROLE_BUILDINGS:
+            base_expr = QgsExpression(lspec.base_expr)
+            if base_expr.hasParserError():
+                raise ExportError(f"Bottom expression of '{layer.name()}' is invalid: {base_expr.parserErrorString()}")
+            base_expr.prepare(context)
+        # Parts of one building (OSM building:part) share a group id; the viewer
+        # stands them on one common ground.
+        group_index = layer.fields().indexOf("bldg_group") if lspec.role == ROLE_BUILDINGS else -1
 
         renderer, render_ctx = None, None
         if lspec.color_mode == "qgis" and layer.renderer() is not None:
@@ -441,6 +452,16 @@ class SceneExporter:
                     color = self._symbol_color(renderer, feature, render_ctx) or default_color
                 fid = len(features) + 1
                 props = {"_id": fid, "_h": None if height is None else round(max(0.0, height), 3), "_c": color}
+                if base_expr is not None:
+                    bottom = base_expr.evaluate(context)
+                    with contextlib.suppress(TypeError, ValueError):
+                        bottom = float(bottom)
+                        if math.isfinite(bottom) and bottom > 0:
+                            props["_b"] = round(bottom, 3)
+                if group_index >= 0:
+                    group = feature.attributes()[group_index]
+                    if group not in (None, "") and str(group) != "NULL":
+                        props["_grp"] = str(group)
                 for fld, value in zip(fields, feature.attributes()):
                     props[fld.name()] = _plain(value)
                 features.append({"type": "Feature", "properties": props,
@@ -465,7 +486,8 @@ class SceneExporter:
         entry = {
             "id": f"L{index}", "name": layer.name(), "file": name, "kind": kind, "role": lspec.role,
             "scenario": lspec.scenario, "count": len(features), "fields": field_meta,
-            "heightExpr": height_expr.expression(), "defaultHeight": _default_height_value(lspec.role),
+            "heightExpr": height_expr.expression(), "baseExpr": lspec.base_expr or "",
+            "defaultHeight": _default_height_value(lspec.role),
             "colorMode": lspec.color_mode, "defaultColor": default_color,
             "sourceLayerId": layer.id(), "sourceCrs": layer.crs().authid(),
         }

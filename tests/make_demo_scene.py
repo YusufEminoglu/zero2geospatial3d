@@ -32,22 +32,27 @@ def main() -> None:
     ap.add_argument("out")
     ap.add_argument("--buildings", type=int, default=400)
     ap.add_argument("--size", type=float, default=800.0)
+    ap.add_argument("--cell", type=float, default=4.0, help="terrain cell (m); 1 m over 4 km gives a 16 M-cell DEM")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     rnd = lcg()
     size = args.size
-    cell = 4.0
+    cell = args.cell
     cols = rows = int(size / cell)
     min_x = -cols * cell / 2 + cell / 2
     max_y = rows * cell / 2 - cell / 2
-    values = []
+    import array
+
+    values = array.array("f")
     for r in range(rows):
+        y = max_y - r * cell
         for c in range(cols):
-            x, y = min_x + c * cell, max_y - r * cell
-            z = 40 + 25 * math.exp(-((x - 180) ** 2 + (y - 160) ** 2) / (2 * 140 ** 2)) - 0.012 * y
-            values.append(z)
+            x = min_x + c * cell
+            # A hill, a gentle tilt and small ripples (visible only on fine grids).
+            values.append(40 + 25 * math.exp(-((x - 180) ** 2 + (y - 160) ** 2) / (2 * 140 ** 2)) - 0.012 * y
+                          + 1.5 * math.sin(x / 23.0) * math.cos(y / 31.0))
     with open(os.path.join(args.out, "terrain.bin"), "wb") as handle:
-        handle.write(struct.pack(f"<{len(values)}f", *values))
+        values.tofile(handle)
 
     def feature(fid, geom, props):
         p = {"_id": fid}
@@ -125,7 +130,7 @@ def main() -> None:
         "extent": {"minX": -size / 2, "minY": -size / 2, "maxX": size / 2, "maxY": size / 2},
         "geo": {"lat": 38.4, "lon": 27.14, "utcOffset": 3.0},
         "grid": {"cols": cols, "rows": rows, "cell": cell, "minX": min_x, "maxY": max_y},
-        "terrain": {"file": "terrain.bin", "min": min(values), "max": max(values), "source": "synthetic hill"},
+        "terrain": {"file": "terrain.bin", "min": float(min(values)), "max": float(max(values)), "source": "synthetic hill"},
         "layers": layers, "rasters": [], "weather": None, "warnings": [],
     }
     with open(os.path.join(args.out, "scene.json"), "w", encoding="utf-8") as handle:
