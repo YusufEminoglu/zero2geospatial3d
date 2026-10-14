@@ -13,6 +13,7 @@ import { windRatio, OPEN_PEDESTRIAN_FACTOR, lawsonClass } from '../core/wind.js'
 import { blockIndicators, LCZ_LABELS, LCZ_COLORS } from '../core/morphology.js';
 import { gridStats } from '../core/terrain_math.js';
 import { splitKey, ExtrudedLayer, PointLayer } from '../scene/objects.js';
+import { climateAroundBuildings } from './climate.js';
 
 const DEG = Math.PI / 180;
 
@@ -610,6 +611,11 @@ export class Analyst {
       notes: 'Classes from plan fraction, mean height and footprint size (Stewart and Oke 2012). LCZ 7 and 10 need material and land-use information.'
     });
     return results;
+  }
+
+  /** A year of outdoor comfort and wind around each building (EPW). */
+  async climateYear(opts) {
+    return climateAroundBuildings(this, opts);
   }
 
   windStats() {

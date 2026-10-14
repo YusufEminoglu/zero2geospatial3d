@@ -36,7 +36,7 @@ answer ends up in your project, not in a screenshot.
 - **Compare and optimise** — scenario A and B difference maps; an NSGA-II search over floor counts that trades floor area against sun on the open ground.
 - **Share** — images up to 8K with legend and north arrow, a one-page PDF sheet, an interactive single-file HTML, a GLB model and orbit or sun-through-the-day videos.
 - **Compare** — swipe between two analyses or scenarios, or 2, 4, 6 or 8 synced panels; a shadow study plays the day with the sun clock.
-- **Building report** — click a building for every result with its rank among the others, analyse it in one click, save a one-page PDF.
+- **Building report** — click a building for every result with its rank among the others, what scenario B changes for it, its year of outdoor comfort and its own wind rose; analyse it in one click, save a one-page PDF.
 - **Back to QGIS** — GeoTIFF layers and a results GeoPackage per building layer, extruded and coloured in QGIS's own 3D view; selection is shared both ways.
 
 ## 🚀 Installation

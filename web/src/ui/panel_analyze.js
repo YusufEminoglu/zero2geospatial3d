@@ -21,7 +21,8 @@ export function defaultParams(app) {
     view: { height: 1.6, radius: 600 },
     wind: { from: rose ? rose.prevailingDirection : 270, speed: rose ? Math.max(1, rose.prevailingSpeed) : 4, cell: 0 },
     comfort: { month: 7, day: 21, hour: 15, manual: !app.weather?.dryBulb, airTemp: 32, rh: 45, windSpeed: 2.5, windDir: rose ? rose.prevailingDirection : 270 },
-    morph: { block: 100, from: rose ? rose.prevailingDirection : 270 }
+    morph: { block: 100, from: rose ? rose.prevailingDirection : 270 },
+    climate: { from: 7, to: 22, sectors: 8, ring: 15 }
   };
 }
 
@@ -38,6 +39,7 @@ export function buildAnalyzePanel(app, root) {
     root.appendChild(windCard(app));
     root.appendChild(comfortCard(app));
     root.appendChild(morphCard(app));
+    root.appendChild(climateCard(app));
     root.appendChild(h('h3', { class: 'section', text: 'Results' }));
     root.appendChild(resultsBox);
     renderResults(app, resultsBox);
@@ -281,6 +283,25 @@ function morphCard(app) {
     h('div', { class: 'btn-row' }, runButton(app, 'Run morphology', () => app.run('Urban morphology', (prog) => app.analyst.morphology({
       area: app.area(), cell: Math.max(1, app.cell(800)), blockSize: p.block, windFromDeg: p.from, onProgress: prog })))));
   return card('Heat island & morphology', body);
+}
+
+function climateCard(app) {
+  const p = app.params.climate;
+  const has = !!app.weather?.dryBulb;
+  const body = h('div', {},
+    h('p', { class: 'muted small', text: 'A whole year of weather around every building: comfortable hours (UTCI 9–26 °C), heat- and cold-stress hours, pedestrian wind and a wind rose per building, from the local sky view, sun and shelter.' }),
+    has ? null : h('p', { class: 'note', text: 'Needs an EPW weather file: load one in Layers > Scene, or pick the nearest station in QGIS.' }),
+    row('Hours of the day', h('span', { class: 'inline' },
+      number(p.from, { min: 0, max: 23, step: 1, width: '4em', onChange: (v) => { p.from = v; } }),
+      number(p.to, { min: 1, max: 24, step: 1, width: '4em', onChange: (v) => { p.to = v; } }))),
+    row('Wind directions', select([[8, '8'], [16, '16 (slower)']], p.sectors, (v) => { p.sectors = Number(v); })),
+    row('Surroundings (m)', select([[10, '10 m'], [15, '15 m'], [25, '25 m']], p.ring, (v) => { p.ring = Number(v); }), 'Open ground this close to a building counts as its surroundings'),
+    h('div', { class: 'btn-row' }, runButton(app, 'Run climate year', () => {
+      if (!app.weather?.dryBulb) { toast('Load an EPW weather file first.'); return null; }
+      return app.run('Climate around buildings', (prog) => app.analyst.climateYear({
+        area: app.area(), cell: Math.max(2, app.cell(700)), sectors: p.sectors, hourFrom: p.from, hourTo: p.to, ringMetres: p.ring, onProgress: prog }));
+    })));
+  return card('Climate around buildings (year)', body, { badge: has ? 'EPW' : 'needs EPW' });
 }
 
 // ---------------------------------------------------------------- results

@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format follows
 - Shadow study: sun or shade at every half hour of a day, played with the sun clock (and recorded by the "sun through the day" video); "Summer ⇆ winter" opens 21 June and 21 December sun hours side by side.
 - Hours in shade map (replaces the shade share map; the share stays in its statistics, with the share of ground shaded all day).
 - Building report: click a building for its facts and every analysis result with its rank among the buildings; "Analyse this building" runs winter sun, sky view and annual solar (facades included) around it; a one-page PDF sheet.
+- Scenario impact per building: "Run A vs B" also writes each building's value in A, in B and the change (fields `<name>_A`, `<name>_B`, `d_<name>`); the building report and its PDF show them, and the applied optimisation design (floors now and in the design, floor-area change, sun on open ground).
+- Climate around buildings (year, needs an EPW): for every building's surroundings, hourly UTCI with local sky view, sun and sheltered wind over the year gives comfortable, heat-stress and cold-stress hours, plus pedestrian wind, windy hours and a wind rose per building (in the report and its PDF); an annual pedestrian-wind map.
 - QGIS 3D view: results GeoPackages are extruded and coloured by class in QGIS's own 3D view; "QGIS 3D view" in the panel sets the DEM as terrain, extrudes the ticked building layers and opens a 3D map view.
 
 ### Changed
@@ -27,6 +29,7 @@ All notable changes to this project are documented here. The format follows
 - Shadow bias follows the shadow-map texel size, so shadows touch the walls that cast them.
 
 ### Fixed
+- A scene exported to the same folder as an earlier one could show the earlier scene's terrain: the server answered "not modified" for files older than the cached copy. Scene files are no longer cached.
 - Facade PV counted every wall, north walls included; now only walls that receive at least the suitability share of the best unshaded wall.
 - A layer row reported the "Existing" scenario and no bottom height while the panel was hidden.
 
