@@ -2,16 +2,16 @@
 name=02 Geo3D Analyzer
 qgisMinimumVersion=3.28
 qgisMaximumVersion=4.99
-description=3D viewer and analyzer for terrain and extruded layers: sun hours, sky view factor, shadows, solar PV, visibility, wind and thermal-comfort screening, terrain sections, flooding and cut/fill, with results returned to QGIS.
+description=3D viewer and analyzer for terrain and buildings: sun and shadow, sky view and facade daylight (VSC), solar PV, visibility, wind and thermal comfort, terrain analyses, a BRE 209 planning check and building-height optimisation, with every result returned to QGIS.
 version=1.0.0
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
-about=02 Geo3D Analyzer turns a DEM and your vector layers into a 3D scene in the browser in three steps (terrain, objects, open in 3D) and runs the analyses planners ask of a 3D model. Buildings, walls, trees and poles are extruded from any height field or expression and coloured by the QGIS style or any attribute. GPU analyses cover sun hours and shadow share for a day, sky view factor, annual solar irradiation and rooftop and facade PV yield (with an EnergyPlus weather file or a clear-sky estimate), viewsheds, pedestrian wind screening, UTCI heat stress with a SolarCal mean radiant temperature, and heat-island morphology indicators (plan and frontal area fractions, canyon ratio, roughness, approximate Local Climate Zones). Terrain tools draw sections with building silhouettes, flood a water level and compute cut and fill. Scenario A and B layers are compared as difference maps, and an NSGA-II search trades floor area against sun on open ground. Every result can go back to QGIS as a GeoTIFF and as fields on a copy of the building layer. Climate rasters are draped on the ground and averaged per building, and the nearest TMYx weather file can be downloaded from climate.onebuilding.org. Developed with feedback from educational workflows at Dokuz Eylul University, Department of City and Regional Planning.
+about=02 Geo3D Analyzer turns a DEM and your vector layers into a 3D scene in the browser in three steps (terrain, objects, open in 3D) and runs the analyses planners ask of a 3D model. Buildings, walls, trees and poles are extruded from any height field or expression, stand on sloping ground and are coloured by their QGIS style or any attribute; OpenStreetMap buildings (with building parts) and trees can be downloaded for the scene. GPU analyses cover sun hours, shade and shadow studies, sky view factor, daylight on facades as the vertical sky component under the CIE overcast sky, annual irradiation with rooftop and facade PV yield, viewsheds, pedestrian wind screening, UTCI heat stress, heat-island morphology and approximate Local Climate Zones, and a year of outdoor comfort around every building by season from an EnergyPlus weather file (the nearest TMYx station is one click away). Terrain analyses add slope, aspect, curvature, topographic position, ruggedness and a wetness index, sections, flooding and cut and fill. A planning check marks each building pass or fail against BRE 209 screening criteria with shareable threshold profiles; scenarios A and B are compared per building; an NSGA-II search optimises building heights within those constraints. Results open side by side in up to eight synced panels, export as 8K images, PDF sheets, offline HTML, GLB and video, and return to QGIS as GeoTIFFs and building fields, styled in the 2D map and in the QGIS 3D view. Developed with feedback from educational workflows at Dokuz Eylul University, Department of City and Regional Planning.
 tracker=https://github.com/YusufEminoglu/zero2geospatial3d/issues
 repository=https://github.com/YusufEminoglu/zero2geospatial3d
 homepage=https://github.com/YusufEminoglu/zero2geospatial3d
 category=Web
-tags=3d,three.js,dem,terrain,sun hours,shadow,sky view factor,solar,pv,irradiation,viewshed,wind,utci,thermal comfort,urban heat island,local climate zone,profile,flood,cut and fill,epw,nsga-ii,urban planning,extrusion
+tags=3d,three.js,dem,terrain,sun hours,shadow,sky view factor,daylight,vsc,bre 209,solar,pv,irradiation,viewshed,wind,utci,thermal comfort,urban heat island,local climate zone,slope,aspect,wetness index,profile,flood,cut and fill,epw,nsga-ii,optimisation,urban planning,extrusion
 icon=icons/icon.png
 experimental=False
 deprecated=False
@@ -20,10 +20,10 @@ plugin_dependencies=
 license=MIT
 changelog=
     1.0.0 - First release.
-        - Three-step panel: terrain (DEM), objects (role, height expression, QGIS colours, scenario) and Open in 3D; OSM buildings and trees download; nearest TMYx weather station download.
-        - Browser viewer: terrain shading, contours and exaggeration; extruded buildings and walls, trees and poles; colour and filter by any field; heights from any field.
-        - GPU analyses on ground, roofs and facades: sun hours and shadow share, sky view factor, annual irradiation and PV yield, viewshed.
-        - Pedestrian wind screening, UTCI and mean radiant temperature, heat-island morphology and approximate Local Climate Zones.
-        - Terrain sections with building silhouettes (PNG, CSV, DXF), water level flooding, cut and fill with a balancing level.
-        - Scenario A and B difference maps; NSGA-II building-height optimisation.
-        - Results back to QGIS as GeoTIFF layers and building fields; two-way selection.
+        - QGIS panel in three steps (terrain, objects, open in 3D), Quick 3D of a DEM, OpenStreetMap buildings with building parts and trees, nearest TMYx weather station, QGIS 3D view setup.
+        - Browser viewer with tiled terrain for large DEMs, buildings on slopes, colour, filter and height rules, live shadows and a building report with PDF.
+        - GPU analyses: sun hours, shade and shadow studies, sky view factor, facade daylight (vertical sky component), irradiation and PV, viewsheds, pedestrian wind, UTCI, heat-island morphology and Local Climate Zones, climate around buildings by season.
+        - Terrain analyses: slope, aspect, hillshade, curvature, topographic position, ruggedness, wetness index; sections, flooding, cut and fill.
+        - Planning check after BRE 209 with shareable profiles, scenario A and B per building, constrained NSGA-II height optimisation.
+        - Swipe and 2 to 8 synced panels; images up to 8K, PDF sheets, offline HTML, GLB and video.
+        - Results back to QGIS as styled GeoTIFFs and building fields, in 2D and 3D.

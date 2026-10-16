@@ -1,0 +1,313 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>icon lab</title>
+<style>body{margin:0;background:#888}canvas{display:block}#out{position:fixed;right:0;top:0;width:512px;height:512px;background:repeating-conic-gradient(#ddd 0 25%,#fff 0 50%) 50%/32px 32px}</style>
+<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.js" } }</script>
+</head>
+<body>
+<img id="out">
+<script type="module">
+import * as THREE from 'three';
+
+const PX = 1600;
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(PX, PX);
+renderer.setClearColor(0x000000, 0);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.domElement.style.width = '512px';
+renderer.domElement.style.height = '512px';
+document.body.appendChild(renderer.domElement);
+
+// ------------------------------------------------------------ studio light (glowing panels -> PMREM)
+function studioEnvironment() {
+  const s = new THREE.Scene();
+  const room = new THREE.Mesh(new THREE.BoxGeometry(20, 20, 20), new THREE.MeshBasicMaterial({ color: 0x5a6068, side: THREE.BackSide }));
+  s.add(room);
+  const panel = (w, h, pos, look, intensity) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 1, 1).multiplyScalar(intensity), side: THREE.DoubleSide }));
+    m.position.set(...pos); m.lookAt(...look); s.add(m);
+  };
+  panel(14, 8, [0, 9.5, 0], [0, 0, 0], 2.4);      // softbox above
+  panel(6, 8, [-9.5, 3, 3], [0, 0, 0], 1.6);      // key from the left
+  panel(5, 6, [8, 2, 6], [0, 0, 0], 0.9);         // fill from the right front
+  panel(8, 3, [0, 2, -9.5], [0, 0, 0], 1.2);      // rim from behind
+  const pm = new THREE.PMREMGenerator(renderer);
+  const tex = pm.fromScene(s, 0.035).texture;
+  return tex;
+}
+
+// ------------------------------------------------------------ shared
+const VIRIDIS = ['#46327e', '#365c8d', '#277f8e', '#1fa187', '#4ac16d', '#a0da39', '#fde725'].map((c) => new THREE.Color(c));
+function viridis(t) {
+  t = Math.max(0, Math.min(0.9999, t)) * (VIRIDIS.length - 1);
+  const i = Math.floor(t);
+  return VIRIDIS[i].clone().lerp(VIRIDIS[i + 1], t - i);
+}
+const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+const R = 1.0, BASE_H = 0.24, TOP = 0.0;
+function heightAt(x, z, hill = 1) {
+  let h = 0.58 * Math.exp(-((x + 0.38) ** 2 + (z + 0.30) ** 2) / 0.17) + 0.30 * Math.exp(-((x - 0.30) ** 2 + (z + 0.50) ** 2) / 0.07);
+  h *= hill;
+  // Clay terraces, like contour lines made solid.
+  const step = 0.055, k = Math.floor(h / step), f = h / step - k;
+  return 0.03 + step * (k + smooth(0.72, 1.0, f));
+}
+const TERRAIN = [['#2a8f86', 0.0], ['#45ab9b', 0.12], ['#7cc6ae', 0.24], ['#c9dfc1', 0.36], ['#efe7d6', 0.48], ['#fbf8f2', 0.62]].map(([c, h]) => [new THREE.Color(c), h]);
+function terrainColor(h) {
+  for (let i = 0; i < TERRAIN.length - 1; i++) {
+    if (h <= TERRAIN[i + 1][1]) return TERRAIN[i][0].clone().lerp(TERRAIN[i + 1][0], (h - TERRAIN[i][1]) / (TERRAIN[i + 1][1] - TERRAIN[i][1]));
+  }
+  return TERRAIN[TERRAIN.length - 1][0].clone();
+}
+
+function terrainDisc(hill, drape = null) {
+  const NR = 140, NS = 360;
+  const pos = [], col = [], idx = [];
+  pos.push(0, TOP + heightAt(0, 0, hill), 0); col.push(...terrainColor(heightAt(0, 0, hill)).toArray());
+  for (let i = 1; i <= NR; i++) {
+    const r = (R * i) / NR;
+    for (let j = 0; j < NS; j++) {
+      const a = (j / NS) * Math.PI * 2, x = r * Math.cos(a), z = r * Math.sin(a);
+      const h = heightAt(x, z, hill);
+      pos.push(x, TOP + h, z);
+      const base = terrainColor(h);
+      col.push(...(drape ? drape(x, z, h, base) : base).toArray());
+    }
+  }
+  for (let j = 0; j < NS; j++) idx.push(0, 1 + ((j + 1) % NS), 1 + j);
+  for (let i = 1; i < NR; i++) {
+    for (let j = 0; j < NS; j++) {
+      const a = 1 + (i - 1) * NS + j, b = 1 + (i - 1) * NS + ((j + 1) % NS), c = 1 + i * NS + j, d = 1 + i * NS + ((j + 1) % NS);
+      idx.push(a, b, c, b, d, c);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 }));
+  m.receiveShadow = true; m.castShadow = true;
+  return m;
+}
+
+/** The podium side: strata from the terrain edge down, and a rounded foot with a glowing rim. */
+function podiumSide(hill) {
+  const NS = 360, LAYERS = [['#55c4b8', 0.0], ['#3aa7a3', 0.3], ['#2a8a91', 0.58], ['#1d6d76', 0.82]];
+  const pos = [], col = [], idx = [];
+  const ROWS = 24;
+  for (let k = 0; k <= ROWS; k++) {
+    const t = k / ROWS;
+    for (let j = 0; j <= NS; j++) {
+      const a = (j / NS) * Math.PI * 2, x = R * Math.cos(a), z = R * Math.sin(a);
+      const top = TOP + heightAt(x, z, hill);
+      const y = top + (-BASE_H - top) * t;
+      pos.push(x, y, z);
+      let c = LAYERS[0][0];
+      for (const [cc, lt] of LAYERS) if (t >= lt - 1e-9) c = cc;
+      col.push(...new THREE.Color(c).toArray());
+    }
+  }
+  for (let k = 0; k < ROWS; k++) for (let j = 0; j < NS; j++) {
+    const a = k * (NS + 1) + j, b = a + 1, c = a + NS + 1, d = c + 1;
+    idx.push(a, b, c, b, d, c);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const side = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.05 }));
+  side.castShadow = true;
+  const group = new THREE.Group();
+  group.add(side);
+  // Foot: a slightly wider rounded base with a cyan light line.
+  const foot = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.04, R * 1.06, 0.07, 160, 1),
+    new THREE.MeshStandardMaterial({ color: 0x0b343c, roughness: 0.45, metalness: 0.2 }));
+  foot.position.y = -BASE_H - 0.035;
+  group.add(foot);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(R * 1.05, 0.012, 16, 240),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color('#5ff5e6').multiplyScalar(1.6) }));
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = -BASE_H - 0.004;
+  group.add(rim);
+  // A thin light line along the top edge, following the relief.
+  const edge = [];
+  for (let j = 0; j < 360; j++) {
+    const a = (j / 360) * Math.PI * 2, x = R * 1.003 * Math.cos(a), z = R * 1.003 * Math.sin(a);
+    edge.push(new THREE.Vector3(x, TOP + heightAt(x / 1.003, z / 1.003, hill) + 0.002, z));
+  }
+  const line = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(edge, true), 720, 0.006, 8, true),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color('#b8fff6').multiplyScalar(1.2) }));
+  group.add(line);
+  const bottom = new THREE.Mesh(new THREE.CircleGeometry(R * 1.06, 160), new THREE.MeshStandardMaterial({ color: 0x082a31 }));
+  bottom.rotation.x = Math.PI / 2; bottom.position.y = -BASE_H - 0.07;
+  group.add(bottom);
+  return group;
+}
+
+/** A rounded building whose walls carry the analysis gradient (dark at the foot, bright at the top). */
+function building(x, z, w, d, h, maxH) {
+  const r = 0.012;
+  const shape = new THREE.Shape();
+  shape.moveTo(-w / 2 + r, -d / 2); shape.lineTo(w / 2 - r, -d / 2); shape.quadraticCurveTo(w / 2, -d / 2, w / 2, -d / 2 + r);
+  shape.lineTo(w / 2, d / 2 - r); shape.quadraticCurveTo(w / 2, d / 2, w / 2 - r, d / 2);
+  shape.lineTo(-w / 2 + r, d / 2); shape.quadraticCurveTo(-w / 2, d / 2, -w / 2, d / 2 - r);
+  shape.lineTo(-w / 2, -d / 2 + r); shape.quadraticCurveTo(-w / 2, -d / 2, -w / 2 + r, -d / 2);
+  const g = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: true, bevelSize: 0.01, bevelThickness: 0.01, bevelSegments: 4, curveSegments: 6 });
+  g.rotateX(-Math.PI / 2);
+  g.computeVertexNormals();
+  const p = g.attributes.position, n = g.attributes.normal;
+  const col = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getY(i);
+    const roof = n.getY(i) > 0.7 && y > h * 0.5;
+    const c = roof ? new THREE.Color('#f7f8fa') : viridis(0.06 + 0.94 * (Math.max(0, y) / maxH));
+    // Window bands: a quiet rhythm of slightly darker storeys.
+    if (!roof && Math.abs(n.getY(i)) < 0.3) {
+      const storey = (y / 0.075) % 1;
+      if (storey > 0.8) c.multiplyScalar(0.86);
+    }
+    col.set(c.toArray(), i * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.02 }));
+  m.position.set(x, TOP + heightAt(x, z) - 0.005, z);
+  m.castShadow = true; m.receiveShadow = true;
+  return m;
+}
+
+function sun(scene, at) {
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(0.13, 64, 32),
+    new THREE.MeshStandardMaterial({ color: 0xffc23a, emissive: 0xffa21a, emissiveIntensity: 0.9, roughness: 0.25 }));
+  ball.position.copy(at);
+  scene.add(ball);
+  // Soft halo.
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d'); const gr = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  gr.addColorStop(0, 'rgba(255,205,90,0.85)'); gr.addColorStop(0.35, 'rgba(255,190,70,0.35)'); gr.addColorStop(1, 'rgba(255,190,70,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+  halo.scale.set(0.62, 0.62, 1); halo.position.copy(at);
+  scene.add(halo);
+  // (No path arc: at toolbar sizes its dots read as noise.)
+}
+
+function bolt(scene) {
+  const s = new THREE.Shape();
+  const P = [[0.06, 0.5], [-0.2, -0.02], [-0.02, -0.02], [-0.1, -0.5], [0.22, 0.08], [0.04, 0.08], [0.14, 0.5]];
+  s.moveTo(...P[0]); for (const q of P.slice(1)) s.lineTo(...q); s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, { depth: 0.12, bevelEnabled: true, bevelSize: 0.025, bevelThickness: 0.03, bevelSegments: 5 });
+  g.center();
+  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xff8a1f, emissive: 0xff6a00, emissiveIntensity: 0.25, roughness: 0.3 }));
+  m.scale.setScalar(0.95);
+  m.position.set(0.42, 0.62, 0.42);
+  m.rotation.y = Math.PI / 4;
+  m.castShadow = true;
+  scene.add(m);
+}
+
+// ------------------------------------------------------------ scenes
+function makeScene(kind) {
+  const scene = new THREE.Scene();
+  scene.environment = studioEnvironment();
+  scene.environmentIntensity = 0.8;
+  const hill = kind === 'quick' ? 1.25 : 1;
+  const BLD = [[0.12, 0.18, 0.17, 0.15, 0.55], [0.34, 0.08, 0.15, 0.17, 0.86], [0.18, 0.40, 0.15, 0.14, 0.40], [0.42, 0.33, 0.17, 0.15, 0.62],
+    [0.58, 0.10, 0.12, 0.12, 0.36], [0.30, 0.58, 0.16, 0.12, 0.30], [0.56, 0.52, 0.13, 0.12, 0.44], [-0.04, 0.42, 0.13, 0.13, 0.26],
+    [0.66, 0.30, 0.10, 0.12, 0.30]];
+  // Analysis drape on the open ground around the buildings: warm where the
+  // sun reaches, cool close to the walls (what the viewer draws for sun hours).
+  const SHADE = new THREE.Color('#3f6fb5'), SUNNY = new THREE.Color('#ffd36a'), MID = new THREE.Color('#f08a4b');
+  const drape = kind === 'plugin' ? (x, z, h, base) => {
+    if (h > 0.09) return base;
+    const near = Math.hypot(x - 0.3, z - 0.32);
+    if (near > 0.72) return base;
+    let dmin = Infinity;
+    for (const [bx, bz, w, d] of BLD) {
+      const dx = Math.max(Math.abs(x - bx) - w / 2, 0), dz = Math.max(Math.abs(z - bz) - d / 2, 0);
+      dmin = Math.min(dmin, Math.hypot(dx, dz));
+    }
+    const v = smooth(0.0, 0.2, dmin);
+    const heat = v < 0.5 ? SHADE.clone().lerp(MID, v * 2) : MID.clone().lerp(SUNNY, (v - 0.5) * 2);
+    return base.clone().lerp(heat, 0.78 * (1 - smooth(0.5, 0.72, near)));
+  } : null;
+  scene.add(terrainDisc(hill, drape));
+  scene.add(podiumSide(hill));
+  const sunAt = new THREE.Vector3(0.58, 0.95, -0.78);
+  const key = new THREE.DirectionalLight(0xfff1dc, 3.0);
+  key.position.copy(sunAt).multiplyScalar(3);
+  key.castShadow = true;
+  key.shadow.mapSize.set(4096, 4096);
+  key.shadow.camera.left = -1.6; key.shadow.camera.right = 1.6; key.shadow.camera.top = 1.6; key.shadow.camera.bottom = -1.6;
+  key.shadow.camera.near = 0.5; key.shadow.camera.far = 10;
+  key.shadow.bias = -0.0004; key.shadow.normalBias = 0.01; key.shadow.radius = 6;
+  scene.add(key);
+  scene.add(new THREE.HemisphereLight(0xdfefff, 0x1d3a3f, 0.35));
+  // Front fill, as in a product shot: lifts the podium side and the walls facing the camera.
+  const fill = new THREE.DirectionalLight(0xe8f4ff, 1.1);
+  fill.position.set(3.2, 1.2, 4.2);
+  scene.add(fill);
+  if (kind === 'plugin') {
+    for (const [x, z, w, d, h] of BLD) scene.add(building(x, z, w, d, h, 0.86));
+    sun(scene, sunAt);
+  } else {
+    bolt(scene);
+  }
+  return scene;
+}
+
+function cameraFor() {
+  const cam = new THREE.PerspectiveCamera(22, 1, 0.1, 50);
+  const d = 7.6, el = (33 * Math.PI) / 180, az = (38 * Math.PI) / 180;
+  cam.position.set(d * Math.cos(el) * Math.sin(az), d * Math.sin(el) + 0.2, d * Math.cos(el) * Math.cos(az));
+  cam.lookAt(0.05, 0.22, 0);
+  return cam;
+}
+
+/** Crop to the drawn pixels and fill a 512 square: no margin, no background. */
+function fitToSquare(canvas, size = 512) {
+  const c = document.createElement('canvas'); c.width = canvas.width; c.height = canvas.height;
+  const g = c.getContext('2d'); g.drawImage(canvas, 0, 0);
+  const d = g.getImageData(0, 0, c.width, c.height).data;
+  let x0 = c.width, y0 = c.height, x1 = 0, y1 = 0;
+  for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+    if (d[(y * c.width + x) * 4 + 3] > 6) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  const side = Math.max(x1 - x0 + 1, y1 - y0 + 1);
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  // Step down in halves for a clean downscale.
+  let src = c, sx = cx - side / 2, sy = cy - side / 2, sw = side;
+  while (sw / 2 > size) {
+    const t = document.createElement('canvas'); t.width = t.height = Math.round(sw / 2);
+    const tg = t.getContext('2d'); tg.imageSmoothingQuality = 'high';
+    tg.drawImage(src, sx, sy, sw, sw, 0, 0, t.width, t.height);
+    src = t; sx = 0; sy = 0; sw = t.width;
+  }
+  const out = document.createElement('canvas'); out.width = out.height = size;
+  const og = out.getContext('2d'); og.imageSmoothingQuality = 'high';
+  og.drawImage(src, sx, sy, sw, sw, 0, 0, size, size);
+  return { canvas: out, bbox: [x0, y0, x1, y1] };
+}
+
+async function render(kind, name) {
+  const scene = makeScene(kind);
+  renderer.render(scene, cameraFor());
+  const { canvas, bbox } = fitToSquare(renderer.domElement);
+  const url = canvas.toDataURL('image/png');
+  document.getElementById('out').src = url;
+  await fetch(`/save?name=${name}`, { method: 'POST', body: url });
+  return bbox;
+}
+window.renderIcons = async () => ({ plugin: await render('plugin', 'icon.png'), quick: await render('quick', 'quick3d.png') });
+</script>
+</body>
+</html>
