@@ -605,7 +605,7 @@ export class Analyst {
     for (const v of ind.lcz) lczCounts.set(v, (lczCounts.get(v) || 0) + 1);
     results.unshift({
       kind: 'lcz', title: 'Local Climate Zones (approximate)', subtitle: `${blockSize} m blocks, built types from geometry`,
-      unit: '', grid: bgrid, values: lczValues, display: { min: 0, max: 10, categorical: LCZ_COLORS }, fields,
+      unit: '', grid: bgrid, values: lczValues, display: { min: 0, max: 10, categorical: LCZ_COLORS, labels: LCZ_LABELS }, fields,
       legend: [...lczCounts.keys()].sort((a, b) => a - b).map((k) => ({ color: LCZ_COLORS[k], label: LCZ_LABELS[k] })),
       stats: [...lczCounts].sort((a, b) => b[1] - a[1]).map(([k, v]) => [LCZ_LABELS[k], `${((100 * v) / lczValues.length).toFixed(0)} %`]),
       notes: 'Classes from plan fraction, mean height and footprint size (Stewart and Oke 2012). LCZ 7 and 10 need material and land-use information.'

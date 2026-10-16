@@ -215,7 +215,7 @@ export class App {
     if (this.activeResult && this.activeResult !== r) this.activeResult.onHide?.();
     this.activeResult = r;
     r?.onShow?.();
-    if (r?.grid) useOverlay(resultTexture(r), r.grid);
+    if (r?.grid) useOverlay(resultTexture(r), r.grid, { roofs: !r.groundOnly });
     else hideOverlay();
     this._showFacade(r?.facade && r.showFacade !== false ? r.facade : null);
     this._showMarker(r?.marker);

@@ -353,10 +353,75 @@ def test_results(scene_dir, manifest, b):
                     int(getattr(__import__("qgis.core", fromlist=["Qgis"]).Qgis.AltitudeClamping.Terrain, "value", 2)))
             detail3d = f"rules={len(rules)} classes={len(ranges)} expr={expr} colour_ok={colour_ok}"
     check("results copy gets a QGIS 3D style: extruded, clamped to terrain, coloured per class", ok3d, detail3d)
+    test_result_styles(writer, grid, values, res[0] if res else None)
     msg = select_in_qgis(manifest, scene_dir, {"layer": "L1", "ids": [2, 3]})
     check("viewer pick selects the source features", sorted(b.selectedFeatureIds()) == sorted(ids[1:3]), msg)
     back = viewer_ids_for_selection(manifest, scene_dir)
     check("QGIS selection maps back to viewer ids", sorted(back.get("L1", [])) == [2, 3], str(back))
+
+
+def test_result_styles(writer, grid, values, results_layer):
+    """The viewer's own colours reach QGIS: exact ramps, class palettes and
+    the planning check's pass / fail classes in 2D and in the 3D view."""
+    import numpy as np
+    from qgis.core import QgsPalettedRasterRenderer
+
+    data = base64.b64encode(values.tobytes()).decode()
+    stops = ["#fcfdbf", "#fe9f6d", "#de4968", "#8c2981", "#3b0f70", "#000004"]  # magma reversed
+    writer.handle({"type": "grid", "name": "Ramp test", "key": "ramp_test", "grid": grid, "data": data,
+                   "style": {"min": 0, "max": 100, "ramp": "magma-r", "stops": stops}})
+    lyr = [x for x in QgsProject.instance().mapLayers().values() if x.name() == "Ramp test"][0]
+    items = lyr.renderer().shader().rasterShaderFunction().colorRampItemList()
+    check("raster ramp uses the viewer's stops, reversed ramps included",
+          items[0].color.name() == stops[0] and items[-1].color.name() == stops[-1],
+          f"{items[0].color.name()} .. {items[-1].color.name()}")
+    classes = np.zeros(values.shape, dtype="<f4")
+    classes[::2] = 1
+    writer.handle({"type": "grid", "name": "Class test", "key": "class_test", "grid": grid,
+                   "data": base64.b64encode(classes.tobytes()).decode(),
+                   "style": {"min": 0, "max": 1, "categories": [{"value": 0, "color": "#3b4a6b", "label": "Hidden"},
+                                                                {"value": 1, "color": "#f6c945", "label": "Visible"}]}})
+    lyr = [x for x in QgsProject.instance().mapLayers().values() if x.name() == "Class test"][0]
+    ren = lyr.renderer()
+    ok = isinstance(ren, QgsPalettedRasterRenderer) and [c.label for c in ren.classes()] == ["Hidden", "Visible"]         and ren.classes()[1].color.name() == "#f6c945"
+    check("class rasters get a palette with the legend labels", ok, type(ren).__name__)
+    if results_layer is None:
+        check("planning-check classes styled in QGIS", False, "no results layer")
+        return
+    green, amber, red, grey = "#2e9e5c", "#f0b529", "#d64545", "#c9c9c9"
+    writer.handle({"type": "features", "layer": "L1",
+                   "fields": {"check_failed": {"values": {"1": 0, "2": 1}}, "check_heat": {"values": {"1": 1, "2": 0}}},
+                   "style": {"field": "check_failed",
+                             "categories": [{"value": 0, "color": green, "label": "Passes every check"},
+                                            {"value": 1, "color": amber, "label": "Fails one"},
+                                            {"value": 2, "color": red, "label": "Fails 2"}],
+                             "other": {"color": grey, "label": "Not checked"}}})
+    ren = results_layer.renderer()
+    ok = isinstance(ren, QgsCategorizedSymbolRenderer) and ren.classAttribute() == "check_failed"
+    colours = {}
+    if ok:
+        from qgis.core import QgsRenderContext
+
+        ctx = QgsRenderContext()
+        ren.startRender(ctx, results_layer.fields())
+        for f in results_layer.getFeatures():
+            sym = ren.symbolForFeature(f, ctx)
+            colours[f["g3d_id"]] = sym.color().name() if sym else None
+        ren.stopRender(ctx)
+    ok = ok and colours.get(1) == green and colours.get(2) == amber and colours.get(3) == grey
+    check("planning check styled by check_failed: pass, fail, not checked", ok, str(colours))
+    from qgis.PyQt import sip
+    from qgis._3d import QgsPolygon3DSymbol, QgsRuleBased3DRenderer
+
+    r3 = results_layer.renderer3D()
+    ok3, detail = False, ""
+    if r3 is not None and r3.type() == "rulebased":
+        rules = sip.cast(r3, QgsRuleBased3DRenderer).rootRule().children()
+        diff = [sip.cast(r.symbol(), QgsPolygon3DSymbol).materialSettings().diffuse().name() for r in rules]
+        labels = [r.description() for r in rules]
+        ok3 = diff[:3] == [green, amber, red] and diff[-1] == grey and labels[-1] == "Not checked"
+        detail = f"{list(zip(labels, diff))}"
+    check("QGIS 3D view: the same classes, buildings not checked in grey", ok3, detail)
 
 
 def test_server(scene_dir):

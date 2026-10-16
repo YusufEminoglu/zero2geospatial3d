@@ -185,6 +185,9 @@ table.stats td:last-child { text-align: right; font-variant-numeric: tabular-num
 .cmp-head .cmp-scn { width: auto; }
 .cmp-legend { position: absolute; left: 8px; bottom: 8px; width: 150px; background: rgba(255, 255, 255, 0.92); border-radius: 6px; padding: 5px 7px; }
 .cmp-ramp { height: 8px; border-radius: 2px; }
+.cmp-legend.cmp-classes { width: auto; max-width: 170px; font-size: 11px; display: grid; gap: 2px; }
+.cmp-class { display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmp-class .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
 .cmp-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin-top: 2px; }
 .compare-layer.swipe .cmp-panel.right .cmp-legend { left: auto; right: 8px; }
 .cmp-divider { position: absolute; top: 0; bottom: 0; width: 18px; margin-left: -9px; pointer-events: auto; cursor: ew-resize; touch-action: none; }

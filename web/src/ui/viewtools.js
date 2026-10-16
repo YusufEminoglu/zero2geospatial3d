@@ -165,6 +165,7 @@ export function buildViewTools(app) {
   function syncCompare() {
     for (const [k, b] of Object.entries(cmp)) b.classList.toggle('on', String(compare.mode) === k);
   }
+  app.on((what) => { if (what === 'compare') syncCompare(); }); // also opened from the panels
   window.addEventListener('resize', () => compare.onResize());
   if ('ResizeObserver' in window) new ResizeObserver(() => compare.onResize()).observe(view);
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && open) close(); });

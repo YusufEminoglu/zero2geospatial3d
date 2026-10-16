@@ -12,13 +12,14 @@ export const RAMPS = {
   blues: ['#f7fbff', '#deebf7', '#c6dbef', '#9ecae1', '#6baed6', '#4292c6', '#2171b5', '#08519c', '#08306b'],
   reds: ['#fff5f0', '#fee0d2', '#fcbba1', '#fc9272', '#fb6a4a', '#ef3b2c', '#cb181d', '#a50f15', '#67000d'],
   greens: ['#f7fcf5', '#e5f5e0', '#c7e9c0', '#a1d99b', '#74c476', '#41ab5d', '#238b45', '#006d2c', '#00441b'],
-  terrain: ['#2b6b3f', '#5f9a4f', '#a8c47a', '#e9dfa3', '#d2b47c', '#a47b55', '#8a7a72', '#f2f2f2']
+  terrain: ['#2b6b3f', '#5f9a4f', '#a8c47a', '#e9dfa3', '#d2b47c', '#a47b55', '#8a7a72', '#f2f2f2'],
+  greys: ['#000000', '#262626', '#4d4d4d', '#737373', '#969696', '#bdbdbd', '#d9d9d9', '#f0f0f0', '#ffffff']
 };
 export const QUALITATIVE = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac',
   '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
 export const RAMP_LABELS = {
   viridis: 'Viridis', magma: 'Magma', inferno: 'Inferno', rdylbu: 'Red-Yellow-Blue', spectral: 'Spectral',
-  rdbu: 'Red-Blue', blues: 'Blues', reds: 'Reds', greens: 'Greens', terrain: 'Terrain'
+  rdbu: 'Red-Blue', blues: 'Blues', reds: 'Reds', greens: 'Greens', terrain: 'Terrain', greys: 'Greys'
 };
 
 export function hexToRgb(hex) {

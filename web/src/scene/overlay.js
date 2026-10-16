@@ -13,13 +13,15 @@ export const overlayUniforms = {
   uOverlay: { value: /** @type {THREE.Texture} */ (blank) },
   uOverlayRect: { value: new THREE.Vector4(0, 1, 0, 1) }, // minX, maxX, minZ, maxZ
   uOverlayOn: { value: 0 },
-  uOverlayOpacity: { value: 0.92 }
+  uOverlayOpacity: { value: 0.92 },
+  uOverlayRoofs: { value: 1 } // 0 for maps of the ground itself (terrain analyses)
 };
 
-/** Make a MeshStandardMaterial show the shared overlay. */
-export function patchMaterial(material) {
+/** Make a MeshStandardMaterial show the shared overlay; ground: the terrain's own material. */
+export function patchMaterial(material, { ground = false } = {}) {
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, overlayUniforms);
+    shader.uniforms.uOvGround = { value: ground ? 1 : 0 };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vOvWorld;\nvarying float vOvNy;')
       .replace('#include <project_vertex>', `#include <project_vertex>
@@ -32,10 +34,12 @@ varying float vOvNy;
 uniform sampler2D uOverlay;
 uniform vec4 uOverlayRect;
 uniform float uOverlayOn;
-uniform float uOverlayOpacity;`)
+uniform float uOverlayOpacity;
+uniform float uOverlayRoofs;
+uniform float uOvGround;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
   vec4 ovSample = vec4(0.0);
-  if (uOverlayOn > 0.5 && vOvNy > 0.55) {
+  if (uOverlayOn > 0.5 && vOvNy > 0.55 && (uOvGround > 0.5 || uOverlayRoofs > 0.5)) {
     vec2 ouv = vec2((vOvWorld.x - uOverlayRect.x) / (uOverlayRect.y - uOverlayRect.x),
                     (vOvWorld.z - uOverlayRect.z) / (uOverlayRect.w - uOverlayRect.z));
     if (ouv.x >= 0.0 && ouv.x <= 1.0 && ouv.y >= 0.0 && ouv.y <= 1.0) {
@@ -123,8 +127,9 @@ export function resultTexture(result) {
   return tex;
 }
 
-/** Drape a cached texture (no copy, no dispose). */
-export function useOverlay(tex, grid) {
+/** Drape a cached texture (no copy, no dispose); roofs: false keeps it on the ground. */
+export function useOverlay(tex, grid, { roofs = true } = {}) {
+  overlayUniforms.uOverlayRoofs.value = roofs ? 1 : 0;
   overlayUniforms.uOverlay.value = tex;
   const r = gridRect(grid);
   overlayUniforms.uOverlayRect.value.set(r.minX, r.maxX, r.minZ, r.maxZ);

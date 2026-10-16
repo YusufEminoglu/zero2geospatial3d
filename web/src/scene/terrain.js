@@ -45,7 +45,7 @@ export class Terrain {
     this.texture.flipY = false;
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.anisotropy = 8;
-    this.material = patchMaterial(new THREE.MeshStandardMaterial({ map: this.texture, roughness: 0.96, metalness: 0 }));
+    this.material = patchMaterial(new THREE.MeshStandardMaterial({ map: this.texture, roughness: 0.96, metalness: 0 }), { ground: true });
     this.group = new THREE.Group();
     this.group.name = 'terrain';
     viewer.world.add(this.group);

@@ -29,6 +29,46 @@ export const CRITERIA = [
     help: 'Summer hours with UTCI of 32 °C or more on the surrounding ground (needs the climate year and an EPW). The limit is a project choice.' }
 ];
 
+export const PROFILE_FORMAT = '02geo3d-planning-profile';
+
+/** The built-in profile: every criterion at its default threshold. */
+export function defaultProfile() {
+  return { name: 'Defaults (BRE 209 proxies)', criteria: CRITERIA.map((c) => c.id), thresholds: Object.fromEntries(CRITERIA.map((c) => [c.id, c.threshold])) };
+}
+
+/** A profile as a JSON file: name, the criteria in use and their thresholds. */
+export function profileJson(p) {
+  return JSON.stringify({
+    format: PROFILE_FORMAT, version: 1, name: p.name || 'Planning profile',
+    criteria: CRITERIA.map((c) => ({ id: c.id, label: c.label, unit: c.unit, test: c.test === 'min' ? 'at least' : 'at most',
+      enabled: p.criteria.includes(c.id), threshold: p.thresholds[c.id] ?? c.threshold }))
+  }, null, 2);
+}
+
+/**
+ * Read a profile file. Unknown criteria are ignored, missing ones keep their
+ * default and stay off; a threshold must be a finite number.
+ * @returns {{ name: string, criteria: string[], thresholds: Record<string, number>, ignored: string[] }}
+ */
+export function parseProfile(text) {
+  let data;
+  try { data = typeof text === 'string' ? JSON.parse(text) : text; } catch { throw new Error('This file is not JSON.'); }
+  if (!data || data.format !== PROFILE_FORMAT || !Array.isArray(data.criteria)) throw new Error('This is not a planning-check profile.');
+  const known = new Map(CRITERIA.map((c) => [c.id, c]));
+  const out = defaultProfile();
+  out.name = String(data.name || 'Planning profile').slice(0, 80);
+  out.criteria = [];
+  const ignored = [];
+  for (const item of data.criteria) {
+    const c = known.get(item?.id);
+    if (!c) { ignored.push(String(item?.id)); continue; }
+    const v = Number(item.threshold);
+    if (item.threshold !== undefined && item.threshold !== null && Number.isFinite(v)) out.thresholds[c.id] = v;
+    if (item.enabled !== false) out.criteria.push(c.id);
+  }
+  return { ...out, ignored };
+}
+
 /** Pass (true), fail (false) or not available (null) for one value. */
 export function judge(criterion, value) {
   if (!Number.isFinite(value)) return null;
@@ -72,7 +112,7 @@ function areaAround(app, targets, margin = 150) {
  * @param {any} app
  * @param {{ scope: string, criteria: string[], thresholds: Record<string, number>, onProgress?: (f: number) => void }} o
  */
-export async function planningCheck(app, { scope, criteria, thresholds, onProgress }) {
+export async function planningCheck(app, { scope, criteria, thresholds, profile = '', onProgress }) {
   const targets = scopeBuildings(app, scope);
   if (!targets.length) throw new Error(scope === 'selected' ? 'Select buildings first (click, Shift+click, or select them in QGIS).' : 'No buildings to check.');
   const active = CRITERIA.filter((c) => criteria.includes(c.id)).map((c) => ({ ...c, threshold: thresholds[c.id] ?? c.threshold }));
@@ -169,10 +209,18 @@ export async function planningCheck(app, { scope, criteria, thresholds, onProgre
   }
   const result = {
     kind: 'compliance', title: 'Planning check', subtitle: `${rows.length} buildings · ${active.length} criteria`, unit: '',
-    fields, stats, rows, criteria: active, scope,
+    fields, stats, rows, criteria: active, scope, profile,
     legend: [{ color: '#2e9e5b', label: 'Passes every check' }, { color: '#f0b429', label: 'Fails one' }, { color: '#d64545', label: 'Fails two or more' },
       { color: '#c9c9c9', label: 'Not checked' }],
     notes: 'Screening proxies of the named guidance (BRE 209 for sun and daylight); confirm borderline cases with a formal assessment.'
+  };
+  // In QGIS: the same three colours on check_failed, in 2D and in the 3D view.
+  const hex = (rgb) => `#${rgb.map((x) => Math.round(x * 255).toString(16).padStart(2, '0')).join('')}`;
+  result.qgisStyle = {
+    field: 'check_failed',
+    categories: [{ value: 0, color: hex(VERDICT[0]), label: 'Passes every check' }, { value: 1, color: hex(VERDICT[1]), label: 'Fails one' },
+      ...[2, 3, 4, 5].map((k) => ({ value: k, color: hex(VERDICT[2]), label: `Fails ${k} checks` }))],
+    other: { color: '#c9c9c9', label: 'Not checked' }
   };
   // Show it as building colours while the result is on screen.
   result.onShow = () => paintVerdicts(app, rows);

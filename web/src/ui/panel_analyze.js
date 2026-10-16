@@ -6,7 +6,7 @@ import { sendGrid, sendFields } from './qgis_link.js';
 import { clearSkyYear, conditionsAt, typicalDoy } from '../core/weather.js';
 import { solarPosition } from '../core/solar.js';
 import { ExtrudedLayer } from '../scene/objects.js';
-import { CRITERIA, planningCheck } from '../analysis/compliance.js';
+import { CRITERIA, planningCheck, parseProfile, profileJson, defaultProfile } from '../analysis/compliance.js';
 import { planningSheet, planningCsv } from '../export/check_pdf.js';
 
 const MONTHS = MONTH_NAMES.map((m, i) => [i + 1, m]);
@@ -308,24 +308,68 @@ function climateCard(app) {
   return card('Climate around buildings (year)', body, { badge: has ? 'EPW' : 'needs EPW' });
 }
 
+const PROFILE_KEY = 'g3d.planningProfile';
+
+function applyProfile(p, prof) {
+  p.name = prof.name;
+  p.criteria = [...prof.criteria];
+  p.thresholds = { ...prof.thresholds };
+}
+
 function checkCard(app) {
   const p = app.params.check;
+  if (!p.restored) {
+    // The last profile used in this browser (a convenience; files are the record).
+    p.restored = true;
+    try {
+      const saved = localStorage.getItem(PROFILE_KEY);
+      if (saved) applyProfile(p, parseProfile(saved));
+    } catch { /* storage blocked or an old file: keep the defaults */ }
+  }
+  p.name ??= defaultProfile().name;
+  const remember = () => { try { localStorage.setItem(PROFILE_KEY, profileJson(p)); } catch { /* storage blocked */ } };
   const hasB = app.layers.some((l) => l.entry.scenario === 'B');
   const crit = h('div', { class: 'checks' });
-  for (const c of CRITERIA) {
-    const on = p.criteria.includes(c.id);
-    crit.appendChild(h('div', { class: 'check-row', title: c.help },
-      toggle(on, (v) => { p.criteria = v ? [...new Set([...p.criteria, c.id])] : p.criteria.filter((x) => x !== c.id); }, c.short),
-      h('span', { class: 'muted small', text: c.test === 'min' ? '≥' : '≤' }),
-      number(p.thresholds[c.id], { step: c.unit === '' || c.unit === '×' ? 0.01 : 1, width: '5em', onChange: (v) => { p.thresholds[c.id] = v; } }),
-      h('span', { class: 'muted small', text: c.unit })));
-  }
+  const nameInput = h('input', { type: 'text', value: p.name, title: 'Name of this set of thresholds; shown on the planning sheet',
+    onchange: () => { p.name = nameInput.value.trim() || 'Planning profile'; remember(); } });
+  const renderCriteria = () => {
+    clear(crit);
+    nameInput.value = p.name;
+    for (const c of CRITERIA) {
+      const on = p.criteria.includes(c.id);
+      crit.appendChild(h('div', { class: 'check-row', title: c.help },
+        toggle(on, (v) => { p.criteria = v ? CRITERIA.map((x) => x.id).filter((id) => id === c.id || p.criteria.includes(id)) : p.criteria.filter((x) => x !== c.id); remember(); }, c.short),
+        h('span', { class: 'muted small', text: c.test === 'min' ? '≥' : '≤' }),
+        number(p.thresholds[c.id], { step: c.unit === '' || c.unit === '×' ? 0.01 : 1, width: '5em', onChange: (v) => { if (Number.isFinite(v)) { p.thresholds[c.id] = v; remember(); } } }),
+        h('span', { class: 'muted small', text: c.unit })));
+    }
+  };
+  renderCriteria();
+  const file = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: async () => {
+    const f = file.files?.[0];
+    file.value = '';
+    if (!f) return;
+    try {
+      const prof = parseProfile(await f.text());
+      applyProfile(p, prof);
+      remember();
+      renderCriteria();
+      toast(`Profile "${prof.name}" loaded${prof.ignored.length ? ` (ignored: ${prof.ignored.join(', ')})` : ''}.`);
+    } catch (e) { toast(e.message, 'error'); }
+  } });
+  const fileStemOf = (name) => String(name).normalize('NFKD').replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 50) || 'planning_profile';
   const body = h('div', {},
     h('p', { class: 'muted small', text: 'Pass or fail for each building: sun on the open ground around it, facade daylight, daylight kept after scenario B, windy and summer heat-stress hours. Missing analyses run on their own.' }),
     row('Buildings', select([['selected', 'Selected buildings'], ['area', 'All in the analysis area'], ...(hasB ? [['scenarioB', 'Scenario B buildings']] : [])], p.scope, (v) => { p.scope = v; })),
+    row('Profile', nameInput),
     crit,
+    h('div', { class: 'btn-row' },
+      button('Save profile', () => download(`${fileStemOf(p.name)}.json`, profileJson(p), 'application/json'), { title: 'Save these criteria and thresholds as a JSON file to reuse or share' }),
+      button('Load…', () => file.click(), { title: 'Load a saved profile' }),
+      button('Defaults', () => { applyProfile(p, defaultProfile()); remember(); renderCriteria(); }, { title: 'Back to the default thresholds' }),
+      file),
     h('div', { class: 'btn-row' }, runButton(app, 'Run planning check', () => app.run('Planning check', (prog) => planningCheck(app, {
-      scope: p.scope, criteria: p.criteria, thresholds: p.thresholds, onProgress: prog })))));
+      scope: p.scope, criteria: p.criteria, thresholds: p.thresholds, profile: p.name, onProgress: prog })))));
   return card('Planning check', body);
 }
 
@@ -346,7 +390,7 @@ function renderResults(app, box) {
         try {
           const key = `${r.kind}_${r.created.toISOString().slice(0, 16).replace(/[-:T]/g, '')}`;
           if (r.grid) await sendGrid(r, key);
-          const layers = r.fields?.length ? await sendFields(r.fields, String(r.display?.ramp || 'viridis').replace('-r', '')) : [];
+          const layers = r.fields?.length ? await sendFields(r.fields, r.qgisStyle || String(r.display?.ramp || 'viridis')) : [];
           toast(`Sent to QGIS${layers.length ? ` (+ fields on ${layers.join(', ')})` : ''}.`);
         } catch (e) { toast(e.message, 'error'); }
       }, { kind: 'primary', title: 'GeoTIFF layer plus per-building fields in a results GeoPackage' }) : null,

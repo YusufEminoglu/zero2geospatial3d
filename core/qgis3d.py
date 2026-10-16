@@ -61,6 +61,18 @@ def classes_from_renderer(layer: QgsVectorLayer) -> list:
     return out
 
 
+def fallback_from_renderer(layer: QgsVectorLayer):
+    """(QColor, label) of a categorised style's "all other values" class, else None."""
+    renderer = layer.renderer()
+    if not isinstance(renderer, QgsCategorizedSymbolRenderer):
+        return None
+    for cat in renderer.categories():
+        value = cat.value()
+        if value is None or value == "" or str(value) == "NULL":
+            return QColor(cat.symbol().color()), cat.label()
+    return None
+
+
 def _render_context():
     from qgis.core import QgsRenderContext
 
@@ -89,7 +101,13 @@ def style_layer_3d(layer: QgsVectorLayer, height_expr: str, classes: list | None
     """Give a polygon layer a 3D renderer: extruded by ``height_expr``,
     coloured by ``classes`` (default: the layer's own 2D classes)."""
     _, _, rule_cls = _three_d()
-    classes = classes if classes is not None else classes_from_renderer(layer)
+    other_label = "Other"
+    if classes is None:
+        classes = classes_from_renderer(layer)
+        if fallback is None:
+            found = fallback_from_renderer(layer)
+            if found:
+                fallback, other_label = found
     grey = fallback or QColor("#cfcac2")
     root = rule_cls.Rule(None)
     if not classes:
@@ -97,7 +115,7 @@ def style_layer_3d(layer: QgsVectorLayer, height_expr: str, classes: list | None
     for filter_expr, color, label in classes:
         root.appendChild(rule_cls.Rule(_symbol(height_expr, color), filter_expr, label))
     if classes and any(f for f, _, _ in classes):
-        else_rule = rule_cls.Rule(_symbol(height_expr, grey), "", "Other")
+        else_rule = rule_cls.Rule(_symbol(height_expr, grey), "", other_label)
         with contextlib.suppress(AttributeError):
             else_rule.setIsElse(True)
         root.appendChild(else_rule)

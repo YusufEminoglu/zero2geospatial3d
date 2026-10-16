@@ -84,7 +84,7 @@ export function bakeScene(app, { area = null } = {}) {
         if (k < 0) continue;
         for (let m = 0; m < 3; m++) { P[k * 3 + m] = pos[v * 3 + m]; N[k * 3 + m] = nrm[v * 3 + m]; }
         rgb[0] = col[v * 3]; rgb[1] = col[v * 3 + 1]; rgb[2] = col[v * 3 + 2];
-        if (overlay && nrm[v * 3 + 1] > 0.55) {
+        if (overlay && !r.groundOnly && nrm[v * 3 + 1] > 0.55) {
           const o = sampleOverlay(pos[v * 3], -pos[v * 3 + 2]);
           if (o) for (let m = 0; m < 3; m++) rgb[m] = rgb[m] * (1 - opacity) + toLinear(o[m] / 255) * opacity;
         }

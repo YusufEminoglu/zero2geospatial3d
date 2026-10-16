@@ -6,10 +6,12 @@ import { profile, flood, cutFill, balancedLevel, gridStats } from '../core/terra
 import { drawProfile } from './charts.js';
 import { ExtrudedLayer, LineLayer, PlatformLayer } from '../scene/objects.js';
 import { sendGrid, sendFields } from './qgis_link.js';
+import { TERRAIN_ANALYSES, terrainAnalyses } from '../analysis/terrain_results.js';
 
 export function buildTerrainPanel(app, root) {
   clear(root);
   root.appendChild(displayCard(app));
+  root.appendChild(analysesCard(app));
   root.appendChild(profileCard(app));
   root.appendChild(floodCard(app));
   root.appendChild(cutFillCard(app));
@@ -29,6 +31,33 @@ function displayCard(app) {
       'The level a building stands on; heights count from it. A plinth fills the gap down to the ground.'),
     row('Live shadows', toggle(app.viewer.shadowsOn, (v) => app.viewer.setShadows(v))));
   return card('Display', body, { open: true });
+}
+
+// ---------------------------------------------------------------- terrain analyses
+function analysesCard(app) {
+  app.params.terrain ??= { kinds: ['elevation', 'slope', 'aspect', 'hillshade'], extent: 'scene', tpiRadius: 100 };
+  const p = app.params.terrain;
+  const list = h('div', { class: 'checks' });
+  for (const a of TERRAIN_ANALYSES) {
+    list.appendChild(h('div', { class: 'check-row terrain-row', title: a.help },
+      toggle(p.kinds.includes(a.id), (v) => {
+        p.kinds = v ? TERRAIN_ANALYSES.map((x) => x.id).filter((id) => id === a.id || p.kinds.includes(id)) : p.kinds.filter((x) => x !== a.id);
+      }, a.label),
+      a.id === 'tpi' ? h('span', { class: 'muted small' }, 'radius ', number(p.tpiRadius, { step: 10, width: '4.5em', onChange: (v) => { if (v > 0) p.tpiRadius = v; } }), ' m') : null));
+  }
+  const run = async (compare) => {
+    const res = await app.run('Terrain analyses', (prog) => terrainAnalyses(app, { kinds: p.kinds, extent: p.extent, tpiRadius: p.tpiRadius, onProgress: prog }));
+    if (res?.length && compare) app.compare?.showResults(res);
+  };
+  const body = h('div', {},
+    h('p', { class: 'muted small', text: 'Maps of the DEM itself. Each becomes a result: drawn on the ground, chosen in a compare panel, sent to QGIS as a GeoTIFF.' }),
+    list,
+    row('Extent', select([['scene', 'Whole DEM'], ['area', 'Analysis area']], p.extent, (v) => { p.extent = v; }),
+      'Large DEMs are coarsened to at most 4 million cells for these maps'),
+    h('div', { class: 'btn-row' },
+      button('Run', () => run(false), { kind: 'primary run' }),
+      button('Run and compare', () => run(true), { title: 'Open the results side by side in 2, 4, 6 or 8 panels' })));
+  return card('Terrain analyses', body, { open: true });
 }
 
 // ---------------------------------------------------------------- profile

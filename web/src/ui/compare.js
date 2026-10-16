@@ -46,6 +46,7 @@ export class Compare {
       result: i === 0 ? (app.activeResult?.id || res[0]?.id || 'base') : (res[i]?.id || res[0]?.id || 'base'),
       scenario: this.hasScenarios() ? (i % 2 ? 'B' : 'A') : null
     });
+    if (!this.mode) app.activeResult?.onHide?.(); // e.g. planning-check colours on the buildings
     this.mode = mode;
     this.layer.hidden = false;
     const legend = document.getElementById('legend');
@@ -55,6 +56,17 @@ export class Compare {
     app.viewer.renderHook = () => this.render();
     app.viewer.requestRender();
     app.emit('compare');
+  }
+
+  /** Open the smallest panel layout that holds these results (up to 8), one result per panel. */
+  showResults(results) {
+    const list = results.filter((r) => r.grid || r.facade).slice(0, 8);
+    if (!list.length) return;
+    const n = list.length;
+    const mode = n <= 2 ? 2 : n <= 4 ? 4 : n <= 6 ? 6 : 8;
+    const scenario = this.hasScenarios() ? 'A' : null;
+    this.states = Array.from({ length: mode }, (_, i) => ({ result: list[i]?.id || 'base', scenario }));
+    this.enable(mode);
   }
 
   disable() {
@@ -105,7 +117,7 @@ export class Compare {
   _apply(state) {
     const app = this.app;
     const r = app.results.find((x) => x.id === state.result) || null;
-    if (r?.grid) useOverlay(resultTexture(r), r.grid); else hideOverlay();
+    if (r?.grid) useOverlay(resultTexture(r), r.grid, { roofs: !r.groundOnly }); else hideOverlay();
     if (app.facadeMesh) app.facadeMesh.visible = false;
     for (const res of app.results) if (res.facade?._mesh) res.facade._mesh.visible = false;
     if (r?.facade && r.showFacade !== false) {
@@ -278,12 +290,28 @@ export class Compare {
       // Legend (a ramp, as on the page).
       if (!legends) return;
       const r = this.app.results.find((x) => x.id === this.states[i].result);
-      if (!r || !r.display || r.display.categorical) return;
-      const lw = Math.min(170 * u, rc.w - 16 * u), lh = 40 * u;
+      if (!r || !r.display) return;
+      const items = r.legend?.length ? r.legend.slice(0, 10) : null;
+      if (!items && r.display.categorical) return;
+      const lw = Math.min(170 * u, rc.w - 16 * u), lh = items ? (10 + items.length * 16) * u : 40 * u;
       const lx = right ? rc.x + rc.w - lw - 8 * u : rc.x + 8 * u;
       // Clear of the credits line (bottom row) and the scale bar (bottom-right corner).
       const bottomRow = rc.y + rc.h >= H - 1;
       const ly = rc.y + rc.h - lh - 8 * u - (bottomRow ? reserveBottom + (right ? reserveCorner : 0) : 0);
+      if (items) {
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.beginPath();
+        ctx.roundRect(lx, ly, lw, lh, 6 * u);
+        ctx.fill();
+        ctx.font = `${11 * u}px system-ui, sans-serif`;
+        items.forEach((it, k) => {
+          ctx.fillStyle = it.color;
+          ctx.fillRect(lx + 8 * u, ly + (6 + k * 16) * u, 11 * u, 11 * u);
+          ctx.fillStyle = '#333a45';
+          ctx.fillText(String(it.label), lx + 25 * u, ly + (6 + k * 16) * u);
+        });
+        return;
+      }
       ctx.fillStyle = 'rgba(255,255,255,0.92)';
       ctx.beginPath();
       ctx.roundRect(lx, ly, lw, lh, 6 * u);
@@ -312,7 +340,13 @@ export class Compare {
   _legend(box, st) {
     box.querySelector('.cmp-legend')?.remove();
     const r = this.app.results.find((x) => x.id === st.result);
-    if (!r || !r.display || r.display.categorical) return;
+    if (!r || !r.display) return;
+    if (r.legend?.length) {
+      box.appendChild(h('div', { class: 'cmp-legend cmp-classes' }, ...r.legend.slice(0, 10).map((it) =>
+        h('div', { class: 'cmp-class' }, h('span', { class: 'swatch', style: { background: it.color } }), h('span', { text: it.label })))));
+      return;
+    }
+    if (r.display.categorical) return;
     const stops = rampStops(r.display.ramp);
     const css = stops.map((s, i) => `rgb(${s.map((x) => Math.round(x * 255)).join(',')}) ${(100 * i) / (stops.length - 1)}%`).join(',');
     box.appendChild(h('div', { class: 'cmp-legend' },

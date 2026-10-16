@@ -4,10 +4,16 @@
 Two payload types arrive from the viewer (see ``web/src/ui/qgis_link.js``):
 
 ``grid``      a raster on the scene grid (base64 float32, NaN = no data),
-              written as a GeoTIFF and added with a pseudocolour ramp;
+              written as a GeoTIFF and added with a pseudocolour ramp, or
+              a palette for class rasters;
 ``features``  per-feature values for one exported layer, written as fields
               of ``results/<layer>_results.gpkg`` (a copy of the exported
               features that keeps every source attribute).
+
+``style`` carries the viewer's own colours so QGIS draws what the viewer
+drew: ``stops`` (hex colours of the ramp, already reversed where the viewer
+reverses it) or ``categories`` (``[{value, color, label}]``, with ``other``
+for every remaining value), and ``field`` to say which field styles a layer.
 
 Everything here runs on the QGIS main thread.
 """
@@ -20,20 +26,28 @@ import os
 import re
 
 from qgis.core import (
+    QgsCategorizedSymbolRenderer,
     QgsClassificationJenks,
     QgsColorRampShader,
     QgsCoordinateReferenceSystem,
     QgsFeature,
     QgsFeatureRequest,
+    QgsGradientColorRamp,
+    QgsGradientStop,
     QgsGraduatedSymbolRenderer,
+    QgsPalettedRasterRenderer,
     QgsProject,
     QgsRasterLayer,
+    QgsRendererCategory,
     QgsRasterShader,
     QgsSingleBandPseudoColorRenderer,
     QgsStyle,
+    QgsSymbol,
     QgsVectorFileWriter,
     QgsVectorLayer,
 )
+from qgis.PyQt.QtGui import QColor
+
 from . import geo
 from .qgis_compat import make_field
 
@@ -41,11 +55,48 @@ GROUP_NAME = "02 Geo3D results"
 _KEY_RE = re.compile(r"[^a-z0-9_]")
 RAMPS = {"viridis": "Viridis", "magma": "Magma", "inferno": "Inferno", "rdylbu": "RdYlBu",
          "spectral": "Spectral", "blues": "Blues", "reds": "Reds", "turbo": "Turbo",
-         "rdbu": "RdBu", "greens": "Greens"}
+         "rdbu": "RdBu", "greens": "Greens", "greys": "Greys"}
 
 
 class ResultError(RuntimeError):
     pass
+
+
+def _color(value, default: str = "#cccccc") -> QColor:
+    color = QColor(str(value or default))
+    return color if color.isValid() else QColor(default)
+
+
+def ramp_from_style(style: dict):
+    """The colour ramp a style asks for: the viewer's own stops, else a
+    named ramp of the QGIS default style (None when neither exists)."""
+    stops = [c for c in (style.get("stops") or []) if QColor(str(c)).isValid()]
+    if len(stops) >= 2:
+        colors = [_color(c) for c in stops]
+        inner = [QgsGradientStop(k / (len(colors) - 1), colors[k]) for k in range(1, len(colors) - 1)]
+        return QgsGradientColorRamp(colors[0], colors[-1], False, inner)
+    key = str(style.get("ramp") or "viridis").lower()
+    if key.endswith("-r"):
+        ramp = QgsStyle.defaultStyle().colorRamp(RAMPS.get(key[:-2], "Viridis"))
+        if ramp is not None:
+            ramp.invert()
+        return ramp
+    return QgsStyle.defaultStyle().colorRamp(RAMPS.get(key, "Viridis"))
+
+
+def categories_from_style(style: dict) -> list:
+    """[(value, QColor, label)] from a style's categories; bad entries dropped."""
+    out = []
+    for item in style.get("categories") or []:
+        value = _num((item or {}).get("value"), None)
+        if value is None:
+            continue
+        out.append((value, _color(item.get("color")), str(item.get("label") or _fmt_value(value))))
+    return out
+
+
+def _fmt_value(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else f"{value:g}"
 
 
 def decode_float32(data_b64: str, count: int):
@@ -117,16 +168,25 @@ class ResultWriter:
         layer = QgsRasterLayer(path, name)
         if not layer.isValid():
             raise ResultError(f"QGIS cannot open {path}")
-        self._style_raster(layer, vmin, vmax, str(style.get("ramp") or "viridis"))
+        categories = categories_from_style(style)
+        if categories:
+            self._style_palette(layer, categories)
+        else:
+            self._style_raster(layer, vmin, vmax, style)
         self._add_to_group(layer)
         return f"Added raster '{name}' ({cols} x {rows}, {cell:g} m)."
 
-    def _style_raster(self, layer: QgsRasterLayer, vmin: float, vmax: float, ramp_key: str) -> None:
+    def _style_palette(self, layer: QgsRasterLayer, categories: list) -> None:
+        """Class rasters (aspect, land classes, visible / not visible) as a palette."""
+        classes = [QgsPalettedRasterRenderer.Class(value, color, label) for value, color, label in categories]
+        layer.setRenderer(QgsPalettedRasterRenderer(layer.dataProvider(), 1, classes))
+
+    def _style_raster(self, layer: QgsRasterLayer, vmin: float, vmax: float, style: dict) -> None:
         if not (math.isfinite(vmin) and math.isfinite(vmax)) or vmax <= vmin:
             vmax = vmin + 1.0
-        ramp = QgsStyle.defaultStyle().colorRamp(RAMPS.get(ramp_key.lower(), "Viridis"))
+        ramp = ramp_from_style(style)
         if ramp is None:
-            self._log(f"Colour ramp '{ramp_key}' is missing from the QGIS style; the raster keeps the default look.")
+            self._log(f"Colour ramp '{style.get('ramp')}' is missing from the QGIS style; the raster keeps the default look.")
             return
         shader_fn = QgsColorRampShader(vmin, vmax, ramp)
         shader_fn.classifyColorRamp(9)
@@ -188,8 +248,14 @@ class ResultWriter:
         if changes:
             provider.changeAttributeValues(changes)
         target.triggerRepaint()
-        last = names[list(fields_in)[-1]]
-        self._style_graduated(target, last, str((payload.get("style") or {}).get("ramp") or "viridis"))
+        style = payload.get("style") or {}
+        wanted = style.get("field")
+        styled = names.get(wanted) if wanted in names else names[list(fields_in)[-1]]
+        categories = categories_from_style(style)
+        if categories:
+            self._style_categories(target, styled, categories, style.get("other") or {})
+        else:
+            self._style_graduated(target, styled, style)
         self._style_3d(target, entry)
         return f"Updated {len(changes)} features of '{target.name()}' with {', '.join(names.values())}."
 
@@ -241,8 +307,26 @@ class ResultWriter:
         if result[0] != QgsVectorFileWriter.NoError:
             raise ResultError(f"cannot write {path}: {result[1]}")
 
-    def _style_graduated(self, layer: QgsVectorLayer, field: str, ramp_key: str) -> None:
-        ramp = QgsStyle.defaultStyle().colorRamp(RAMPS.get(ramp_key.lower(), "Viridis"))
+    def _style_categories(self, layer: QgsVectorLayer, field: str, categories: list, other: dict) -> None:
+        """Fixed classes (pass / fail) with the viewer's colours; ``other`` covers
+        every remaining value, empty ones included (buildings not checked)."""
+        try:
+            cats = []
+            for value, color, label in categories:
+                symbol = QgsSymbol.defaultSymbol(layer.geometryType())
+                symbol.setColor(color)
+                cats.append(QgsRendererCategory(value, symbol, label))
+            if other:
+                symbol = QgsSymbol.defaultSymbol(layer.geometryType())
+                symbol.setColor(_color(other.get("color"), "#c9c9c9"))
+                cats.append(QgsRendererCategory(None, symbol, str(other.get("label") or "Other")))
+            layer.setRenderer(QgsCategorizedSymbolRenderer(field, cats))
+            layer.triggerRepaint()
+        except Exception as exc:  # noqa: BLE001 - styling is optional, but say so
+            self._log(f"Could not style '{layer.name()}' by {field}: {exc}")
+
+    def _style_graduated(self, layer: QgsVectorLayer, field: str, style: dict) -> None:
+        ramp = ramp_from_style(style)
         if ramp is None:
             return
         try:

@@ -11,7 +11,7 @@ export function planningSheet(app, result, { title = 'Planning check' } = {}) {
   const m = 28;
   const page = new PdfPage(PW, PH);
   page.text(m, m + 18, title, { size: 18, bold: true, color: INK });
-  page.text(m, m + 36, `${app.manifest.title} · ${result.rows.length} buildings · ${new Date().toISOString().slice(0, 10)}`, { size: 10, color: MUTED });
+  page.text(m, m + 36, `${app.manifest.title} · ${result.rows.length} buildings${result.profile ? ` · Profile: ${result.profile}` : ''} · ${new Date().toISOString().slice(0, 10)}`, { size: 10, color: MUTED });
   // Criteria column.
   const side = 250;
   let y = m + 62;
@@ -65,7 +65,7 @@ export function planningSheet(app, result, { title = 'Planning check' } = {}) {
 
 export function planningCsv(result) {
   const head = ['layer', 'feature_id', 'name', 'height_m', 'failed', ...result.criteria.flatMap((c) => [`${c.id}_value`, `${c.id}_pass`])];
-  const lines = [head.join(',')];
+  const lines = result.profile ? [`# profile: ${String(result.profile).replace(/[\r\n]+/g, ' ')}`, head.join(',')] : [head.join(',')];
   for (const r of result.rows) {
     lines.push([`"${r.layer.entry.name}"`, r.f + 1, `"${r.name}"`, r.height.toFixed(2), r.failed,
       ...r.checks.flatMap((c) => [Number.isFinite(c.value) ? c.value.toFixed(3) : '', c.pass === null ? '' : c.pass ? 1 : 0])].join(','));

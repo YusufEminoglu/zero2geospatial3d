@@ -20,6 +20,10 @@ All notable changes to this project are documented here. The format follows
 - Climate around buildings (year, needs an EPW): for every building's surroundings, hourly UTCI with local sky view, sun and sheltered wind over the year gives comfortable, heat-stress and cold-stress hours, plus pedestrian wind, windy hours and a wind rose per building (in the report and its PDF); an annual pedestrian-wind map.
 - Climate by season: the climate year is also split into winter, spring, summer and autumn (comfortable share per season, summer heat-stress and winter cold-stress hours, winter wind); the report shows a season table and a wind rose per season, and the result has season chips for its map.
 - Planning check: pass or fail for each building (selected, in the area, or scenario B) against sun on the surrounding open ground on 21 March, facade sky view as a daylight proxy, daylight kept after scenario B, windy hours and summer heat-stress hours; thresholds are editable, missing analyses run on their own, buildings are painted green, amber or red, and a one-page planning sheet (PDF) and a CSV list the buildings worst first. These are screening proxies of BRE 209, not formal assessments.
+- Planning-check profiles: name a set of criteria and thresholds, save it as a JSON file, load it back or share it (e.g. one per municipality or project); the last one used is remembered, and the planning sheet and CSV name the profile.
+- Planning check in QGIS: "To QGIS" styles the results layer by `check_failed` in the viewer's green, amber and red (buildings not checked in grey), in the 2D map and in QGIS's 3D view.
+- Terrain analyses (Terrain tab): elevation, slope (with the area in slope bands), aspect, hillshade, curvature, topographic position, ruggedness and a topographic wetness index from the DEM, over the whole DEM or the analysis area. Each is a result like sun hours: drawn on the ground (not on roofs), chosen in any compare panel and sent to QGIS as a GeoTIFF; "Run and compare" opens them side by side in 2 to 8 panels.
+- Compare panels show class legends (aspect, visibility, sun or shade) as swatches, on screen and in exports.
 - QGIS 3D view: results GeoPackages are extruded and coloured by class in QGIS's own 3D view; "QGIS 3D view" in the panel sets the DEM as terrain, extrudes the ticked building layers and opens a 3D map view.
 
 ### Changed
@@ -31,6 +35,7 @@ All notable changes to this project are documented here. The format follows
 - Shadow bias follows the shadow-map texel size, so shadows touch the walls that cast them.
 
 ### Fixed
+- Results sent to QGIS now carry the viewer's exact colours: reversed ramps (e.g. canyon H/W) arrived unreversed and the terrain ramp as Viridis; class rasters (visibility, Local Climate Zones, sun or shade) arrived on a continuous ramp and now come as a palette with their labels.
 - The swipe divider stopped after its first movement: the drag rebuilt the panels and removed the divider it was holding. It now follows the pointer, with a wider grab area.
 - Images, PDF sheets and videos taken while compare views were on showed a single view. They now show every panel with its caption and legend (the scene title moves into the credits line), and the scale bar is measured on one panel.
 - A scene exported to the same folder as an earlier one could show the earlier scene's terrain: the server answered "not modified" for files older than the cached copy. Scene files are no longer cached.
