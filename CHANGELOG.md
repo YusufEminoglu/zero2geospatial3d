@@ -30,6 +30,8 @@ All notable changes to this project are documented here. The format follows
 - QGIS 3D view: results GeoPackages are extruded and coloured by class in QGIS's own 3D view; "QGIS 3D view" in the panel sets the DEM as terrain, extrudes the ticked building layers and opens a 3D map view.
 
 ### Changed
+- New plugin icon: an isometric DEM block with contours and layered strata, carrying buildings whose walls show an analysis gradient, with their shadows and the sun; a matching Quick 3D icon. Drawn from geometry by tools/make_icon.py.
+- The QGIS panel is redesigned: a header with the icon and help, three numbered step cards, layer rows that open their settings only when ticked, the rarely changed settings (grid, detail limit, folder) and the climate data in folding sections, a primary "Open in 3D" button and icon buttons for the viewer, QGIS 3D and the folder. It follows the QGIS light or dark theme; only the accent is the viewer's blue.
 - Height optimisation is about four times faster (118 to 26 ms per design on a 12-building test): building ids are drawn once instead of for every design, the terrain is locked once for the whole run, and the sun pass uses shadow maps with texels of half a cell (2048 instead of 4096 for a 2 m cell; the designs rank the same as with the full pass, Spearman 0.996, at most 0.65 % apart). Under constraints the search starts from one-floor-up variants of the current design, where the feasible designs are.
 - No 20 km limit on the scene area any more (a 250 km sanity limit remains); large scenes get a warning, analysis grids stay within 4096 cells a side, and the camera's clipping planes follow its distance.
 - Building colours match QGIS exactly (they were drawn too light: sRGB colours were treated as linear).

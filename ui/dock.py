@@ -7,8 +7,8 @@ import os
 import re
 import traceback
 
-from qgis.PyQt.QtCore import Qt, QTimer, QUrl
-from qgis.PyQt.QtGui import QDesktopServices
+from qgis.PyQt.QtCore import QSize, Qt, QTimer, QUrl
+from qgis.PyQt.QtGui import QDesktopServices, QIcon
 from qgis.PyQt.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -18,7 +18,6 @@ from qgis.PyQt.QtWidgets import (
     QDockWidget,
     QFrame,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -28,6 +27,7 @@ from qgis.PyQt.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -46,6 +46,9 @@ from qgis.gui import QgsFieldExpressionWidget, QgsFileWidget, QgsMapLayerComboBo
 from .. import PLUGIN_VERSION
 from ..core import scene_export as sx
 from ..core.server import ViewerServer, web_root_for
+from .widgets import PANEL_QSS, Fold, Header, StepCard, hint, muted, theme_icon
+
+HELP_URL = "https://github.com/YusufEminoglu/zero2geospatial3d#readme"
 
 AREA_DEM, AREA_VIEW, AREA_OBJECTS = range(3)
 DETAIL_CHOICES = [("1024 cells (light)", 1024), ("2048 cells", 2048), ("4096 cells (large, fine DEMs)", 4096)]
@@ -102,58 +105,85 @@ def guess_height_expression(layer: QgsVectorLayer, role: str) -> str:
 
 
 class LayerRow(QFrame):
-    """One vector layer: include it, its role, height and colour."""
+    """One vector layer: include it, its role, height and colour. Unticked
+    layers take one line; ticking a layer opens its settings."""
+
+    KIND_ICONS = {"polygon": "/mIconPolygonLayer.svg", "line": "/mIconLineLayer.svg", "point": "/mIconPointLayer.svg"}
 
     def __init__(self, layer: QgsVectorLayer, parent=None):
         super().__init__(parent)
         self.layer = layer
-        self.setFrameShape(QFrame.Shape.StyledPanel)
-        grid = QGridLayout(self)
-        grid.setContentsMargins(6, 4, 6, 4)
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(3)
+        self.setObjectName("g3dRow")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 5, 8, 5)
+        outer.setSpacing(4)
         role, checked = guess_role(layer)
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        kind_icon = QLabel()
+        kind_icon.setPixmap(theme_icon(self.KIND_ICONS.get(sx.geometry_kind(layer), "/mIconVector.svg")).pixmap(QSize(16, 16)))
+        head.addWidget(kind_icon)
         self.check = QCheckBox(layer.name())
         self.check.setChecked(checked)
         self.check.setToolTip(f"{layer.name()} — {layer.featureCount()} features, {layer.crs().authid()}")
-        grid.addWidget(self.check, 0, 0, 1, 3)
+        head.addWidget(self.check, 1)
+        head.addWidget(muted(QLabel(f"{layer.featureCount():,}".replace(",", " "))))
+        outer.addLayout(head)
 
+        self.details = QWidget()
+        grid = QGridLayout(self.details)
+        grid.setContentsMargins(22, 0, 0, 2)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(3)
         self.role = QComboBox()
         for key in sx.ROLES_BY_KIND.get(sx.geometry_kind(layer), []):
             self.role.addItem(sx.ROLE_LABELS[key], key)
         self.role.setCurrentIndex(max(0, self.role.findData(role)))
         self.role.setToolTip("How the layer is drawn and analysed in 3D")
-        grid.addWidget(self.role, 1, 0, 1, 3)
+        grid.addWidget(muted(QLabel("Role")), 0, 0)
+        grid.addWidget(self.role, 0, 1, 1, 2)
 
-        grid.addWidget(QLabel("Height"), 2, 0)
+        grid.addWidget(muted(QLabel("Height")), 1, 0)
         self.height = QgsFieldExpressionWidget()
         self.height.setLayer(layer)
         self.height.setExpression(guess_height_expression(layer, role))
         self.height.setToolTip("Height in metres above the ground, e.g. \"floors\" * 3.2")
-        grid.addWidget(self.height, 2, 1, 1, 2)
+        grid.addWidget(self.height, 1, 1, 1, 2)
 
-        self.base_label = QLabel("Bottom")
+        self.base_label = muted(QLabel("Bottom"))
         self.base = QgsFieldExpressionWidget()
         self.base.setLayer(layer)
         self.base.setExpression(guess_base_expression(layer))
         self.base.setToolTip("Optional: where the extrusion starts above the ground, e.g. \"min_height\" for a "
                              "tower part standing on a podium. Leave empty to start at the ground.")
-        grid.addWidget(self.base_label, 3, 0)
-        grid.addWidget(self.base, 3, 1, 1, 2)
+        grid.addWidget(self.base_label, 2, 0)
+        grid.addWidget(self.base, 2, 1, 1, 2)
 
+        grid.addWidget(muted(QLabel("Colour")), 3, 0)
         self.color = QComboBox()
-        self.color.addItem("QGIS style colours", "qgis")
+        self.color.addItem("QGIS style", "qgis")
         self.color.addItem("Single colour", "single")
         self.color.setToolTip("Colours come from the layer's QGIS symbology; you can recolour by any field in the viewer")
-        grid.addWidget(self.color, 4, 0, 1, 2)
+        grid.addWidget(self.color, 3, 1)
         self.scenario = QComboBox()
         self.scenario.addItem("Existing", "both")
         self.scenario.addItem("Scenario A", "A")
         self.scenario.addItem("Scenario B", "B")
         self.scenario.setToolTip("Existing buildings appear in every scenario; A/B layers are compared in the viewer")
-        grid.addWidget(self.scenario, 4, 2)
+        grid.addWidget(self.scenario, 3, 2)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
+        outer.addWidget(self.details)
         self.role.currentIndexChanged.connect(self._role_changed)
+        self.check.toggled.connect(self._checked)
         self._role_changed()
+        self._checked(self.check.isChecked())
+
+    def _checked(self, on: bool) -> None:
+        self.details.setVisible(on)
+        self.setProperty("on", "true" if on else "false")
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def _role_changed(self) -> None:
         role = self.role.currentData()
@@ -202,79 +232,96 @@ class Geo3DDock(QDockWidget):
     # ------------------------------------------------------------ UI
     def _build(self) -> None:
         body = QWidget()
+        body.setObjectName("g3dPanel")
+        body.setStyleSheet(PANEL_QSS)
         root = QVBoxLayout(body)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(8)
-        intro = QLabel("Build a 3D scene from a DEM and your layers, open it in the browser, "
-                       "run sun, sky, wind, comfort and terrain analyses, and send results back here.")
-        intro.setWordWrap(True)
-        root.addWidget(intro)
+        root.addWidget(Header(os.path.join(self.plugin_dir, "icons", "icon.png"), PLUGIN_VERSION,
+                              lambda: QDesktopServices.openUrl(QUrl(HELP_URL))))
 
         # 1 Terrain
-        g1 = QGroupBox("1  Terrain")
-        l1 = QGridLayout(g1)
+        c1 = StepCard(1, "Terrain", "A DEM gives the ground its shape; leave it empty for flat ground.")
+        form1 = QGridLayout()
+        form1.setHorizontalSpacing(8)
         self.dem = QgsMapLayerComboBox()
         self.dem.setFilters(QgsMapLayerProxyModel.Filter.RasterLayer)
         self.dem.setAllowEmptyLayer(True)
         with contextlib.suppress(TypeError):
             self.dem.setAllowEmptyLayer(True, "Flat ground (no DEM)")
         self.dem.setToolTip("Elevation raster (DEM/DSM). Leave empty for flat ground.")
-        l1.addWidget(QLabel("DEM"), 0, 0)
-        l1.addWidget(self.dem, 0, 1)
+        form1.addWidget(muted(QLabel("DEM")), 0, 0)
+        form1.addWidget(self.dem, 0, 1)
         self.area = QComboBox()
         self.area.addItem("DEM extent", AREA_DEM)
         self.area.addItem("Current map view", AREA_VIEW)
         self.area.addItem("Extent of the selected objects", AREA_OBJECTS)
         self.area.setToolTip("The scene covers this area; objects outside it are left out")
-        l1.addWidget(QLabel("Area"), 1, 0)
-        l1.addWidget(self.area, 1, 1)
+        form1.addWidget(muted(QLabel("Area")), 1, 0)
+        form1.addWidget(self.area, 1, 1)
+        form1.setColumnStretch(1, 1)
+        c1.body.addLayout(form1)
+        self.quick_button = QPushButton("Quick 3D of this DEM")
+        self.quick_button.setIcon(QIcon(os.path.join(self.plugin_dir, "icons", "quick3d.png")))
+        self.quick_button.setToolTip("Open the DEM alone in 3D, over the current map view (or the whole DEM), "
+                                     "without exporting any layer")
+        self.quick_button.clicked.connect(lambda: self.quick_3d())
+        c1.body.addWidget(self.quick_button)
+        more1 = QWidget()
+        form_more1 = QGridLayout(more1)
+        form_more1.setContentsMargins(0, 0, 0, 0)
+        form_more1.setHorizontalSpacing(8)
         self.cell = QComboBox()
         for label, value in GRID_CHOICES:
             self.cell.addItem(label, value)
         self.cell.setToolTip("Terrain grid resolution. Automatic uses the DEM's own resolution.")
-        l1.addWidget(QLabel("Grid"), 2, 0)
-        l1.addWidget(self.cell, 2, 1)
+        form_more1.addWidget(muted(QLabel("Grid")), 0, 0)
+        form_more1.addWidget(self.cell, 0, 1)
         self.detail = QComboBox()
         for label, value in DETAIL_CHOICES:
             self.detail.addItem(label, value)
         self.detail.setCurrentIndex(1)
         self.detail.setToolTip("Most cells on the longest side. Above 1024 the viewer draws the terrain in tiles "
                                "whose density follows the camera, so large fine DEMs stay smooth.")
-        l1.addWidget(QLabel("Detail limit"), 3, 0)
-        l1.addWidget(self.detail, 3, 1)
-        self.quick_button = QPushButton("Quick 3D: show this DEM now")
-        self.quick_button.setToolTip("Open the DEM alone in 3D, over the current map view (or the whole DEM), "
-                                     "without exporting any layer")
-        self.quick_button.clicked.connect(lambda: self.quick_3d())
-        l1.addWidget(self.quick_button, 4, 0, 1, 2)
-        root.addWidget(g1)
+        form_more1.addWidget(muted(QLabel("Detail limit")), 1, 0)
+        form_more1.addWidget(self.detail, 1, 1)
+        form_more1.setColumnStretch(1, 1)
+        c1.body.addWidget(Fold("More options", more1))
+        root.addWidget(c1)
 
         # 2 Objects
-        g2 = QGroupBox("2  Objects")
-        l2 = QVBoxLayout(g2)
+        c2 = StepCard(2, "Objects", "Tick the layers to show in 3D; a ticked layer shows its role, height and colour.")
         self.rows_box = QVBoxLayout()
         self.rows_box.setSpacing(4)
-        l2.addLayout(self.rows_box)
-        self.empty_label = QLabel("No vector layers in the project yet.")
-        self.empty_label.setWordWrap(True)
-        l2.addWidget(self.empty_label)
+        c2.body.addLayout(self.rows_box)
+        self.empty_label = hint("No vector layers in the project yet. Add buildings, trees or lines, "
+                                "or download OpenStreetMap buildings below.")
+        c2.body.addWidget(self.empty_label)
         buttons = QHBoxLayout()
-        refresh = QPushButton("Refresh list")
+        refresh = QToolButton()
+        refresh.setIcon(theme_icon("/mActionRefresh.svg"))
+        refresh.setToolTip("Refresh the list of layers")
+        refresh.setAutoRaise(True)
         refresh.clicked.connect(self.refresh_layers)
         self.osm_button = QPushButton("Download OSM buildings && trees")
+        self.osm_button.setIcon(theme_icon("/mActionAddLayer.svg"))
         self.osm_button.setToolTip("Buildings (with heights from OSM tags) and trees for the scene area, "
                                    "from the OpenStreetMap Overpass API")
         self.osm_button.clicked.connect(self.download_osm)
+        buttons.addWidget(self.osm_button, 1)
         buttons.addWidget(refresh)
-        buttons.addWidget(self.osm_button)
-        l2.addLayout(buttons)
+        c2.body.addLayout(buttons)
 
-        l2.addWidget(QLabel("Climate rasters (draped on the ground, averaged per building)"))
+        climate_box = QWidget()
+        lc = QVBoxLayout(climate_box)
+        lc.setContentsMargins(0, 0, 0, 0)
+        lc.setSpacing(4)
+        lc.addWidget(hint("Rasters to drape on the ground and average per building, e.g. land surface "
+                          "temperature or NDVI."))
         self.climate = QListWidget()
         self.climate.setMaximumHeight(80)
         self.climate.setToolTip("e.g. land surface temperature, air temperature, NDVI")
-        l2.addWidget(self.climate)
-
+        lc.addWidget(self.climate)
         epw_row = QHBoxLayout()
         self.epw = QgsFileWidget()
         self.epw.setFilter("EnergyPlus weather (*.epw)")
@@ -282,58 +329,70 @@ class Geo3DDock(QDockWidget):
         nearest = QPushButton("Nearest station…")
         nearest.setToolTip("Download the TMYx weather file of the nearest station from climate.onebuilding.org")
         nearest.clicked.connect(self.pick_station)
-        epw_row.addWidget(QLabel("Weather"))
+        epw_row.addWidget(muted(QLabel("Weather")))
         epw_row.addWidget(self.epw, 1)
         epw_row.addWidget(nearest)
-        l2.addLayout(epw_row)
-        root.addWidget(g2)
+        lc.addLayout(epw_row)
+        c2.body.addWidget(Fold("Climate data (optional)", climate_box))
+        root.addWidget(c2)
 
         # 3 Open in 3D
-        g3 = QGroupBox("3  Open in 3D")
-        l3 = QVBoxLayout(g3)
-        folder_row = QHBoxLayout()
+        c3 = StepCard(3, "Open in 3D", "The scene opens in your browser; results come back here as layers.")
+        self.open_button = QPushButton("Open in 3D")
+        self.open_button.setObjectName("g3dPrimary")
+        self.open_button.setIcon(QIcon(os.path.join(self.plugin_dir, "icons", "icon.png")))
+        self.open_button.setIconSize(QSize(22, 22))
+        self.open_button.setMinimumHeight(40)
+        self.open_button.clicked.connect(self.open_in_3d)
+        c3.body.addWidget(self.open_button)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setVisible(False)
+        c3.body.addWidget(self.progress)
+        actions = QHBoxLayout()
+        actions.setSpacing(4)
+        self.reopen = QPushButton("Viewer")
+        self.reopen.setIcon(theme_icon("/mActionShowAllLayers.svg"))
+        self.reopen.setToolTip("Show the viewer of the last scene again")
+        self.reopen.clicked.connect(self.show_viewer)
+        self.reopen.setEnabled(False)
+        self.qgis3d_button = QPushButton("QGIS 3D")
+        self.qgis3d_button.setIcon(theme_icon("/mActionNew3DMap.svg"))
+        self.qgis3d_button.setToolTip("Use the DEM as the project's 3D terrain, extrude the ticked building layers "
+                                      "with their height expressions and colours, and open a QGIS 3D map view")
+        self.qgis3d_button.clicked.connect(self.setup_qgis_3d)
+        open_folder = QPushButton("Folder")
+        open_folder.setIcon(theme_icon("/mIconFolderOpen.svg"))
+        open_folder.setToolTip("Open the scene folder (scene files and analysis results)")
+        open_folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(self.folder.filePath())))
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self._request_cancel)
+        self.cancel_button.setVisible(False)
+        for w in (self.reopen, self.qgis3d_button, open_folder, self.cancel_button):
+            actions.addWidget(w)
+        c3.body.addLayout(actions)
+        more3 = QWidget()
+        folder_row = QHBoxLayout(more3)
+        folder_row.setContentsMargins(0, 0, 0, 0)
         self.folder = QgsFileWidget()
         self.folder.setStorageMode(QgsFileWidget.StorageMode.GetDirectory)
         self.folder.setFilePath(self._default_scene_dir())
         self.folder.setToolTip("Scene files and analysis results are written here")
-        folder_row.addWidget(QLabel("Folder"))
+        folder_row.addWidget(muted(QLabel("Folder")))
         folder_row.addWidget(self.folder, 1)
-        l3.addLayout(folder_row)
-        self.open_button = QPushButton("Open in 3D")
-        self.open_button.setMinimumHeight(36)
-        font = self.open_button.font()
-        font.setBold(True)
-        self.open_button.setFont(font)
-        self.open_button.clicked.connect(self.open_in_3d)
-        l3.addWidget(self.open_button)
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        self.progress.setVisible(False)
-        l3.addWidget(self.progress)
-        actions = QHBoxLayout()
-        self.reopen = QPushButton("Show viewer")
-        self.reopen.clicked.connect(self.show_viewer)
-        self.reopen.setEnabled(False)
-        self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.clicked.connect(self._request_cancel)
-        self.cancel_button.setVisible(False)
-        self.qgis3d_button = QPushButton("QGIS 3D view")
-        self.qgis3d_button.setToolTip("Use the DEM as the project's 3D terrain, extrude the ticked building layers "
-                                      "with their height expressions and colours, and open a QGIS 3D map view")
-        self.qgis3d_button.clicked.connect(self.setup_qgis_3d)
-        open_folder = QPushButton("Open folder")
-        open_folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(self.folder.filePath())))
-        actions.addWidget(self.reopen)
-        actions.addWidget(self.qgis3d_button)
-        actions.addWidget(open_folder)
-        actions.addWidget(self.cancel_button)
-        l3.addLayout(actions)
+        c3.body.addWidget(Fold("More options", more3))
+        root.addWidget(c3)
+
+        # Activity
         self.log = QListWidget()
         self.log.setMinimumHeight(90)
         self.log.setWordWrap(True)
-        l3.addWidget(QLabel("Messages and results"))
-        l3.addWidget(self.log)
-        root.addWidget(g3)
+        self.log.setFrameShape(QFrame.Shape.NoFrame)
+        log_box = QWidget()
+        ll = QVBoxLayout(log_box)
+        ll.setContentsMargins(0, 0, 0, 0)
+        ll.addWidget(self.log)
+        root.addWidget(Fold("Messages and results", log_box, opened=True))
         root.addStretch(1)
 
         scroll = QScrollArea()
