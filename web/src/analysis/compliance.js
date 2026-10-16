@@ -15,12 +15,12 @@ export const CRITERIA = [
   { id: 'amenity_sun', label: 'Sun on surrounding open ground (21 Mar)', short: 'Amenity sun',
     unit: '%', test: 'min', threshold: 50,
     help: 'Share of the open ground within 15 m that gets at least 2 h of sun on 21 March. BRE 209: at least half of an amenity area.' },
-  { id: 'facade_daylight', label: 'Facade sky view (daylight proxy)', short: 'Daylight',
-    unit: '', test: 'min', threshold: 0.34,
-    help: 'Mean sky view of the walls. 0.34 is about the sky a wall sees at a vertical sky component of 27 % (BRE 209); a screening proxy, not VSC.' },
-  { id: 'neighbour_daylight', label: 'Daylight kept after scenario B (B / A)', short: 'B / A daylight',
+  { id: 'facade_vsc', label: 'Daylight on the walls (VSC)', short: 'Daylight',
+    unit: '%', test: 'min', threshold: 27,
+    help: 'Mean vertical sky component of the walls under the CIE overcast sky. BRE 209: 27 % or more at a window keeps enough daylight (39.6 % is an open wall).' },
+  { id: 'neighbour_daylight', label: 'Daylight kept after scenario B (VSC B / A)', short: 'B / A daylight',
     unit: '×', test: 'min', threshold: 0.8,
-    help: 'Facade sky view with scenario B divided by that with A. BRE 209: a reduction below 0.8 times the former value is noticeable. Needs "Run A vs B" with sky view.' },
+    help: 'Wall VSC with scenario B divided by that with A. BRE 209: less than 0.8 times the former value is a noticeable loss. Needs "Run A vs B" with daylight (VSC).' },
   { id: 'wind', label: 'Windy hours around it', short: 'Wind',
     unit: '%', test: 'max', threshold: 5,
     help: 'Share of the hours with pedestrian wind above 5 m/s (needs the climate year and an EPW).' },
@@ -30,6 +30,9 @@ export const CRITERIA = [
 ];
 
 export const PROFILE_FORMAT = '02geo3d-planning-profile';
+// Criteria renamed since a profile may have been saved: the old id switches
+// the new criterion on, but its threshold is not carried over (other units).
+const RENAMED = { facade_daylight: 'facade_vsc' };
 
 /** The built-in profile: every criterion at its default threshold. */
 export function defaultProfile() {
@@ -60,6 +63,11 @@ export function parseProfile(text) {
   out.criteria = [];
   const ignored = [];
   for (const item of data.criteria) {
+    const renamed = RENAMED[item?.id];
+    if (renamed) {
+      if (item.enabled !== false && !out.criteria.includes(renamed)) out.criteria.push(renamed);
+      continue;
+    }
     const c = known.get(item?.id);
     if (!c) { ignored.push(String(item?.id)); continue; }
     const v = Number(item.threshold);
@@ -141,20 +149,20 @@ export async function planningCheck(app, { scope, criteria, thresholds, profile 
     }
     for (const [k, [ok, n]] of acc) values.get('amenity_sun').set(k, (100 * ok) / n);
   }
-  // 2. Facade daylight proxy (sky view with facades).
-  if (values.has('facade_daylight')) {
-    const res = await a.skyView({ area, cell, directions: 144, facades: true, onProgress: step(1) });
+  // 2. Daylight on the walls: vertical sky component.
+  if (values.has('facade_vsc')) {
+    const res = await a.daylightVsc({ area, directions: 192, onProgress: step(1) });
     for (const fld of res[0].fields) {
-      if (fld.name !== 'svf_facade') continue;
-      fld.layer.setResultField('svf_facade', fld.values);
-      fld.values.forEach((v, i) => { if (Number.isFinite(v)) values.get('facade_daylight').set(featureKey(fld.layer.index, i + 1), v); });
+      fld.layer.setResultField(fld.name, fld.values);
+      if (fld.name !== 'vsc_facade') continue;
+      fld.values.forEach((v, i) => { if (Number.isFinite(v)) values.get('facade_vsc').set(featureKey(fld.layer.index, i + 1), v); });
     }
   }
-  // 3. Neighbour daylight after scenario B (from a previous "Run A vs B" with sky view).
+  // 3. Neighbour daylight after scenario B (from a previous "Run A vs B" with daylight).
   if (values.has('neighbour_daylight')) {
     for (const t of targets) {
-      const A = t.layer.extraFields.get('svf_facade_A')?.[t.f];
-      const B = t.layer.extraFields.get('svf_facade_B')?.[t.f];
+      const A = t.layer.extraFields.get('vsc_facade_A')?.[t.f];
+      const B = t.layer.extraFields.get('vsc_facade_B')?.[t.f];
       if (Number.isFinite(A) && Number.isFinite(B) && A > 0) values.get('neighbour_daylight').set(keyOf(t), B / A);
     }
   }

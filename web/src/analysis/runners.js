@@ -14,6 +14,8 @@ import { blockIndicators, LCZ_LABELS, LCZ_COLORS } from '../core/morphology.js';
 import { gridStats } from '../core/terrain_math.js';
 import { splitKey, ExtrudedLayer, PointLayer } from '../scene/objects.js';
 import { climateAroundBuildings } from './climate.js';
+import { vscDirections, VSC_OPEN, VSC_TARGET } from '../core/daylight_rule.js';
+import { coverIndex, coverAt, isOpen } from '../core/party_walls.js';
 
 const DEG = Math.PI / 180;
 
@@ -102,8 +104,20 @@ export class Analyst {
       }
     }
     const s = Math.max(spacing, Math.sqrt(totalArea / maxPoints));
-    const pos = [], nrm = [], keys = [], areas = [];
+    const pos = [], nrm = [], keys = [], areas = [], levels = [], open = [];
     const terrain = this.app.terrain;
+    // Buildings that can stand against a sampled wall: party walls are marked
+    // (open = 0) so window-based measures such as VSC can leave them out.
+    const near = { minX: area.minX - 60, maxX: area.maxX + 60, minY: area.minY - 60, maxY: area.maxY + 60 };
+    const cover = [];
+    for (const layer of layers) {
+      for (let f = 0; f < layer.count; f++) {
+        if (!inArea(layer.centroid[f * 2], layer.centroid[f * 2 + 1], near)) continue;
+        cover.push({ id: layer.index * (1 << 20) + f + 1, rings: polygons(layer.features[f].geometry).map((p) => p[0]),
+          bottom: layer.baseZ[f] + (layer.minH?.[f] || 0), top: layer.baseZ[f] + layer.heights[f] });
+      }
+    }
+    const index = coverIndex(cover);
     for (const layer of layers) {
       for (let f = 0; f < layer.count; f++) {
         if (!inArea(layer.centroid[f * 2], layer.centroid[f * 2 + 1], area)) continue;
@@ -128,11 +142,14 @@ export class Analyst {
               for (let a = 0; a < nh; a++) {
                 const t = (a + 0.5) / nh;
                 const x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
+                const spans = coverAt(index, x + nx * 0.6, y + ny * 0.6, key);
                 for (let v = 0; v < nv; v++) {
                   pos.push(x, baseY + ((v + 0.5) * h) / nv, -y);
                   nrm.push(nx, 0, -ny);
                   keys.push(key);
                   areas.push(cellArea);
+                  levels.push(((v + 0.5) * h) / nv);
+                  open.push(spans.length && !isOpen(layer.baseZ[f] + ((v + 0.5) * h) / nv, spans) ? 0 : 1);
                 }
               }
             }
@@ -141,7 +158,7 @@ export class Analyst {
       }
     }
     return { positions: Float32Array.from(pos), normals: Float32Array.from(nrm), keys: Int32Array.from(keys),
-      areas: Float32Array.from(areas), count: keys.length, spacing: s };
+      areas: Float32Array.from(areas), levels: Float32Array.from(levels), open: Uint8Array.from(open), count: keys.length, spacing: s };
   }
 
   async facadeRun(samples, { directions, cosMode, lift = 0.35, area, onProgress = null }) {
@@ -328,6 +345,63 @@ export class Analyst {
       grid: run.grid, values: run.values, ids: run.ids, display: { min: 0, max: 1, ramp: 'viridis' }, facade, fields,
       stats: [['Open ground, mean SVF', st.mean.toFixed(2)], ['Open ground, min SVF', st.min.toFixed(2)]],
       notes: 'SVF = 1 for an open horizontal surface, 0.5 for an unobstructed wall.'
+    }];
+  }
+
+  // ------------------------------------------------------------ daylight (VSC)
+  /**
+   * Vertical sky component on every wall (BRE 209): the share of the
+   * illuminance an unobstructed horizontal surface gets from the CIE overcast
+   * sky that reaches the wall point, with the buildings, trees and terrain in
+   * the way. 39.6 % on an open wall; BRE 209 looks for 27 % at a window, or
+   * at least 0.8 times the former value where something new is built.
+   */
+  async daylightVsc({ area, directions = 192, onProgress }) {
+    const samples = this.facadeSamples(area);
+    if (!samples.count) throw new Error('No building walls in the analysis area.');
+    const dirs = vscDirections(skyHemisphere(directions));
+    const res = await this.facadeRun(samples, { directions: dirs, cosMode: 1, area, onProgress });
+    // Divide by the unobstructed sum and scale to the exact open value: the
+    // finite set of directions then cancels out of the result.
+    // Party walls (against another building) have no windows: left out.
+    const vsc = new Float32Array(samples.count);
+    let partyArea = 0, allArea = 0;
+    for (let i = 0; i < samples.count; i++) {
+      allArea += samples.areas[i];
+      if (!samples.open[i]) { vsc[i] = NaN; partyArea += samples.areas[i]; continue; }
+      const p = res.potential[i];
+      vsc[i] = Number.isFinite(res.values[i]) && p > 0 ? (100 * VSC_OPEN * res.values[i]) / p : NaN;
+    }
+    // Per building: the mean, the lowest storey (the first 3 m, where BRE 209
+    // looks first) and the share of wall at the 27 % target.
+    const all = this.aggregateSamples(samples.keys, vsc, samples.areas);
+    const lowKeys = [], lowVals = [], lowAreas = [], hitVals = new Float32Array(samples.count);
+    for (let i = 0; i < samples.count; i++) {
+      hitVals[i] = Number.isFinite(vsc[i]) ? (vsc[i] >= 100 * VSC_TARGET ? 100 : 0) : NaN;
+      if (samples.levels[i] <= 3) { lowKeys.push(samples.keys[i]); lowVals.push(vsc[i]); lowAreas.push(samples.areas[i]); }
+    }
+    const fields = [
+      ...this.toFields(all, 'vsc_facade'),
+      ...this.toFields(this.aggregateSamples(Int32Array.from(lowKeys), Float32Array.from(lowVals), Float32Array.from(lowAreas)), 'vsc_ground'),
+      ...this.toFields(this.aggregateSamples(samples.keys, hitVals, samples.areas), 'vsc27_share')
+    ];
+    let wallArea = 0, okArea = 0, sum = 0;
+    for (let i = 0; i < samples.count; i++) {
+      if (!Number.isFinite(vsc[i])) continue;
+      wallArea += samples.areas[i]; sum += vsc[i] * samples.areas[i];
+      if (vsc[i] >= 100 * VSC_TARGET) okArea += samples.areas[i];
+    }
+    let buildings = 0, okBuildings = 0;
+    for (const a of all.values()) { buildings++; if (a.mean >= 100 * VSC_TARGET) okBuildings++; }
+    return [{
+      kind: 'vsc', title: 'Daylight on facades (VSC)', subtitle: `${directions} sky directions, CIE overcast sky`, unit: '%',
+      facade: { ...samples, values: vsc, unit: '%', min: 0, max: 100 * VSC_OPEN, ramp: 'viridis' },
+      display: { min: 0, max: 100 * VSC_OPEN, ramp: 'viridis' }, fields,
+      stats: [['Mean VSC on walls', `${(sum / Math.max(1e-9, wallArea)).toFixed(1)} %`],
+        ['Wall area at 27 % or more', `${((100 * okArea) / Math.max(1e-9, wallArea)).toFixed(0)} %`],
+        ['Buildings with a mean of 27 % or more', `${okBuildings} / ${buildings}`],
+        ['Party walls left out', `${((100 * partyArea) / Math.max(1e-9, allArea)).toFixed(0)} % of the wall area`]],
+      notes: 'Vertical sky component (BRE 209) at points on every wall: 39.6 % for an open wall; 27 % or more at a window keeps enough daylight, and a new building should not leave a window with less than 0.8 times its former VSC. Walls built against another building have no windows and are left out. Fields: vsc_facade (mean), vsc_ground (lowest 3 m), vsc27_share (% of wall at 27 %).'
     }];
   }
 

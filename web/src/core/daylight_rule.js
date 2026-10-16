@@ -17,17 +17,20 @@ const DEG = 180 / Math.PI;
 export const BRE_FACTOR = 0.8;
 
 /**
- * Vertical sky component (0..1) of a window facing a long horizontal
- * obstruction whose top is `angle` radians above the horizontal, under the
- * CIE standard overcast sky (luminance ∝ 1 + 2 sin γ). Integrating over the
- * sky in front of the window and dividing by the unobstructed horizontal
- * illuminance gives
- *   VSC(θ) = 2 (π/4 − θ/2 − sin 2θ / 4 + 2 cos³θ / 3) / (7π / 3),
- * 0.396 for an open window (the familiar 39.6 % maximum) and 0 at 90°.
+ * Vertical sky component (0..1) of a window facing a long obstruction
+ * parallel to it whose top is `angle` radians above the horizontal in the
+ * section at right angles to the wall, under the CIE standard overcast sky
+ * (luminance ∝ 1 + 2 sin γ). With ψ the elevation in that section and β the
+ * angle out of it, a direction is (cos β cos ψ, cos β sin ψ, sin β); the sky
+ * above ψ = θ, weighted by the cosine to the wall normal and divided by the
+ * unobstructed horizontal illuminance 7π/3, integrates to
+ *   VSC(θ) = [ (π/2)(1 − sin θ) + (4/3) cos²θ ] / (7π/3):
+ * 39.6 % for an open window and 27.3 % at 25°, the pair BRE 209 relates
+ * (checked against direct numerical integration in the tests).
  */
 export function vscLong(angle) {
   const t = Math.max(0, Math.min(Math.PI / 2, angle));
-  return (2 * (Math.PI / 4 - t / 2 - Math.sin(2 * t) / 4 + (2 / 3) * Math.cos(t) ** 3)) / ((7 * Math.PI) / 3);
+  return ((Math.PI / 2) * (1 - Math.sin(t)) + (4 / 3) * Math.cos(t) ** 2) / ((7 * Math.PI) / 3);
 }
 
 function signedArea(ring) {
@@ -152,6 +155,24 @@ export function checkRule(prep, tops) {
     }
   }
   return { failing, excessDeg: excess, worstDeg: Math.atan(worst) * DEG, neighboursHit: hit.size };
+}
+
+/** VSC of an unobstructed vertical window (0.396). */
+export const VSC_OPEN = vscLong(0);
+/** BRE 209: a window with a VSC of 27 % or more keeps enough daylight. */
+export const VSC_TARGET = 0.27;
+
+/**
+ * Sky directions weighted so that the GPU sum of weight x visibility x
+ * max(0, n.d) on a vertical window is its VSC: each direction stands for an
+ * equal solid angle 2π/n of the hemisphere, the CIE overcast sky luminance
+ * goes as 1 + 2 sin γ, and the unobstructed horizontal illuminance is 7π/3
+ * in the same units, so weight = (2π/n)(1 + 2 sin γ) / (7π/3).
+ * @param {{ dir: number[] }[]} hemisphere directions uniform in solid angle (y up)
+ */
+export function vscDirections(hemisphere) {
+  const n = hemisphere.length;
+  return hemisphere.map((d) => ({ dir: d.dir, weight: (6 / (7 * n)) * (1 + 2 * Math.max(0, d.dir[1])) }));
 }
 
 const allowedCache = new Map();

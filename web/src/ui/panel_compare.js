@@ -45,7 +45,8 @@ function scenarioCard(app) {
         startHour: p.sun.start, endHour: p.sun.end, stepMinutes: p.sun.step, onProgress: prog }),
       svf: (prog) => app.analyst.skyView({ area: app.area(), cell: app.cell(), directions: p.svf.directions, onProgress: prog }),
       solar: (prog) => app.analyst.solarRadiation({ area: app.area(), cell: app.cell(), tiltDeg: p.solar.tilt, azimuthDeg: p.solar.azimuth, onProgress: prog }),
-      wind: (prog) => app.analyst.wind({ area: app.area(), cell: Math.max(2, app.cell(600)), windFromDeg: p.wind.from, speed10: p.wind.speed, onProgress: prog })
+      wind: (prog) => app.analyst.wind({ area: app.area(), cell: Math.max(2, app.cell(600)), windFromDeg: p.wind.from, speed10: p.wind.speed, onProgress: prog }),
+      vsc: (prog) => app.analyst.daylightVsc({ area: app.area(), onProgress: prog })
     };
     const before = app.scenario || 'A';
     await app.run('Scenario comparison', async (prog) => {
@@ -54,6 +55,7 @@ function scenarioCard(app) {
       showScenario(app, 'B');
       const rb = (await runners[state.kind]((f) => prog(0.5 + f / 2)))[0];
       showScenario(app, before);
+      if (!ra.grid) return [pairOnWalls(app, ra, rb, state.kind), { ...ra, title: `A: ${ra.title}`, fields: [] }, { ...rb, title: `B: ${rb.title}`, fields: [] }];
       const diff = new Float32Array(ra.values.length).fill(NaN);
       let gain = 0, loss = 0, n = 0;
       const tol = state.kind === 'svf' ? 0.02 : state.kind === 'wind' ? 0.2 : state.kind === 'solar' ? 20 : 0.25;
@@ -94,11 +96,38 @@ function scenarioCard(app) {
   const body = h('div', {},
     stats([['Scenario A layers', a.map((l) => l.entry.name).join(', ') || '–'], ['Scenario B layers', b.map((l) => l.entry.name).join(', ') || '–']]),
     row('Show', select([['A', 'Existing + A'], ['B', 'Existing + B']], app.scenario || 'A', (v) => showScenario(app, v))),
-    row('Compare', select([['sun', 'Sun hours'], ['svf', 'Sky view factor'], ['solar', 'Solar irradiation'], ['wind', 'Pedestrian wind']], state.kind, (v) => { state.kind = v; })),
+    row('Compare', select([['sun', 'Sun hours'], ['svf', 'Sky view factor'], ['vsc', 'Daylight on facades (VSC)'], ['solar', 'Solar irradiation'], ['wind', 'Pedestrian wind']], state.kind, (v) => { state.kind = v; })),
     h('div', { class: 'btn-row' }, button('Run A vs B', runPair, { kind: 'primary run' })),
     info);
   app.scenario = 'A';
   return card('Scenarios', body, { open: true });
+}
+
+/** Per-building fields of a pair of wall results (A, B, change) and the BRE 0.8 test for daylight. */
+function pairOnWalls(app, ra, rb, kind) {
+  const fields = [];
+  let losing = 0, compared = 0;
+  for (const fa of ra.fields || []) {
+    const fb = (rb.fields || []).find((x) => x.layer === fa.layer && x.name === fa.name);
+    if (!fb) continue;
+    const d = new Float32Array(fa.values.length).fill(NaN);
+    const ratio = new Float32Array(fa.values.length).fill(NaN);
+    for (let i = 0; i < d.length; i++) {
+      if (!Number.isFinite(fa.values[i]) || !Number.isFinite(fb.values[i])) continue;
+      d[i] = fb.values[i] - fa.values[i];
+      if (fa.values[i] > 0) ratio[i] = fb.values[i] / fa.values[i];
+      if (fa.name === 'vsc_facade') { compared++; if (ratio[i] < 0.8) losing++; }
+    }
+    fields.push({ layer: fa.layer, name: `${fa.name}_A`, values: fa.values }, { layer: fa.layer, name: `${fa.name}_B`, values: fb.values },
+      { layer: fa.layer, name: `d_${fa.name}`, values: d });
+    if (fa.name === 'vsc_facade') fields.push({ layer: fa.layer, name: 'vsc_ratio_BA', values: ratio });
+  }
+  app.lastScenario = { kind, title: ra.title };
+  return {
+    kind: `diff_${kind}`, title: `B − A: ${ra.title}`, subtitle: 'Per building: value in A, in B and the change', unit: ra.unit, fields,
+    stats: kind === 'vsc' ? [['Buildings compared', String(compared)], ['Losing more than a fifth of their VSC (BRE 209)', `${losing}`]] : [['Buildings compared', String(compared)]],
+    notes: 'BRE 209: a window left with less than 0.8 times its former vertical sky component loses daylight noticeably. The planning check reads vsc_facade_A and vsc_facade_B for its "daylight kept after scenario B" test.'
+  };
 }
 
 function optimiseCard(app) {
@@ -242,7 +271,7 @@ function optimiseCard(app) {
         if (!last || !selected) { toast('Apply a design first (click a point).'); return; }
         const p = app.params?.check || {};
         await app.run('Planning check of the design', (prog) => planningCheck(app, {
-          scope: 'targets', targets: last.targets, fresh: true, criteria: p.criteria || ['amenity_sun', 'facade_daylight', 'wind', 'heat'],
+          scope: 'targets', targets: last.targets, fresh: true, criteria: p.criteria || ['amenity_sun', 'facade_vsc', 'wind', 'heat'],
           thresholds: p.thresholds || {}, profile: p.name ? `${p.name} · optimised design` : 'Optimised design', onProgress: prog }));
       }, { title: 'Full planning check (sun on 21 March, facade daylight, wind and heat with an EPW) of the applied design, with the planning profile in use' }),
       button('CSV', () => {

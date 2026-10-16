@@ -96,6 +96,6 @@ export function applyHeightRule(layer, rule) {
 }
 
 const UNITS = { sun_h_roof: 'h', sun_h_facade: 'h', shade_pct_roof: '%', roof_kwh_m2: 'kWh/m²', pv_kwh_yr: 'kWh', pv_area_m2: 'm²',
-  facade_kwh_m2: 'kWh/m²', facade_pv_kwh_yr: 'kWh', visible_roof_pct: '%', svf_roof: '', svf_facade: '' };
+  facade_kwh_m2: 'kWh/m²', facade_pv_kwh_yr: 'kWh', visible_roof_pct: '%', svf_roof: '', svf_facade: '', vsc_facade: '%', vsc_ground: '%', vsc27_share: '%', vsc_ratio_BA: '×' };
 function unitOf(field) { return UNITS[field] || ''; }
 function rgbHex(c) { return `#${c.map((x) => Math.round(Math.max(0, Math.min(1, x)) * 255).toString(16).padStart(2, '0')).join('')}`; }

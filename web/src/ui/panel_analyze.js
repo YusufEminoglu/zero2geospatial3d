@@ -37,6 +37,7 @@ export function buildAnalyzePanel(app, root) {
     root.appendChild(areaCard(app));
     root.appendChild(sunCard(app));
     root.appendChild(svfCard(app));
+    root.appendChild(vscCard(app));
     root.appendChild(solarCard(app));
     root.appendChild(viewCard(app));
     root.appendChild(windCard(app));
@@ -167,6 +168,17 @@ function svfCard(app) {
     h('div', { class: 'btn-row' }, runButton(app, 'Run sky view factor', () => app.run('Sky view factor', (prog) => app.analyst.skyView({
       area: app.area(), cell: app.cell(), directions: p.directions, facades: p.facades, onProgress: prog })))));
   return card('Sky view factor', body);
+}
+
+function vscCard(app) {
+  app.params.vsc ??= { directions: 192 };
+  const p = app.params.vsc;
+  const body = h('div', {},
+    h('p', { class: 'muted small', text: 'Vertical sky component on every wall (BRE 209): how much daylight from an overcast sky reaches the facade. 39.6 % is an open wall; 27 % or more keeps a window well lit.' }),
+    row('Sky directions', select([[96, '96 (fast)'], [192, '192'], [384, '384 (fine)']], p.directions, (v) => { p.directions = Number(v); })),
+    h('div', { class: 'btn-row' }, runButton(app, 'Run daylight (VSC)', () => app.run('Daylight (VSC)', (prog) => app.analyst.daylightVsc({
+      area: app.area(), directions: p.directions, onProgress: prog })))));
+  return card('Daylight on facades (VSC)', body);
 }
 
 function solarCard(app) {
