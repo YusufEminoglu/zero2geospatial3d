@@ -75,8 +75,9 @@ export function judge(criterion, value) {
   return criterion.test === 'min' ? value >= criterion.threshold : value <= criterion.threshold;
 }
 
-/** Buildings to check: the selection, else scenario B layers, else all in the area. */
-export function scopeBuildings(app, scope) {
+/** Buildings to check: the selection, scenario B layers, all in the area, or a given list ('targets'). */
+export function scopeBuildings(app, scope, targets = null) {
+  if (scope === 'targets') return [...(targets || [])];
   const out = [];
   const layers = app.layers.filter((l) => l instanceof ExtrudedLayer && !l.isWall);
   if (scope === 'selected') {
@@ -112,8 +113,8 @@ function areaAround(app, targets, margin = 150) {
  * @param {any} app
  * @param {{ scope: string, criteria: string[], thresholds: Record<string, number>, onProgress?: (f: number) => void }} o
  */
-export async function planningCheck(app, { scope, criteria, thresholds, profile = '', onProgress }) {
-  const targets = scopeBuildings(app, scope);
+export async function planningCheck(app, { scope, criteria, thresholds, profile = '', targets: given = null, fresh = false, onProgress }) {
+  const targets = scopeBuildings(app, scope, given);
   if (!targets.length) throw new Error(scope === 'selected' ? 'Select buildings first (click, Shift+click, or select them in QGIS).' : 'No buildings to check.');
   const active = CRITERIA.filter((c) => criteria.includes(c.id)).map((c) => ({ ...c, threshold: thresholds[c.id] ?? c.threshold }));
   const area = scope === 'area' ? app.area() : areaAround(app, targets);
@@ -160,7 +161,8 @@ export async function planningCheck(app, { scope, criteria, thresholds, profile 
   // 4-5. Wind and summer heat from the climate year (run it if an EPW exists).
   const needClimate = values.has('wind') || values.has('heat');
   if (needClimate && app.weather?.dryBulb) {
-    const missing = targets.some((t) => !Number.isFinite(t.layer.extraFields.get('windy_pct')?.[t.f]));
+    // fresh: heights have changed since the stored climate fields were made.
+    const missing = fresh || targets.some((t) => !Number.isFinite(t.layer.extraFields.get('windy_pct')?.[t.f]));
     if (missing) {
       const res = await a.climateYear({ area, cell: Math.max(2, cell), sectors: 8, hourFrom: 7, hourTo: 22, ringMetres: 15, onProgress: step(2) });
       for (const fld of res[0].fields) fld.layer.setResultField(fld.name, fld.values);

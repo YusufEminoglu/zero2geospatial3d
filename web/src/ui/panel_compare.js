@@ -1,9 +1,10 @@
 // @ts-check
 // "Compare" tab: scenario A/B switch and difference analyses, and the
 // building-height optimiser.
-import { h, clear, row, select, number, button, card, stats, toast, download } from './dom.js';
+import { h, clear, row, select, number, button, card, stats, toast, download, toggle } from './dom.js';
 import { ExtrudedLayer } from '../scene/objects.js';
 import { optimiseHeights } from '../analysis/optimize.js';
+import { planningCheck } from '../analysis/compliance.js';
 import { drawScatter } from './charts.js';
 import { sendFields } from './qgis_link.js';
 import { gridStats } from '../core/terrain_math.js';
@@ -102,7 +103,9 @@ function scenarioCard(app) {
 
 function optimiseCard(app) {
   const o = { floorHeight: 3.2, minFloors: 1, maxFloors: 12, minGfa: 0, month: 12, day: 21, startHour: 8, endHour: 16, margin: 60,
-    populationSize: 16, generations: 12, seed: 1 };
+    populationSize: 16, generations: 12, seed: 1,
+    // Constraints; the sun share starts at the planning profile's amenity threshold.
+    amenityOn: false, amenityPct: app.params?.check?.thresholds?.amenity_sun ?? 50, daylightOn: false };
   const chart = h('canvas', { class: 'chart' });
   const info = h('div', {});
   const progressEl = h('div', { class: 'muted small' });
@@ -149,14 +152,24 @@ function optimiseCard(app) {
       date: { month: o.month, day: o.day }, hours: [o.startHour, o.endHour] };
     draw();
     clear(info);
-    info.appendChild(stats([['Sun on open ground', `${ind.extra.sun.toFixed(2)} h (now ${last.baseline.extra.sun.toFixed(2)} h)`],
-      ['Ground with ≥ 2 h sun', `${(ind.extra.twoHourShare * 100).toFixed(0)} % (now ${(last.baseline.extra.twoHourShare * 100).toFixed(0)} %)`],
-      ['Floor area', `${Math.round(ind.extra.gfa).toLocaleString('en-US')} m² (now ${Math.round(last.baseline.extra.gfa).toLocaleString('en-US')} m²)`],
-      ['Floors', ind.x.join(', ')]]));
+    const b = last.baseline.extra, e = ind.extra;
+    const rows2 = [['Sun on open ground', `${e.sun.toFixed(2)} h (now ${b.sun.toFixed(2)} h)`],
+      ['Ground with ≥ 2 h sun', `${(e.twoHourShare * 100).toFixed(0)} % (now ${(b.twoHourShare * 100).toFixed(0)} %)`],
+      ['Floor area', `${Math.round(e.gfa).toLocaleString('en-US')} m² (now ${Math.round(b.gfa).toLocaleString('en-US')} m²)`]];
+    if (e.amenityChecked !== undefined) {
+      rows2.push([`Buildings with ≥ ${last.amenityPct} % sunny ground`, `${e.amenityPass} / ${e.amenityChecked} (now ${b.amenityPass} / ${b.amenityChecked})`
+        + (e.amenityWorse ? `; ${e.amenityWorse} below it and under 0.8 × now` : '')]);
+    }
+    if (e.windowsOver !== undefined) {
+      rows2.push(['Neighbour windows losing daylight', `${e.windowsOver} of ${last.windows} (${e.neighboursHit} buildings)`]);
+    }
+    rows2.push(['Meets the constraints', ind.violation === 0 ? 'yes' : 'no']);
+    rows2.push(['Floors', ind.x.join(', ')]);
+    info.appendChild(stats(rows2));
   };
   const draw = () => {
     if (!last) return;
-    const pts = last.population.map((p, i) => ({ x: p.extra.gfa, y: p.extra.sun, front: p.rank === 0 && p.violation === 0, id: i }));
+    const pts = last.population.map((p, i) => ({ x: p.extra.gfa, y: p.extra.sun, front: p.rank === 0 && p.violation === 0, infeasible: p.violation > 0, id: i }));
     pts.push({ x: last.baseline.extra.gfa, y: last.baseline.extra.sun, front: false, current: true, id: -1 });
     const pick = drawScatter(chart, pts, { xLabel: 'Floor area (m²) →', yLabel: 'Sun on open ground (h) →', selected: selected ? last.population.indexOf(selected) : null });
     chart.onclick = (e) => { const id = pick(e); if (id !== null && id >= 0) apply(last.population[id]); };
@@ -167,17 +180,25 @@ function optimiseCard(app) {
     if (targets.length > 80) { toast('Select at most 80 buildings.'); return; }
     stop = false;
     const res = await app.run('Height optimisation', async (prog) => {
-      const r = await optimiseHeights(app, { ...o, targets, date: { month: o.month, day: o.day },
+      const constraints = { amenity: { on: o.amenityOn, share: o.amenityPct / 100 }, daylight: { on: o.daylightOn } };
+      const r = await optimiseHeights(app, { ...o, targets, date: { month: o.month, day: o.day }, constraints,
         onGeneration: (g) => { prog(g.generation / g.generations); progressEl.textContent = `Generation ${g.generation}/${g.generations}, ${g.evaluations} designs evaluated, ${g.front.length} on the front`; },
         shouldStop: () => stop });
-      last = { ...r, targets };
+      last = { ...r, targets, amenityPct: o.amenityPct };
       return [];
     });
     if (res === null || !last) return;
     draw();
     const best = last.front.filter((p) => p.violation === 0).sort((a2, b2) => b2.extra.sun - a2.extra.sun);
     clear(info);
-    info.appendChild(h('p', { class: 'muted small', text: `${last.evaluations} designs, ${best.length} on the Pareto front (blue). The ringed point marked "now" is the current design. Click a point to apply it.` }));
+    const constrained = o.amenityOn || o.daylightOn || o.minGfa > 0;
+    const feasible = last.population.filter((p) => p.violation === 0).length;
+    let msg = `${last.evaluations} designs, ${best.length} on the Pareto front (blue). The ringed point marked "now" is the current design. Click a point to apply it.`;
+    if (constrained) {
+      msg += feasible ? ` ${feasible} of the final ${last.population.length} meet every constraint; open orange rings break one.`
+        : ' No design met every constraint: the orange rings are the closest. Relax a constraint or allow fewer floors.';
+    }
+    info.appendChild(h('p', { class: 'muted small', text: msg }));
   };
   const body = h('div', {},
     h('p', { class: 'muted small', text: 'Searches floor counts of the selected buildings for the best trade-offs between floor area and sun on the open ground around them (NSGA-II).' }),
@@ -191,6 +212,14 @@ function optimiseCard(app) {
     row('Hours', h('span', { class: 'inline' }, number(o.startHour, { min: 0, max: 24, step: 1, width: '4em', onChange: (v) => { o.startHour = v; } }),
       number(o.endHour, { min: 0, max: 24, step: 1, width: '4em', onChange: (v) => { o.endHour = v; } }))),
     row('Ground scored within (m)', number(o.margin, { min: 10, step: 10, onChange: (v) => { o.margin = v; } })),
+    h('div', { class: 'muted small', text: 'Constraints (no extra analysis per design, so no slower):' }),
+    h('div', { class: 'check-row', title: 'Each selected building: at least this share of the open ground within 15 m gets 2 hours of sun on the day and hours above, or, where it falls short, at least 0.8 times the sunny area now (BRE 209, which uses 21 March and 50 %).' },
+      toggle(o.amenityOn, (v) => { o.amenityOn = v; }, 'Sun around each building'),
+      h('span', { class: 'muted small', text: '≥' }),
+      number(o.amenityPct, { min: 1, max: 100, step: 5, width: '4.5em', onChange: (v) => { if (v > 0) o.amenityPct = Math.min(100, v); } }),
+      h('span', { class: 'muted small', text: '% with 2 h' })),
+    h('div', { class: 'check-row', title: 'BRE 209: seen from the centre of each neighbouring lowest window, the new buildings stay under 25° above the horizontal, or the window keeps at least 0.8 times its vertical sky component now (taken for a long obstruction, on the safe side).' },
+      toggle(o.daylightOn, (v) => { o.daylightOn = v; }, 'Neighbours\u2019 daylight (25° test)')),
     row('Population / generations', h('span', { class: 'inline' }, number(o.populationSize, { min: 8, step: 4, width: '4em', onChange: (v) => { o.populationSize = v; } }),
       number(o.generations, { min: 2, step: 2, width: '4em', onChange: (v) => { o.generations = v; } }))),
     row('Random seed', number(o.seed, { min: 1, step: 1, onChange: (v) => { o.seed = v; } }), 'Same seed and settings give the same result'),
@@ -209,10 +238,18 @@ function optimiseCard(app) {
         const names = await sendFields(last.fields, 'viridis');
         toast(`opt_floors and opt_height_m sent to ${names.join(', ')}.`);
       }, { kind: 'primary' }) : null,
+      button('Check this design', async () => {
+        if (!last || !selected) { toast('Apply a design first (click a point).'); return; }
+        const p = app.params?.check || {};
+        await app.run('Planning check of the design', (prog) => planningCheck(app, {
+          scope: 'targets', targets: last.targets, fresh: true, criteria: p.criteria || ['amenity_sun', 'facade_daylight', 'wind', 'heat'],
+          thresholds: p.thresholds || {}, profile: p.name ? `${p.name} · optimised design` : 'Optimised design', onProgress: prog }));
+      }, { title: 'Full planning check (sun on 21 March, facade daylight, wind and heat with an EPW) of the applied design, with the planning profile in use' }),
       button('CSV', () => {
         if (!last) return;
-        const lines = ['design,on_front,sun_h,ground_2h_share,floor_area_m2,floors'];
-        last.population.forEach((p, i) => lines.push(`${i},${p.rank === 0},${p.extra.sun.toFixed(3)},${p.extra.twoHourShare.toFixed(3)},${Math.round(p.extra.gfa)},"${p.x.join(' ')}"`));
+        const lines = ['design,on_front,meets_constraints,sun_h,ground_2h_share,floor_area_m2,windows_over_25deg,buildings_with_sunny_ground,floors'];
+        last.population.forEach((p, i) => lines.push(`${i},${p.rank === 0},${p.violation === 0},${p.extra.sun.toFixed(3)},${p.extra.twoHourShare.toFixed(3)},${Math.round(p.extra.gfa)},`
+          + `${p.extra.windowsOver ?? ''},${p.extra.amenityPass ?? ''},"${p.x.join(' ')}"`));
         download('height_designs.csv', lines.join('\n'), 'text/csv');
       })));
   return card('Optimise building heights', body);

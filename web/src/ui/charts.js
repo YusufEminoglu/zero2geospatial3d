@@ -175,7 +175,14 @@ export function drawScatter(canvas, points, { xLabel = '', yLabel = '', selected
       ctx.fillText('now', X(p.x) + 8, Y(p.y) + 4);
       continue;
     }
-    ctx.arc(X(p.x), Y(p.y), p.front ? 4.5 : 2.5, 0, 2 * Math.PI);
+    ctx.arc(X(p.x), Y(p.y), p.front ? 4.5 : p.infeasible ? 3 : 2.5, 0, 2 * Math.PI);
+    if (p.infeasible && p.id !== selected) {
+      // Breaks a constraint: an open ring.
+      ctx.strokeStyle = 'rgba(200,120,40,0.75)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      continue;
+    }
     ctx.fillStyle = p.id === selected ? '#ff4f2e' : p.front ? '#1f6feb' : 'rgba(120,130,140,0.45)';
     ctx.fill();
   }

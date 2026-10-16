@@ -23,10 +23,12 @@ All notable changes to this project are documented here. The format follows
 - Planning-check profiles: name a set of criteria and thresholds, save it as a JSON file, load it back or share it (e.g. one per municipality or project); the last one used is remembered, and the planning sheet and CSV name the profile.
 - Planning check in QGIS: "To QGIS" styles the results layer by `check_failed` in the viewer's green, amber and red (buildings not checked in grey), in the 2D map and in QGIS's 3D view.
 - Terrain analyses (Terrain tab): elevation, slope (with the area in slope bands), aspect, hillshade, curvature, topographic position, ruggedness and a topographic wetness index from the DEM, over the whole DEM or the analysis area. Each is a result like sun hours: drawn on the ground (not on roofs), chosen in any compare panel and sent to QGIS as a GeoTIFF; "Run and compare" opens them side by side in 2 to 8 panels.
+- Constrained height optimisation: designs can be required to keep sun on the ground around each building (at least the profile's share with 2 h of sun, or 0.8 times the sunny area now) and daylight at the neighbours' windows (BRE 209: under 25°, or at least 0.8 times the window's vertical sky component now, taken for a long obstruction under the CIE overcast sky). Neither adds an analysis per design. Designs that break a constraint show as open orange rings; the applied design lists what it passes; "Check this design" runs the full planning check on it.
 - Compare panels show class legends (aspect, visibility, sun or shade) as swatches, on screen and in exports.
 - QGIS 3D view: results GeoPackages are extruded and coloured by class in QGIS's own 3D view; "QGIS 3D view" in the panel sets the DEM as terrain, extrudes the ticked building layers and opens a 3D map view.
 
 ### Changed
+- Height optimisation is about four times faster (118 to 26 ms per design on a 12-building test): building ids are drawn once instead of for every design, the terrain is locked once for the whole run, and the sun pass uses shadow maps with texels of half a cell (2048 instead of 4096 for a 2 m cell; the designs rank the same as with the full pass, Spearman 0.996, at most 0.65 % apart). Under constraints the search starts from one-floor-up variants of the current design, where the feasible designs are.
 - No 20 km limit on the scene area any more (a 250 km sanity limit remains); large scenes get a warning, analysis grids stay within 4096 cells a side, and the camera's clipping planes follow its distance.
 - Building colours match QGIS exactly (they were drawn too light: sRGB colours were treated as linear).
 - Automatic grid uses the DEM's own resolution.
@@ -35,6 +37,7 @@ All notable changes to this project are documented here. The format follows
 - Shadow bias follows the shadow-map texel size, so shadows touch the walls that cast them.
 
 ### Fixed
+- The planning check reused stored wind and heat fields after building heights had changed; the check of an optimised design reruns the climate year.
 - Results sent to QGIS now carry the viewer's exact colours: reversed ramps (e.g. canyon H/W) arrived unreversed and the terrain ramp as Viridis; class rasters (visibility, Local Climate Zones, sun or shade) arrived on a continuous ramp and now come as a palette with their labels.
 - The swipe divider stopped after its first movement: the drag rebuilt the panels and removed the divider it was holding. It now follows the pointer, with a wider grab area.
 - Images, PDF sheets and videos taken while compare views were on showed a single view. They now show every panel with its caption and legend (the scene title moves into the credits line), and the scale bar is measured on one panel.

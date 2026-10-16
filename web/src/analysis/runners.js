@@ -44,17 +44,19 @@ export class Analyst {
 
   // ------------------------------------------------------------ core runs
   /** Height-field run over an area, tiled. */
-  async gridRun({ area, cell, directions = [], cosMode = 0, normal = [0, 1, 0], lift = 0.3, eye = null, maxDistance = 1000, withIds = false, onProgress = null }) {
-    // Terrain tiles in the area are drawn at the analysis resolution while it runs.
-    this.app.terrain.lockForAnalysis(area, cell);
+  async gridRun({ area, cell, directions = [], cosMode = 0, normal = [0, 1, 0], lift = 0.3, eye = null, maxDistance = 1000, withIds = false,
+    depthResolution = 4096, lock = true, onProgress = null }) {
+    // Terrain tiles in the area are drawn at the analysis resolution while it
+    // runs (lock: false when the caller holds the lock over many runs).
+    if (lock) this.app.terrain.lockForAnalysis(area, cell);
     try {
-      return await this._gridRun({ area, cell, directions, cosMode, normal, lift, eye, maxDistance, withIds, onProgress });
+      return await this._gridRun({ area, cell, directions, cosMode, normal, lift, eye, maxDistance, withIds, depthResolution, onProgress });
     } finally {
-      this.app.terrain.lockForAnalysis(null);
+      if (lock) this.app.terrain.lockForAnalysis(null);
     }
   }
 
-  async _gridRun({ area, cell, directions, cosMode, normal, lift, eye, maxDistance, withIds, onProgress }) {
+  async _gridRun({ area, cell, directions, cosMode, normal, lift, eye, maxDistance, withIds, depthResolution = 4096, onProgress }) {
     const { grid, tiles } = planTiles(area, cell, Math.min(1024, this.engine.maxTexture));
     const n = grid.cols * grid.rows;
     const values = new Float32Array(n).fill(NaN);
@@ -69,7 +71,7 @@ export class Analyst {
       const bounds = { ...tile.bounds, minY: b.minY, maxY: b.maxY };
       const res = await this.engine.run({
         scene, tile: bounds, cols: tile.cols, rows: tile.rows, directions, cosMode, normal, lift, eye, maxDistance,
-        margin, depthResolution: 4096,
+        margin, depthResolution,
         onProgress: onProgress ? (f) => onProgress((t + f) / tiles.length) : undefined
       });
       const tileIds = withIds ? this.engine.idGrid(scene, bounds, tile.cols, tile.rows) : null;
