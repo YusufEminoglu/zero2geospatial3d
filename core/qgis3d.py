@@ -119,27 +119,204 @@ def style_layer_3d(layer: QgsVectorLayer, height_expr: str, classes: list | None
         with contextlib.suppress(AttributeError):
             else_rule.setIsElse(True)
         root.appendChild(else_rule)
-    layer.setRenderer3D(rule_cls(root))
-    layer.trigger3DUpdate()
+    renderer = rule_cls(root)
+    # LTR C++ NULL pointer crash defense: force renderer to bind to the layer
+    with contextlib.suppress(Exception):
+        renderer.setLayer(layer)
+    layer.setRenderer3D(renderer)
+    for method in ("trigger3DUpdate", "request3DUpdate", "triggerRepaint"):
+        fn = getattr(layer, method, None)
+        if fn is not None:
+            with contextlib.suppress(Exception):
+                fn()
     return True
 
 
 def set_terrain(dem: QgsRasterLayer, project: QgsProject | None = None) -> bool:
     """Use the DEM as the project's 3D terrain."""
-    from qgis.core import QgsRasterDemTerrainProvider
+    if dem is None or not dem.isValid():
+        return False
+    try:
+        from qgis.core import QgsRasterDemTerrainProvider
 
-    project = project or QgsProject.instance()
-    provider = QgsRasterDemTerrainProvider()
-    provider.setLayer(dem)
-    project.elevationProperties().setTerrainProvider(provider)
+        project = project or QgsProject.instance()
+        provider = QgsRasterDemTerrainProvider()
+        provider.setLayer(dem)
+        project.elevationProperties().setTerrainProvider(provider)
+        return True
+    except Exception:
+        return False
+
+
+def _object_identity(obj):
+    try:
+        class_name = obj.metaObject().className()
+    except Exception:
+        class_name = obj.__class__.__name__
+    object_name = ""
+    with contextlib.suppress(Exception):
+        object_name = obj.objectName() or ""
+    window_title = ""
+    for getter in ("windowTitle", "title"):
+        with contextlib.suppress(Exception):
+            fn = getattr(obj, getter)
+            window_title = fn() or ""
+            if window_title:
+                break
+    return class_name, object_name, window_title
+
+
+def _canvas_matches_name(canvas, name: str = "02 Geo3D") -> bool:
+    class_name, object_name, window_title = _object_identity(canvas)
+    target = (name or "").strip().lower()
+    haystack = " ".join((class_name, object_name, window_title)).lower()
+    return bool(target and target in haystack)
+
+
+def _is_3d_canvas_object(obj) -> bool:
+    with contextlib.suppress(Exception):
+        from qgis._3d import Qgs3DMapCanvas
+        if isinstance(obj, Qgs3DMapCanvas):
+            return True
+    class_name, object_name, window_title = _object_identity(obj)
+    haystack = " ".join((class_name, object_name, window_title)).lower()
+    return "3d" in haystack and "map" in haystack and "canvas" in haystack
+
+
+def find_3d_map_canvases(iface) -> list:
+    """Return active Qgs3DMapCanvas objects from widgets and QWindow instances."""
+    if iface is None:
+        return []
+    candidates = []
+    with contextlib.suppress(Exception):
+        fn = getattr(iface, "mapCanvases3D", None)
+        if fn is not None:
+            candidates.extend(fn())
+    with contextlib.suppress(Exception):
+        win = iface.mainWindow() if hasattr(iface, "mainWindow") else None
+        if win is not None:
+            from qgis.PyQt.QtWidgets import QWidget
+            candidates.extend(win.findChildren(QWidget))
+    with contextlib.suppress(Exception):
+        from qgis.PyQt.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is not None:
+            candidates.extend(app.allWidgets())
+            candidates.extend(app.allWindows())
+
+    seen = set()
+    canvases = []
+    for obj in candidates:
+        ident = id(obj)
+        if ident in seen:
+            continue
+        seen.add(ident)
+        if _is_3d_canvas_object(obj):
+            canvases.append(obj)
+    return canvases
+
+
+def find_owned_3d_map_canvas(iface, name: str = "02 Geo3D"):
+    """Find an existing 3D canvas that matches name."""
+    for canvas in find_3d_map_canvases(iface):
+        if _canvas_matches_name(canvas, name):
+            return canvas
+    return None
+
+
+def raise_3d_view(canvas) -> bool:
+    """Bring the 3D canvas and its parent dock/window to the front."""
+    if canvas is None:
+        return False
+    from qgis.PyQt.QtWidgets import QDockWidget
+    with contextlib.suppress(Exception):
+        canvas.show()
+        canvas.activateWindow()
+        canvas.raise_()
+    with contextlib.suppress(Exception):
+        parent = canvas.parentWidget() if hasattr(canvas, "parentWidget") else None
+        while parent is not None:
+            if isinstance(parent, QDockWidget):
+                parent.show()
+                parent.activateWindow()
+                parent.raise_()
+                break
+            parent = parent.parentWidget() if hasattr(parent, "parentWidget") else None
     return True
 
 
 def open_3d_view(iface, name: str = "02 Geo3D") -> bool:
-    """Open a QGIS 3D map view when the interface offers it."""
+    """Open or raise a QGIS 3D map view defensively.
+
+    Reuses an existing canvas with this name if one is already open. If not,
+    triggers QGIS's built-in View > New 3D Map View action (or falls back to
+    createNewMapCanvas3D) to avoid synchronous Qt3D / OpenGL event-loop crashes.
+    """
+    if iface is None:
+        return False
+
+    # 1. Reuse existing canvas if present
+    existing = find_owned_3d_map_canvas(iface, name)
+    if existing is not None:
+        return raise_3d_view(existing)
+
+    win = None
+    with contextlib.suppress(Exception):
+        win = iface.mainWindow() if hasattr(iface, "mainWindow") else None
+
+    # 2. Prefer triggering the built-in QAction so QGIS manages canvas lifecycle cleanly
+    triggered = False
+    if win is not None:
+        from qgis.PyQt.QtWidgets import QAction
+
+        for obj_name in ("mActionNew3DMapView", "mActionNew3DMapCanvas", "mActionNew3DMap"):
+            act = win.findChild(QAction, obj_name)
+            if act is not None:
+                with contextlib.suppress(Exception):
+                    act.trigger()
+                    triggered = True
+                    break
+
+        if not triggered:
+            with contextlib.suppress(Exception):
+                for act in win.findChildren(QAction):
+                    text = (act.text() or "").lower()
+                    if "3d" in text and ("map" in text or "harita" in text):
+                        act.trigger()
+                        triggered = True
+                        break
+
+    if triggered:
+        with contextlib.suppress(Exception):
+            from qgis.PyQt.QtCore import QTimer
+
+            def _label_new_canvas():
+                canvases = find_3d_map_canvases(iface)
+                if canvases:
+                    target_canvas = canvases[-1]
+                    for setter in ("setObjectName", "setWindowTitle", "setTitle"):
+                        fn = getattr(target_canvas, setter, None)
+                        if fn is not None:
+                            with contextlib.suppress(Exception):
+                                fn(name)
+
+            QTimer.singleShot(600, _label_new_canvas)
+        return True
+
+    # 3. Direct API fallback
     create = getattr(iface, "createNewMapCanvas3D", None)
     if create is None:
         return False
-    with contextlib.suppress(Exception):
-        return create(name) is not None
+    try:
+        canvas = create(name)
+        if canvas is not None:
+            with contextlib.suppress(Exception):
+                canvas.setObjectName(name)
+            return True
+    except TypeError:
+        with contextlib.suppress(Exception):
+            return create(name, None) is not None
+    except Exception:
+        return False
     return False
+
