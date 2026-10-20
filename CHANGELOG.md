@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.2] - 2026-10-20
+
+### UI & Documentation Integration
+- Reference manual themed to match 02 Geo3D Electric Blue design system (`#1f6feb`, dark slate aesthetic): [https://geophilo.com/zero2geospatial3d/](https://geophilo.com/zero2geospatial3d/).
+- Direct minimalist `Manual ↗` button in dock panel header.
+- QGIS Plugins menu actions: `Plugins -> 02 Geo3D Analyzer -> Online Reference Manual...` and `About 02 Geo3D Analyzer...`.
+- Replaced outdated repository links with official documentation portal.
+
 ## [1.0.1] - 2026-10-20
 
 ### Documentation & Reference Manual
