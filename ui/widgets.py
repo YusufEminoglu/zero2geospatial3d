@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from qgis.PyQt.QtCore import QSize, Qt
 from qgis.PyQt.QtGui import QColor, QIcon, QPalette
-from qgis.PyQt.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QToolButton, QVBoxLayout, QWidget
+from qgis.PyQt.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 from qgis.core import QgsApplication
 
 ACCENT = "#1f6feb"
@@ -51,6 +51,20 @@ QWidget#g3dPanel QToolButton#g3dFold {{
     border: none;
     padding: 2px 0;
     font-weight: 600;
+}}
+QWidget#g3dPanel QPushButton#g3dManualBtn {{
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    background: transparent;
+    color: palette(window-text);
+}}
+QWidget#g3dPanel QPushButton#g3dManualBtn:hover {{
+    border-color: {ACCENT};
+    color: {ACCENT};
+    background: palette(alternate-base);
 }}
 """
 
@@ -151,10 +165,10 @@ class Header(QWidget):
         text.addWidget(title)
         text.addWidget(hint(f"3D viewer and analyses · v{version}"))
         lay.addLayout(text, 1)
-        help_button = QToolButton()
-        help_button.setIcon(theme_icon("/mActionHelpContents.svg"))
-        help_button.setToolTip("02 Geo3D Analyzer Reference Manual")
-        help_button.setAutoRaise(True)
-        help_button.clicked.connect(on_help)
-        lay.addWidget(help_button, 0, Qt.AlignmentFlag.AlignTop)
+        manual_btn = QPushButton("Manual ↗")
+        manual_btn.setObjectName("g3dManualBtn")
+        manual_btn.setToolTip("Open the 02 Geo3D Analyzer Reference Manual (https://geophilo.com/zero2geospatial3d/)")
+        manual_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        manual_btn.clicked.connect(on_help)
+        lay.addWidget(manual_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)

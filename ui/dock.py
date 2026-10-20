@@ -48,7 +48,7 @@ from ..core import scene_export as sx
 from ..core.server import ViewerServer, web_root_for
 from .widgets import PANEL_QSS, Fold, Header, StepCard, hint, muted, theme_icon
 
-HELP_URL = "https://github.com/YusufEminoglu/zero2geospatial3d/blob/main/docs/index.html"
+HELP_URL = "https://geophilo.com/zero2geospatial3d/"
 
 AREA_DEM, AREA_VIEW, AREA_OBJECTS = range(3)
 DETAIL_CHOICES = [("1024 cells (light)", 1024), ("2048 cells", 2048), ("4096 cells (large, fine DEMs)", 4096)]
