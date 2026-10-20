@@ -1,0 +1,1843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>02 Geo3D Analyzer — Reference Manual | QGIS 3D Sun, Sky, Wind and Terrain Analysis</title>
+<meta name="description" content="Complete reference manual for 02 Geo3D Analyzer: a QGIS plugin that builds a Three.js scene from a DEM and extruded layers, runs sun, shadow, sky view, radiation, PV, wind, thermal comfort, terrain, flooding and cut/fill analyses on the GPU, and returns results to QGIS as GeoTIFF and GeoPackage layers." />
+<meta name="author" content="Yusuf Eminoğlu">
+<meta name="theme-color" content="#0a0f1d">
+<meta property="og:title" content="02 Geo3D Analyzer — Reference Manual" />
+<meta property="og:description" content="3D sun, shadow, sky view, radiation, PV, wind, thermal comfort, terrain and earthwork analysis for QGIS, computed in the browser and written back to your project." />
+<meta property="og:type" content="article" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<script>
+  MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      displayMath: [['$$', '$$'], ['\\[', '\\]']]
+    },
+    svg: { fontCache: 'global' },
+    options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'] }
+  };
+</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+<style>
+  :root {
+    --bg-primary: #0a0f1d;
+    --bg-secondary: #0d1424;
+    --card-bg: #111827;
+    --card-bg-soft: #0f172a;
+    --border: #1f2937;
+    --border-soft: #16202f;
+    --accent-cyan: #06b6d4;
+    --accent-cyan-soft: #22d3ee;
+    --accent-emerald: #10b981;
+    --accent-emerald-soft: #34d399;
+    --accent-amber: #f59e0b;
+    --accent-amber-soft: #fbbf24;
+    --accent-purple: #8b5cf6;
+    --accent-purple-soft: #a78bfa;
+    --accent-rose: #f43f5e;
+    --text-primary: #f1f5f9;
+    --text-secondary: #a8b6c9;
+    --text-muted: #718096;
+    --sidebar-width: 296px;
+    --radius: 16px;
+    --radius-sm: 10px;
+    --shadow: 0 24px 60px rgba(2, 6, 23, 0.55);
+    --font-main: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+    --ease: 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-main);
+    line-height: 1.68;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-image:
+      linear-gradient(rgba(6, 182, 212, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(6, 182, 212, 0.035) 1px, transparent 1px);
+    background-size: 64px 64px;
+    pointer-events: none;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    background:
+      radial-gradient(60rem 34rem at 82% -10%, rgba(6, 182, 212, 0.14), transparent 60%),
+      radial-gradient(44rem 30rem at 8% 18%, rgba(139, 92, 246, 0.10), transparent 65%),
+      radial-gradient(50rem 34rem at 60% 110%, rgba(16, 185, 129, 0.08), transparent 60%);
+    pointer-events: none;
+  }
+
+  a { color: var(--accent-cyan-soft); text-decoration: none; transition: color var(--ease); }
+  a:hover { color: #fff; }
+
+  /* ---------- reading progress ---------- */
+  #read-progress {
+    position: fixed; top: 0; left: 0; height: 3px; width: 0%;
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald), var(--accent-amber));
+    z-index: 120; transition: width 0.1s linear;
+  }
+
+  /* ---------- mobile top bar ---------- */
+  .topbar {
+    display: none;
+    position: fixed; top: 0; left: 0; right: 0; height: 58px;
+    align-items: center; justify-content: space-between;
+    padding: 0 16px;
+    background: rgba(10, 15, 29, 0.92);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(14px);
+    z-index: 110;
+  }
+  .topbar .brand-mini { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: 0.04em; font-size: 0.9rem; }
+  .brand-mark {
+    width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
+    background: linear-gradient(135deg, rgba(6, 182, 212, 0.22), rgba(16, 185, 129, 0.18));
+    border: 1px solid rgba(6, 182, 212, 0.35);
+    color: var(--accent-cyan-soft); font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700;
+  }
+  .menu-btn {
+    width: 40px; height: 40px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--card-bg); color: var(--text-primary);
+    font-size: 1.2rem; cursor: pointer;
+  }
+
+  /* ---------- sidebar ---------- */
+  .sidebar {
+    position: fixed; inset: 0 auto 0 0; width: var(--sidebar-width);
+    background: linear-gradient(180deg, #0b1220 0%, #0a0f1d 100%);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    z-index: 100;
+  }
+  .sidebar-head {
+    padding: 22px 20px 16px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .sidebar-brand { display: flex; align-items: center; gap: 12px; }
+  .sidebar-brand .brand-mark { width: 38px; height: 38px; font-size: 0.78rem; border-radius: 11px; }
+  .sidebar-brand strong { display: block; font-size: 0.98rem; letter-spacing: -0.01em; }
+  .sidebar-brand span { display: block; font-family: var(--font-mono); font-size: 0.62rem; color: var(--text-muted); letter-spacing: 0.12em; text-transform: uppercase; }
+  .version-pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin-top: 14px; padding: 4px 10px;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.08);
+    border-radius: 999px;
+    font-family: var(--font-mono); font-size: 0.66rem; color: var(--accent-emerald-soft);
+  }
+  .version-pill::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent-emerald); box-shadow: 0 0 8px var(--accent-emerald);
+  }
+
+  .search-wrap { position: relative; padding: 14px 16px 8px; }
+  .search-wrap svg { position: absolute; left: 28px; top: 26px; width: 15px; height: 15px; stroke: var(--text-muted); }
+  #manual-search {
+    width: 100%; padding: 10px 12px 10px 36px;
+    background: var(--card-bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-family: var(--font-main); font-size: 0.82rem;
+    outline: none; transition: border-color var(--ease), box-shadow var(--ease);
+  }
+  #manual-search:focus { border-color: rgba(6, 182, 212, 0.55); box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.1); }
+  #manual-search::placeholder { color: var(--text-muted); }
+  .search-empty { display: none; padding: 6px 22px 10px; font-size: 0.72rem; color: var(--text-muted); }
+
+  .sidebar-nav { flex: 1; overflow-y: auto; padding: 6px 12px 20px; }
+  .sidebar-nav::-webkit-scrollbar { width: 6px; }
+  .sidebar-nav::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 6px; }
+  .nav-group { margin-top: 14px; }
+  .nav-group-title {
+    padding: 0 12px 6px;
+    font-family: var(--font-mono); font-size: 0.6rem; font-weight: 600;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-muted);
+  }
+  .nav-link {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 12px; margin: 1px 0;
+    border-radius: 8px;
+    color: var(--text-secondary); font-size: 0.82rem; font-weight: 500;
+    border-left: 2px solid transparent;
+    transition: background var(--ease), color var(--ease), border-color var(--ease);
+  }
+  .nav-link .n {
+    width: 18px; font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted);
+    text-align: right; flex-shrink: 0;
+  }
+  .nav-link:hover { background: rgba(148, 163, 184, 0.06); color: var(--text-primary); }
+  .nav-link.active {
+    background: rgba(6, 182, 212, 0.08);
+    color: var(--accent-cyan-soft);
+    border-left-color: var(--accent-cyan);
+  }
+  .nav-link.active .n { color: var(--accent-cyan); }
+  .nav-link.hidden { display: none; }
+
+  .sidebar-foot {
+    padding: 14px 18px;
+    border-top: 1px solid var(--border-soft);
+    font-size: 0.68rem; color: var(--text-muted); line-height: 1.5;
+  }
+  .sidebar-foot a { color: var(--text-secondary); }
+  .sidebar-foot a:hover { color: var(--accent-cyan-soft); }
+
+  /* ---------- main ---------- */
+  .main { margin-left: var(--sidebar-width); min-height: 100vh; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 40px; }
+
+  section { padding: 68px 0 10px; scroll-margin-top: 20px; }
+  section + section { border-top: 1px solid rgba(31, 41, 55, 0.55); }
+
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-family: var(--font-mono); font-size: 0.68rem; font-weight: 600;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent-cyan);
+    margin-bottom: 14px;
+  }
+  .eyebrow::before { content: ''; width: 22px; height: 1px; background: var(--accent-cyan); }
+
+  h1 { font-size: clamp(2.4rem, 5vw, 4rem); font-weight: 800; letter-spacing: -0.035em; line-height: 1.05; }
+  h2 { font-size: clamp(1.55rem, 2.6vw, 2.1rem); font-weight: 750; letter-spacing: -0.025em; line-height: 1.2; margin-bottom: 14px; }
+  h3 { font-size: 1.14rem; font-weight: 700; letter-spacing: -0.01em; margin: 30px 0 10px; }
+  h4 { font-size: 0.98rem; font-weight: 700; margin: 20px 0 8px; color: var(--text-primary); }
+  p { color: var(--text-secondary); margin-bottom: 15px; font-size: 0.96rem; }
+  p strong, li strong { color: var(--text-primary); font-weight: 600; }
+  ul, ol { margin: 0 0 16px 1.2rem; color: var(--text-secondary); font-size: 0.95rem; }
+  li { margin-bottom: 7px; }
+  li::marker { color: var(--accent-cyan); }
+  code {
+    font-family: var(--font-mono); font-size: 0.84em;
+    background: rgba(6, 182, 212, 0.08);
+    border: 1px solid rgba(6, 182, 212, 0.14);
+    padding: 1px 5px; border-radius: 5px; color: var(--accent-cyan-soft);
+  }
+  .gradient-text {
+    background: linear-gradient(120deg, var(--accent-cyan-soft) 0%, var(--accent-emerald-soft) 48%, var(--accent-amber-soft) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  .lead { font-size: 1.08rem; line-height: 1.75; color: var(--text-secondary); max-width: 780px; }
+
+  /* ---------- hero ---------- */
+  .hero { padding: 58px 0 22px; border-top: 0; }
+  .hero-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 24px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 11px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--card-bg-soft);
+    font-family: var(--font-mono); font-size: 0.66rem; color: var(--text-secondary);
+  }
+  .badge.cyan { border-color: rgba(6, 182, 212, 0.3); color: var(--accent-cyan-soft); background: rgba(6, 182, 212, 0.07); }
+  .badge.emerald { border-color: rgba(16, 185, 129, 0.3); color: var(--accent-emerald-soft); background: rgba(16, 185, 129, 0.07); }
+  .badge.amber { border-color: rgba(245, 158, 11, 0.3); color: var(--accent-amber-soft); background: rgba(245, 158, 11, 0.07); }
+  .badge.purple { border-color: rgba(139, 92, 246, 0.3); color: var(--accent-purple-soft); background: rgba(139, 92, 246, 0.07); }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 28px; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 10px 18px; border-radius: 11px;
+    border: 1px solid var(--border); background: var(--card-bg);
+    color: var(--text-primary); font-size: 0.82rem; font-weight: 650;
+    transition: transform var(--ease), border-color var(--ease), box-shadow var(--ease);
+  }
+  .btn:hover { transform: translateY(-1px); border-color: rgba(6, 182, 212, 0.45); color: #fff; box-shadow: 0 10px 28px rgba(6, 182, 212, 0.08); }
+  .btn.primary { background: linear-gradient(135deg, #0891b2, #059669); border-color: transparent; color: #fff; }
+  .btn.primary:hover { box-shadow: 0 12px 30px rgba(6, 182, 212, 0.25); }
+
+  .hero-figure {
+    margin-top: 24px; border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; background: var(--card-bg-soft); box-shadow: var(--shadow);
+  }
+  .hero-figure img { display: block; width: 100%; height: auto; }
+  .hero-figure figcaption {
+    padding: 12px 18px; font-size: 0.76rem; color: var(--text-muted);
+    border-top: 1px solid var(--border-soft); font-family: var(--font-mono);
+  }
+
+  /* ---------- cards / grids ---------- */
+  .grid { display: grid; gap: 14px; }
+  .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .card {
+    padding: 20px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: linear-gradient(180deg, rgba(17, 24, 39, 0.92), rgba(15, 23, 42, 0.92));
+    transition: border-color var(--ease), transform var(--ease);
+  }
+  .card:hover { border-color: #2b3a50; transform: translateY(-2px); }
+  .card .kicker {
+    font-family: var(--font-mono); font-size: 0.62rem; font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent-cyan);
+    display: block; margin-bottom: 7px;
+  }
+  .card h4 { margin: 0 0 6px; font-size: 0.95rem; }
+  .card p { margin: 0; font-size: 0.85rem; line-height: 1.58; color: var(--text-secondary); }
+  .card.emerald .kicker { color: var(--accent-emerald); }
+  .card.amber .kicker { color: var(--accent-amber); }
+  .card.purple .kicker { color: var(--accent-purple); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; margin: 22px 0; }
+  .stat { background: var(--card-bg-soft); padding: 16px 18px; }
+  .stat strong { display: block; font-size: 1.35rem; font-weight: 750; color: var(--text-primary); letter-spacing: -0.02em; }
+  .stat span { display: block; margin-top: 3px; font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+
+  /* ---------- callouts / formulas ---------- */
+  .callout {
+    position: relative; padding: 16px 18px 16px 46px;
+    border: 1px solid var(--border); border-left: 3px solid var(--accent-cyan);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: rgba(6, 182, 212, 0.045);
+    margin: 18px 0;
+  }
+  .callout::before {
+    content: 'i'; position: absolute; left: 15px; top: 15px;
+    width: 20px; height: 20px; border-radius: 50%;
+    display: grid; place-items: center;
+    border: 1px solid rgba(6, 182, 212, 0.4);
+    color: var(--accent-cyan-soft); font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700;
+  }
+  .callout.warn { border-left-color: var(--accent-amber); background: rgba(245, 158, 11, 0.05); }
+  .callout.warn::before { content: '!'; border-color: rgba(245, 158, 11, 0.45); color: var(--accent-amber-soft); }
+  .callout.good { border-left-color: var(--accent-emerald); background: rgba(16, 185, 129, 0.05); }
+  .callout.good::before { content: '✓'; border-color: rgba(16, 185, 129, 0.45); color: var(--accent-emerald-soft); }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout strong { color: var(--text-primary); }
+
+  .formula {
+    position: relative;
+    margin: 18px 0; padding: 20px 22px;
+    background: var(--card-bg-soft);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    overflow-x: auto;
+  }
+  .formula::before {
+    content: attr(data-label);
+    display: block; margin-bottom: 8px;
+    font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.13em;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+  .formula mjx-container { color: var(--text-primary); }
+
+  /* ---------- tables ---------- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 18px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.84rem; min-width: 620px; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  th {
+    background: #0c1422; color: var(--text-secondary);
+    font-family: var(--font-mono); font-size: 0.62rem; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: 0; }
+  td { color: var(--text-secondary); }
+  td:first-child { color: var(--text-primary); font-weight: 550; white-space: nowrap; }
+  tbody tr:hover { background: rgba(148, 163, 184, 0.035); }
+
+  /* ---------- workflow ---------- */
+  .flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 22px 0; }
+  .flow-step {
+    position: relative; padding: 20px 18px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--card-bg-soft);
+  }
+  .flow-step .num {
+    display: grid; place-items: center; width: 30px; height: 30px; margin-bottom: 12px;
+    border-radius: 8px; background: rgba(6, 182, 212, 0.1);
+    border: 1px solid rgba(6, 182, 212, 0.3);
+    color: var(--accent-cyan-soft); font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700;
+  }
+  .flow-step h4 { margin: 0 0 5px; }
+  .flow-step p { margin: 0; font-size: 0.82rem; }
+  .flow-step:not(:last-child)::after {
+    content: '→'; position: absolute; right: -13px; top: 50%; transform: translateY(-50%);
+    color: var(--text-muted); font-size: 0.9rem; z-index: 2;
+  }
+
+  .arch {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    margin: 22px 0; align-items: stretch;
+  }
+  .arch-panel {
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 20px; background: var(--card-bg-soft);
+  }
+  .arch-panel h4 { margin-top: 0; display: flex; align-items: center; gap: 8px; }
+  .arch-panel h4 .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .arch-panel.python h4 .dot { background: var(--accent-amber); box-shadow: 0 0 8px rgba(245, 158, 11, 0.5); }
+  .arch-panel.browser h4 .dot { background: var(--accent-cyan); box-shadow: 0 0 8px rgba(6, 182, 212, 0.5); }
+  .arch-panel ul { margin: 10px 0 0 1rem; font-size: 0.84rem; }
+  .arch-panel li { margin-bottom: 5px; }
+  .arch-bridge {
+    grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; gap: 14px;
+    padding: 10px; border: 1px dashed #2a3a50; border-radius: var(--radius-sm);
+    font-family: var(--font-mono); font-size: 0.66rem; color: var(--text-muted);
+    background: rgba(6, 182, 212, 0.03);
+  }
+  .arch-bridge b { color: var(--accent-cyan-soft); font-weight: 600; }
+
+  /* ---------- tabs ---------- */
+  .tabbar { display: flex; flex-wrap: wrap; gap: 6px; margin: 20px 0 0; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+  .tabbtn {
+    padding: 7px 14px; border-radius: 8px;
+    border: 1px solid transparent; background: transparent;
+    color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600;
+    cursor: pointer; transition: all var(--ease);
+  }
+  .tabbtn:hover { color: var(--text-primary); background: rgba(148, 163, 184, 0.06); }
+  .tabbtn[aria-selected="true"] {
+    color: var(--accent-cyan-soft);
+    background: rgba(6, 182, 212, 0.1);
+    border-color: rgba(6, 182, 212, 0.28);
+  }
+  .tabpanel { display: none; padding-top: 16px; }
+  .tabpanel.active { display: block; animation: fade 0.3s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* ---------- code ---------- */
+  pre {
+    position: relative;
+    margin: 16px 0; padding: 16px 18px;
+    background: #080d18; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    overflow-x: auto;
+    font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.65; color: #cbd5e1;
+  }
+  pre code { background: none; border: 0; padding: 0; color: inherit; font-size: inherit; }
+  .copy-btn {
+    position: absolute; top: 8px; right: 8px;
+    padding: 4px 9px; border-radius: 6px;
+    border: 1px solid var(--border); background: #111827;
+    color: var(--text-muted); font-family: var(--font-mono); font-size: 0.6rem;
+    cursor: pointer; opacity: 0; transition: opacity var(--ease), color var(--ease);
+  }
+  pre:hover .copy-btn { opacity: 1; }
+  .copy-btn:hover { color: var(--accent-cyan-soft); border-color: rgba(6, 182, 212, 0.4); }
+  .copy-btn.copied { color: var(--accent-emerald-soft); border-color: rgba(16, 185, 129, 0.4); }
+
+  kbd {
+    display: inline-block; min-width: 20px; padding: 2px 6px;
+    border: 1px solid #334155; border-bottom-width: 2px; border-radius: 5px;
+    background: #0c1422; color: var(--text-secondary);
+    font-family: var(--font-mono); font-size: 0.68rem; text-align: center;
+  }
+
+  /* ---------- tutorial steps ---------- */
+  .steps { counter-reset: step; margin: 20px 0; }
+  .tstep {
+    position: relative; counter-increment: step;
+    padding: 0 0 26px 54px; border-left: 1px solid var(--border);
+    margin-left: 15px;
+  }
+  .tstep:last-child { border-left-color: transparent; padding-bottom: 0; }
+  .tstep::before {
+    content: counter(step);
+    position: absolute; left: -16px; top: 0;
+    width: 31px; height: 31px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--card-bg); border: 1px solid rgba(6, 182, 212, 0.35);
+    color: var(--accent-cyan-soft); font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700;
+  }
+  .tstep h4 { margin: 2px 0 7px; }
+  .tstep p { margin-bottom: 8px; font-size: 0.9rem; }
+  .tstep ul { font-size: 0.88rem; }
+
+  /* ---------- citations ---------- */
+  .cite-list { list-style: none; margin: 18px 0; padding: 0; }
+  .cite-list li {
+    padding: 14px 16px; margin-bottom: 8px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--card-bg-soft); font-size: 0.85rem; line-height: 1.6;
+  }
+  .cite-list li strong { color: var(--text-primary); }
+  .cite-list .doi { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); }
+
+  /* ---------- footer ---------- */
+  footer { margin-top: 70px; border-top: 1px solid var(--border); background: #080d18; }
+  .footer-inner { max-width: 1080px; margin: 0 auto; padding: 36px 40px; display: flex; flex-wrap: wrap; gap: 26px; justify-content: space-between; }
+  .footer-inner p { margin: 0; font-size: 0.78rem; color: var(--text-muted); }
+  .footer-inner strong { color: var(--text-primary); }
+  .footer-links { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.76rem; }
+  .footer-links a { color: var(--text-secondary); }
+
+  .totop {
+    position: fixed; right: 22px; bottom: 22px; width: 40px; height: 40px;
+    display: grid; place-items: center; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--card-bg); color: var(--text-secondary);
+    cursor: pointer; opacity: 0; pointer-events: none; transition: all var(--ease); z-index: 90;
+  }
+  .totop.show { opacity: 1; pointer-events: auto; }
+  .totop:hover { color: var(--accent-cyan-soft); border-color: rgba(6, 182, 212, 0.4); }
+
+  .muted { color: var(--text-muted); font-size: 0.8rem; }
+  .tag { font-family: var(--font-mono); font-size: 0.66rem; color: var(--accent-cyan-soft); }
+
+  @media (max-width: 1100px) {
+    .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .wrap { padding: 0 26px; }
+  }
+
+  @media (max-width: 900px) {
+    .topbar { display: flex; }
+    .sidebar { transform: translateX(-100%); transition: transform 0.3s ease; box-shadow: var(--shadow); }
+    .sidebar.open { transform: none; }
+    .main { margin-left: 0; padding-top: 58px; }
+    .grid-3, .grid-2, .arch { grid-template-columns: 1fr; }
+    .flow { grid-template-columns: 1fr; }
+    .flow-step:not(:last-child)::after { content: '↓'; right: auto; left: 50%; top: auto; bottom: -12px; transform: translateX(-50%); }
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    section { padding-top: 48px; }
+  }
+
+  @media (max-width: 600px) {
+    .wrap { padding: 0 18px; }
+    .grid-4, .grid-2 { grid-template-columns: 1fr; }
+    h1 { font-size: 2.25rem; }
+    .footer-inner { padding: 28px 18px; }
+    .hero { padding-top: 30px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div id="read-progress" aria-hidden="true"></div>
+
+<div class="topbar">
+  <div class="brand-mini"><span class="brand-mark">02</span> Geo3D Analyzer</div>
+  <button class="menu-btn" id="menu-toggle" aria-label="Open manual navigation" aria-expanded="false">☰</button>
+</div>
+
+<aside class="sidebar" id="sidebar" aria-label="Manual navigation">
+  <div class="sidebar-head">
+    <div class="sidebar-brand">
+      <span class="brand-mark">02</span>
+      <div>
+        <strong>Geo3D Analyzer</strong>
+        <span>Reference Manual</span>
+      </div>
+    </div>
+    <div class="version-pill">v1.0.0 · QGIS 3.28+ | 4</div>
+  </div>
+
+  <div class="search-wrap">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+    <input id="manual-search" type="search" placeholder="Filter sections…" aria-label="Filter manual sections" autocomplete="off">
+  </div>
+  <div class="search-empty" id="search-empty">No section matches that term.</div>
+
+  <nav class="sidebar-nav" id="sidebar-nav">
+    <div class="nav-group">
+      <div class="nav-group-title">Guided walkthrough</div>
+      <a class="nav-link" href="#guide"><span class="n">G0</span>End-to-end guide</a>
+      <a class="nav-link" href="#g-dock"><span class="n">G1</span>QGIS dock</a>
+      <a class="nav-link" href="#g-viewer"><span class="n">G2</span>The viewer</a>
+      <a class="nav-link" href="#g-analyze"><span class="n">G3</span>Analyze tools</a>
+      <a class="nav-link" href="#g-terrain"><span class="n">G4</span>Terrain tools</a>
+      <a class="nav-link" href="#g-compare"><span class="n">G5</span>Compare and optimise</a>
+      <a class="nav-link" href="#g-export"><span class="n">G6</span>Exports and QGIS</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Getting started</div>
+      <a class="nav-link" href="#top"><span class="n">00</span>Overview</a>
+      <a class="nav-link" href="#architecture"><span class="n">01</span>Architecture</a>
+      <a class="nav-link" href="#workflow"><span class="n">02</span>Three-step workflow</a>
+      <a class="nav-link" href="#install"><span class="n">03</span>Installation</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Solar &amp; sky</div>
+      <a class="nav-link" href="#solar"><span class="n">04</span>Solar geometry</a>
+      <a class="nav-link" href="#shadows"><span class="n">05</span>Sun hours &amp; shadows</a>
+      <a class="nav-link" href="#svf"><span class="n">06</span>Sky view factor</a>
+      <a class="nav-link" href="#radiation"><span class="n">07</span>Radiation &amp; PV</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Climate &amp; morphology</div>
+      <a class="nav-link" href="#wind"><span class="n">08</span>Pedestrian wind</a>
+      <a class="nav-link" href="#thermal"><span class="n">09</span>Thermal comfort</a>
+      <a class="nav-link" href="#uhi"><span class="n">10</span>Heat island &amp; LCZ</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Terrain &amp; earthwork</div>
+      <a class="nav-link" href="#sections"><span class="n">11</span>Sections &amp; profiles</a>
+      <a class="nav-link" href="#flooding"><span class="n">12</span>Water level &amp; flooding</a>
+      <a class="nav-link" href="#earthwork"><span class="n">13</span>Cut &amp; fill</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Design &amp; optimisation</div>
+      <a class="nav-link" href="#compare"><span class="n">14</span>Scenario comparison</a>
+      <a class="nav-link" href="#optimize"><span class="n">15</span>NSGA-II optimisation</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">QGIS &amp; reference</div>
+      <a class="nav-link" href="#qgis"><span class="n">16</span>Return to QGIS</a>
+      <a class="nav-link" href="#tutorial"><span class="n">17</span>Practical tutorial</a>
+      <a class="nav-link" href="#tools"><span class="n">18</span>Tool reference</a>
+      <a class="nav-link" href="#theory"><span class="n">19</span>Theory &amp; sources</a>
+      <a class="nav-link" href="#meta"><span class="n">20</span>Metadata</a>
+    </div>
+  </nav>
+
+  <div class="sidebar-foot">
+    <a href="https://geophilo.com/zero2geospatial3d/">geophilo.com/zero2geospatial3d</a><br>
+    MIT © Yusuf Eminoğlu<br>
+    GEOPHILO Spatial Software Studio
+  </div>
+</aside>
+
+<main class="main" id="top">
+
+  <!-- ============================================================ HERO -->
+  <section class="hero">
+    <div class="wrap">
+      <div class="eyebrow">02 Suite · 3D spatial analysis</div>
+      <h1>02 Geo3D Analyzer<br><span class="gradient-text">Reference Manual</span></h1>
+      <p class="lead" style="margin-top:18px">A QGIS plugin for questions that are three-dimensional but are usually answered on flat maps. It builds a web scene from a DEM and your extruded layers in three steps, computes sun, shadow, sky, radiation, wind, comfort, terrain and earthwork results in the browser, and writes every result back into the QGIS project.</p>
+
+      <div class="hero-badges">
+        <span class="badge cyan">QGIS 3.28+ / 4.x</span>
+        <span class="badge emerald">WebGL 2 · GPU raycasting</span>
+        <span class="badge amber">No pip dependencies</span>
+        <span class="badge purple">MIT license</span>
+        <span class="badge">GeoTIFF + GeoPackage output</span>
+      </div>
+
+      <div class="hero-actions">
+        <a class="btn primary" href="#guide">Start the guided walkthrough</a>
+        <a class="btn" href="#architecture">Read the manual</a>
+        <a class="btn" href="https://plugins.qgis.org/plugins/zero2geospatial3d/" target="_blank" rel="noopener">QGIS Plugin Hub ↗</a>
+        <a class="btn" href="https://github.com/YusufEminoglu/zero2geospatial3d" target="_blank" rel="noopener">GitHub repository ↗</a>
+      </div>
+
+      <figure class="hero-figure">
+        <img src="hero.png" alt="Sun hours computed on the ground, roofs and facades of a district in 02 Geo3D Analyzer" loading="eager">
+        <figcaption>Sun hours on ground, roofs and facades for a district scene, computed from an hourly solar model and rendered over the 3D terrain.</figcaption>
+      </figure>
+
+      <div class="stats">
+        <div class="stat"><strong>3</strong><span>Setup steps</span></div>
+        <div class="stat"><strong>4096²</strong><span>DEM cells, tiled</span></div>
+        <div class="stat"><strong>64–256</strong><span>SVF rays per cell</span></div>
+        <div class="stat"><strong>1 click</strong><span>Result to QGIS</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================== GUIDED WALKTHROUGH -->
+  <section id="guide">
+    <div class="wrap">
+      <div class="eyebrow">Guided walkthrough · Start here</div>
+      <h2>End-to-end guide: every tool on real data</h2>
+      <p>This walkthrough runs every tool of the viewer on two real scenes and shows what each one produces. Every screenshot is the real viewer, and every number was measured in the run described here. Follow it once from top to bottom; afterwards the chapters below are the reference.</p>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>Scene</th><th>Data</th><th>What it exercises</th></tr></thead>
+        <tbody>
+          <tr><td><strong>sa</strong> · Konak district</td><td>30 m DEM, 2,367 building footprints with a <code>floors</code> field, EPW weather file (Izmir)</td><td>All Analyze tools, terrain tools, planning check, optimiser, exports, round trip to QGIS</td></tr>
+          <tr><td><strong>kadi</strong> · Kadifekale</td><td>87 × 93 DEM grid (EPSG:32635), 16,385 buildings and 14 trees from OpenStreetMap</td><td>A steep bowl-shaped terrain: sun, wind, sections, flooding and cut and fill at the scale of a hill</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="callout warn"><strong>Read the numbers as screening values.</strong> Wind is a fast screening model and not CFD. The DEM is 30 m, while analyses run on a 2 m cell. Buildings without a height value get a default of about 9 m: in <em>kadi</em>, 16,382 of 16,385 buildings use that default, so its building results show the method and not the real city. Numbers from drawn geometry (sections, flood seeds, cut and fill) depend on where you click and will differ in your run.</div>
+
+      <div class="grid-3">
+        <a class="card" href="#g-dock"><h4>1 · QGIS dock</h4><p>Terrain, objects, climate, open in 3D.</p></a>
+        <a class="card" href="#g-viewer"><h4>2 · The viewer</h4><p>Layout, tabs, navigation, layer card.</p></a>
+        <a class="card" href="#g-analyze"><h4>3 · Analyze tab</h4><p>Eleven tools, from sun hours to planning check.</p></a>
+        <a class="card" href="#g-terrain"><h4>4 · Terrain tab</h4><p>Display, eight terrain maps, section, flood, cut and fill.</p></a>
+        <a class="card" href="#g-compare"><h4>5 · Compare tab</h4><p>Scenarios and the height optimiser.</p></a>
+        <a class="card" href="#g-export"><h4>6 · Exports and QGIS</h4><p>Image, PDF, HTML, GLB, DXF, round trip.</p></a>
+      </div>
+
+      <!-- ---------------------------------------------------------------- 1 -->
+      <h3 id="g-dock">1 · Prepare the scene in the QGIS dock</h3>
+      <p>The dock has three step cards that run top to bottom. Open it from the plugin icon; it docks on the right.</p>
+      <figure class="hero-figure"><img src="guide_img/dock_1_empty.png" alt="Empty dock with three step cards" loading="lazy"><figcaption>The dock before anything is loaded: <em>1 Terrain</em>, <em>2 Objects</em>, <em>3 Open in 3D</em>, and a message area.</figcaption></figure>
+
+      <div class="steps">
+        <div class="tstep"><h4>Step 1 · Terrain</h4>
+          <ul>
+            <li><strong>DEM</strong>: pick a raster layer. Use a projected CRS in metres.</li>
+            <li><strong>Area</strong>: the part of the DEM to use (whole layer, canvas or a polygon).</li>
+            <li><strong>Quick 3D of this DEM</strong>: opens the terrain alone, with no objects. Good for a first look.</li>
+            <li><strong>More options</strong>: <em>Grid</em> (cell size of the displayed terrain) and <em>Detail limit</em>. The scene grid is coarser (24 m here) than the 2 m cell the analyses use.</li>
+          </ul></div>
+        <div class="tstep"><h4>Step 2 · Objects</h4>
+          <ul>
+            <li>Add each vector layer as a row. For each row choose a <strong>Role</strong> (buildings, trees and so on), a <strong>Height expression</strong> and a <strong>Bottom</strong> value.</li>
+            <li><strong>Colour</strong>: take the QGIS style or a single colour. <strong>Existing / Scenario A / Scenario B</strong> marks which state of the design a layer belongs to.</li>
+            <li><strong>Download OSM buildings and trees</strong> fills the area when you have no data.</li>
+            <li>The <strong>Climate data</strong> fold takes extra rasters and a <strong>Weather EPW</strong> file; <em>Nearest station…</em> finds one for you.</li>
+            <li>Height guess order: height fields first, then floors × 3 m. Anything else gets the default.</li>
+          </ul></div>
+        <div class="tstep"><h4>Step 3 · Open in 3D</h4>
+          <ul>
+            <li><strong>Viewer</strong> opens the browser viewer, <strong>QGIS 3D</strong> opens a native QGIS 3D view, <strong>Folder</strong> only writes the scene folder, and <strong>Cancel</strong> stops a running export.</li>
+            <li>The message area ends with <em>Scene written</em>.</li>
+          </ul></div>
+      </div>
+
+      <figure class="hero-figure"><img src="guide_img/dock_2_layers_loaded.png" alt="Dock with the DEM and building layers loaded" loading="lazy"><figcaption>Layers loaded: the Konak DEM and the building layer.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/dock_3_configured.png" alt="Dock with height expression and weather file set" loading="lazy"><figcaption>Configured: building role, height expression, and the EPW weather file in the Climate data fold.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/dock_4_more_options.png" alt="Dock with More options expanded" loading="lazy"><figcaption>The <em>More options</em> folds expanded.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/dock_5_opened.png" alt="Dock after opening the scene" loading="lazy"><figcaption>After <em>Open in 3D</em>: 2,367 buildings were exported and the dock reports <em>Scene written: sa 2367</em>.</figcaption></figure>
+
+      <!-- ---------------------------------------------------------------- 2 -->
+      <h3 id="g-viewer">2 · The viewer</h3>
+      <figure class="hero-figure"><img src="guide_img/sa_overview.png" alt="Konak scene as first opened" loading="lazy"><figcaption>The scene as first opened. The default camera sits far away, so the first move is to frame the buildings.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_overview_zoom.png" alt="Konak scene framed on the buildings" loading="lazy"><figcaption>After <em>Zoom to</em> on the building layer.</figcaption></figure>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>Area</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>Top bar</td><td>Month, day, time slider and a play button for the sun position, plus a read-out such as <em>sun 40° high, 162°</em> and a frame counter.</td></tr>
+          <tr><td>Left panel tabs</td><td><strong>Layers</strong>, <strong>Analyze</strong>, <strong>Terrain</strong>, <strong>Compare</strong>. Every card exists at all times; the tabs only show or hide them.</td></tr>
+          <tr><td>Results list</td><td>At the bottom of the panel. Each result has <em>Hide</em>, <em>To QGIS</em>, <em>.asc</em>, <em>CSV</em> and <em>×</em>, and a shared <em>Overlay opacity</em> slider.</td></tr>
+          <tr><td>Toolbar (right)</td><td>Save an image, record a video, save a PDF sheet, 3D model or interactive page, swipe between two views, and 2 / 4 / 6 / 8 synced panels.</td></tr>
+          <tr><td>Status bar</td><td>The last message, and the navigation hint.</td></tr>
+        </tbody>
+      </table></div>
+      <p><strong>Navigation:</strong> drag to orbit, right-drag to pan, wheel to zoom, click a building to inspect it. In drawing tools, click points, then press <kbd>Enter</kbd> or double-click to finish; <kbd>Backspace</kbd> removes the last point and <kbd>Esc</kbd> cancels. Clicks must land on the terrain, not on the sky.</p>
+
+      <h4>Layers tab</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_layers_scene.png" alt="Layers tab Scene card" loading="lazy"><figcaption>The <em>Scene</em> card: <em>Load EPW file…</em> and the time zone. Climate tools need this file.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_layer_card.png" alt="Per-layer card in the Layers tab" loading="lazy"><figcaption>The per-layer card: <em>Colour by</em> (any numeric field, including result fields), <em>Height rule</em>, and <em>Zoom to</em>.</figcaption></figure>
+
+      <!-- ---------------------------------------------------------------- 3 -->
+      <h3 id="g-analyze">3 · Analyze tab (scene <em>sa</em>)</h3>
+      <p>Each tool is a card: set the parameters, press the run button, and a result appears in the list with a legend, a statistics block and a draped map. All runs below used the default 2 m analysis cell.</p>
+
+      <h4>3.1 Analysis area</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_area_card.png" alt="Analysis area card" loading="lazy"><figcaption>Draw a rectangle to set the area that analyses run on. A smaller area makes every tool faster.</figcaption></figure>
+
+      <h4>3.2 Sun hours and shadows</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_sun_card.png" alt="Sun hours card" loading="lazy"><figcaption>Parameters: <em>Date</em>, <em>From – to (h)</em>, <em>Time step</em>, <em>Facades too</em>. Buttons: <em>Run sun hours</em>, <em>Animate shadows</em>, <em>Summer ⇆ winter</em>.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_sun_mar.png" alt="Sun hours on 21 March" loading="lazy"><figcaption>21 March, 0–24 h, 10 min step, finished in 8 s. Possible sunshine is 12.0 h; open ground averages 10.13 h; 94 % of the area gets at least 2 h; the shade statistic is 1.87 h on average, a 16 % share, and 1 % is shaded all day.</figcaption></figure>
+      <div class="grid-2">
+        <figure class="hero-figure"><img src="guide_img/sa_sun_jun.png" alt="Sun hours on 21 June" loading="lazy"><figcaption>21 June: 14.5 h possible; open-ground mean 12.82 h; 98 % at least 2 h.</figcaption></figure>
+        <figure class="hero-figure"><img src="guide_img/sa_sun_dec.png" alt="Sun hours on 21 December" loading="lazy"><figcaption>21 December: 9.3 h possible; open-ground mean 7.16 h; 89 % at least 2 h.</figcaption></figure>
+      </div>
+      <figure class="hero-figure"><img src="guide_img/sa_summer_winter.png" alt="Summer and winter swipe" loading="lazy"><figcaption><em>Summer ⇆ winter</em> sets up a swipe between the 21 June and 21 December results. Leave swipe mode with the toolbar button before the next step.</figcaption></figure>
+      <div class="callout"><strong>Facades too</strong> adds sun hours on walls. Leave it off for ground and roofs; it is slower. <em>Animate shadows</em> plays the live shadows through the chosen hours.</div>
+
+      <h4>3.3 Sky view factor</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_svf_card.png" alt="Sky view factor card" loading="lazy"><figcaption>192 sky directions by default.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_svf.png" alt="Sky view factor result" loading="lazy"><figcaption>Open ground averages 0.91; the minimum is 0.00 in the deepest canyons. About 19–22 s.</figcaption></figure>
+
+      <h4>3.4 Daylight on facades (VSC)</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_vsc_card.png" alt="VSC card" loading="lazy"><figcaption>Vertical sky component under a CIE overcast sky, 192 directions.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_vsc.png" alt="VSC result" loading="lazy"><figcaption>Mean VSC on walls is 18.7 %. 32 % of the wall area reaches 27 % or more, and 156 of 2,367 buildings have a mean of 27 % or more. Party walls (31 % of the wall area) are left out. 16–18 s.</figcaption></figure>
+
+      <h4>3.5 Solar radiation and PV</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_solar_card.png" alt="Solar card" loading="lazy"><figcaption>The <em>Period</em> choices are whole year, summer (Jun–Aug), winter (Dec–Feb) and heating season (Oct–Apr).</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_solar.png" alt="Whole-year solar result" loading="lazy"><figcaption>Whole year: roof PV 61,459,552 kWh/yr on 223,265 m² of suitable panel area. An unshaded horizontal surface receives 1,819 kWh/m² a year; the maximum on the map is 1,801. 26–41 s.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_solar_summer.png" alt="Summer solar result" loading="lazy"><figcaption>Summer (June–August): 23,976,032 kWh on 228,482 m²; horizontal unshaded 685 kWh/m². 13 s.</figcaption></figure>
+
+      <h4>3.6 Visibility</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_vis_card.png" alt="Visibility card" loading="lazy"><figcaption><em>Eye height</em> 1.6 m, <em>Radius</em> 600 m. <em>Pick observer…</em> lets you click a point; <em>From selected building</em> uses the roof of the selected building.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_viewshed.png" alt="Viewshed from a selected building" loading="lazy"><figcaption>Viewshed from one selected building: yellow is visible, blue is hidden. The visible share of the surface is 1 % (15,608 m²). 1.3 s.</figcaption></figure>
+
+      <h4>3.7 Wind</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_wind_card.png" alt="Wind card" loading="lazy"><figcaption><em>Prevailing</em> and <em>95th percentile</em> fill the direction and speed fields from the wind rose of the EPW file (prevailing speed or the 95th percentile speed); you can also type your own. <em>Run wind</em> computes.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_wind.png" alt="Pedestrian wind, prevailing" loading="lazy"><figcaption>Prevailing wind from 270° at 3.0 m/s: open ground 2.0 m/s, mean 1.9 m/s, 7 % of the area sheltered, 100 % in the Sitting comfort class. 0.6 s.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_wind_p95.png" alt="Pedestrian wind, 95th percentile" loading="lazy"><figcaption>95th percentile wind, 5.4 m/s: open ground 3.6 m/s, mean 3.4 m/s.</figcaption></figure>
+
+      <h4>3.8 Thermal comfort (UTCI)</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_utci_card.png" alt="UTCI card" loading="lazy"><figcaption>Month and day, hour range, and weather taken from the EPW file.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_utci.png" alt="UTCI on 21 July" loading="lazy"><figcaption>21 July, 14–15 h: air 30.8 °C, humidity 45 %, wind 6.2 m/s. Mean UTCI 33.0 °C (range 27.6–36.1). Strong heat stress covers 95 % of the area and moderate heat stress 5 %.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_utci_jan.png" alt="UTCI in January" loading="lazy"><figcaption>January: air 17.6 °C, mean UTCI 15.1 °C (range 7.2–22.5), no thermal stress over 100 % of the area.</figcaption></figure>
+
+      <h4>3.9 Heat island and morphology</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_morph_card.png" alt="Morphology card" loading="lazy"><figcaption>Block size 100 m (50, 100, 200 or 250 m are offered).</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_morph.png" alt="Morphology and LCZ" loading="lazy"><figcaption>Approximate Local Climate Zones per block: open land 72 %, LCZ 2 (compact mid-rise) 13 %, LCZ 5 (open mid-rise) 11 %, LCZ 9 2 %, LCZ 3 1 %. 0.1 s. These are approximate classes from morphology, not a satellite classification.</figcaption></figure>
+
+      <h4>3.10 Climate around buildings (year)</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_climate_card.png" alt="Climate year card" loading="lazy"><figcaption>Needs the EPW file. Hours 07–22, comfort band UTCI 9–26 °C.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_climate.png" alt="Climate year result" loading="lazy"><figcaption>2,361 buildings, 5,475 hours each, 83 sun positions. Mean comfortable share 58 %. 31–41 s. It writes per-building fields such as comfortable hours, heat-stress hours and cold-stress hours.</figcaption></figure>
+
+      <h4>3.11 Planning check</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_plan_card.png" alt="Planning check card" loading="lazy"><figcaption>Choose <em>Buildings</em> (selected, all in the analysis area, or scenario B), a <em>Profile</em>, and switch criteria on or off. Defaults follow BRE 209 proxies: amenity sun ≥ 50 %, daylight (VSC) ≥ 27 %, neighbour daylight B/A ≥ 0.8, wind ≤ 5 % windy hours, summer heat ≤ 300 h. <em>Save profile…</em> and <em>Load…</em> keep your own thresholds.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_plan.png" alt="Planning check result" loading="lazy"><figcaption>Run on 60 selected buildings: none passes every check. Amenity sun 24 of 60, daylight 1 of 60, wind 60 of 60, summer heat 0 of 60 (the B/A criterion needs scenario B and is skipped). Green passes everything, yellow fails one, red fails two or more, grey is not checked. 18–75 s depending on which analyses had to be run first.</figcaption></figure>
+      <p>The result table lists the worst buildings first and exports to CSV and PDF. The result fields are <code>check_failed</code>, <code>check_amenity_sun</code>, <code>check_facade_vsc</code>, <code>check_neighbour_daylight</code>, <code>check_wind</code> and <code>check_heat</code>.</p>
+
+      <h4>3.12 Building inspector</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_inspector.png" alt="Building inspector" loading="lazy"><figcaption>Click any building. The top block gives the facts (24 m, 8 floors, 215 m² footprint, about 1,716 m² floor area, ground at 127.3 m). Below, every analysis you have run is ranked against all other buildings: daylight on walls 20.2 % (higher than 69 % of 2,367 buildings, mean 17.4 %); comfortable hours 55.4 %; heat-stress 739 h; pedestrian wind 1.15 m/s; sky view around it 0.58.</figcaption></figure>
+
+      <!-- ---------------------------------------------------------------- 4 -->
+      <h3 id="g-terrain">4 · Terrain tab</h3>
+      <h4>4.1 Display</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_terrain_display_card.png" alt="Terrain display card" loading="lazy"><figcaption><em>Shading</em>, <em>Vertical exaggeration</em> (a slider), <em>Contours</em>, <em>Buildings on slopes</em> and <em>Live shadows</em>.</figcaption></figure>
+      <div class="grid-2">
+        <figure class="hero-figure"><img src="guide_img/sa_terrain_slope.png" alt="Slope shading" loading="lazy"><figcaption>Slope shading.</figcaption></figure>
+        <figure class="hero-figure"><img src="guide_img/sa_terrain_contours.png" alt="Contours" loading="lazy"><figcaption>Contours on.</figcaption></figure>
+      </div>
+      <figure class="hero-figure"><img src="guide_img/kadi_t_exag.png" alt="Vertical exaggeration on Kadifekale" loading="lazy"><figcaption>Vertical exaggeration on the steep Kadifekale terrain makes the bowl shape easy to read. It changes the picture only, never the analysis numbers.</figcaption></figure>
+
+      <h4>4.2 Terrain analyses</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_terrain_an_card.png" alt="Terrain analyses card" loading="lazy"><figcaption>Elevation, slope, aspect and hillshade are on by default. Curvature, topographic position (radius 100 m), ruggedness and wetness index are off. <em>Extent</em> is the whole DEM or the analysis area. <em>Run</em> adds results to the list; <em>Run and compare</em> also opens the compare panels.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_terrain_run.png" alt="Terrain results" loading="lazy"><figcaption>Konak, 24 m cells: elevation 23.7–185.1 m (mean 106.8, relief 161.5 m); slope mean 6.6° (11 %), steepest 23.8°. Slope classes: under 5 % = 17.0 %, 5–10 % = 31.1 %, 10–15 % = 25.3 %, 15–30 % = 25.0 %, 30 % or more = 1.6 %. Aspect: flat 2.1 %, N 23.9 %, NE 13.2 %, E 7.9 %, SE 8.0 %, S 7.7 %, SW 8.7 %, W 11.5 %, NW 17.1 %. Hillshade is lit from the northwest at 45°.</figcaption></figure>
+      <div class="grid-2">
+        <figure class="hero-figure"><img src="guide_img/sa_t_hillshade.png" alt="Hillshade" loading="lazy"><figcaption>Hillshade.</figcaption></figure>
+        <figure class="hero-figure"><img src="guide_img/sa_t_slope.png" alt="Slope" loading="lazy"><figcaption>Slope.</figcaption></figure>
+        <figure class="hero-figure"><img src="guide_img/sa_t_aspect.png" alt="Aspect" loading="lazy"><figcaption>Aspect.</figcaption></figure>
+        <figure class="hero-figure"><img src="guide_img/sa_t_compare.png" alt="Run and compare" loading="lazy"><figcaption>Run and compare: panels side by side. Exit with the compare button in the toolbar.</figcaption></figure>
+      </div>
+      <p>The same tools on Kadifekale (elevation 3.86–186 m):</p>
+      <div class="grid-2">
+        <figure class="hero-figure"><img src="guide_img/kadi_t_hillshade.png" alt="Kadifekale hillshade" loading="lazy"><figcaption>Hillshade.</figcaption></figure>
+        <figure class="hero-figure"><img src="guide_img/kadi_t_slope.png" alt="Kadifekale slope" loading="lazy"><figcaption>Slope.</figcaption></figure>
+        <figure class="hero-figure"><img src="guide_img/kadi_t_aspect.png" alt="Kadifekale aspect" loading="lazy"><figcaption>Aspect.</figcaption></figure>
+        <figure class="hero-figure"><img src="guide_img/kadi_t_compare.png" alt="Kadifekale compare" loading="lazy"><figcaption>Compare panels.</figcaption></figure>
+      </div>
+
+      <h4>4.3 Section and profile</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_section_card.png" alt="Section card" loading="lazy"><figcaption>Draw a line on the terrain: click points, then <kbd>Enter</kbd>. The profile includes the buildings it crosses.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_section.png" alt="Section on Konak" loading="lazy"><figcaption>A 1,114 m line over Konak: elevation 110.8–125.8 m, climb 27 m, descent 28 m, steepest 23 %. Export as CSV, PNG or DXF.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/kadi_section.png" alt="Section on Kadifekale" loading="lazy"><figcaption>Three clicks across Kadifekale: 2,251 m long, elevation 12.2–173.4 m, climb 249 m, descent 154 m, steepest 49 %.</figcaption></figure>
+
+      <h4>4.4 Water level and flooding</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_flood_card.png" alt="Flooding card" loading="lazy"><figcaption>A water-level slider (it starts 15 % up the elevation range) with <em>Apply</em> and <em>Clear</em>. Without a seed point, every cell below the level floods; a picked seed floods only the connected area.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_flood.png" alt="Flooding on Konak" loading="lazy"><figcaption>Konak at 43.0 m: 7.50 ha flooded, volume 495,678 m³, deepest 19.31 m, no buildings reached.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/kadi_flood.png" alt="Flooding on Kadifekale" loading="lazy"><figcaption>Kadifekale at 25.9 m: 152.95 ha, volume 15,744,635 m³, deepest 22.02 m, <strong>2,496 buildings reached</strong>. Reached buildings get a <code>flood_depth_m</code> field when sent to QGIS.</figcaption></figure>
+
+      <h4>4.5 Cut and fill</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_cutfill_card.png" alt="Cut and fill card" loading="lazy"><figcaption>Draw a platform polygon, choose a level or <em>Balance</em>, and run.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_cutfill.png" alt="Cut and fill on Konak" loading="lazy"><figcaption>Balance on a 65,510 m² platform: cut 192,963 m³, fill 192,966 m³, net 3 m³.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/kadi_cutfill.png" alt="Cut and fill on Kadifekale" loading="lazy"><figcaption>Kadifekale, 195,913 m² platform: cut 1,280,891 m³, fill 1,281,805 m³, net 914 m³, balanced level 141.99 m.</figcaption></figure>
+
+      <h4>Kadifekale: the scene and sun and wind on a hill</h4>
+      <figure class="hero-figure"><img src="guide_img/kadi_overview_zoom.png" alt="Kadifekale scene" loading="lazy"><figcaption>Kadifekale: 16,385 buildings and 14 trees on a steep bowl. The dock reported <em>Ready · 16,399 features</em>.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/kadi_layers_scene.png" alt="Kadifekale Layers tab" loading="lazy"><figcaption>The Scene card for this scene: CRS EPSG:32635, 2.11 × 2.25 km, elevation 4–186 m, 87 × 93 grid at 24.3 m, weather Izmir-Guzelyali, prevailing wind from 270° at 3.0 m/s, monthly radiation and temperature chart, and the wind rose.</figcaption></figure>
+      <div class="grid-2">
+        <figure class="hero-figure"><img src="guide_img/kadi_sun.png" alt="Kadifekale sun hours" loading="lazy"><figcaption>21 March: open ground 8.69 h, 90 % at least 2 h, shade mean 3.31 h (28 %), 2 % shaded all day. 5–8 s.</figcaption></figure>
+        <figure class="hero-figure"><img src="guide_img/kadi_wind.png" alt="Kadifekale wind" loading="lazy"><figcaption>Wind: open ground 2.0 m/s, mean 1.8 m/s, 14 % sheltered.</figcaption></figure>
+      </div>
+
+      <!-- ---------------------------------------------------------------- 5 -->
+      <h3 id="g-compare">5 · Compare tab</h3>
+      <figure class="hero-figure"><img src="guide_img/sa_compare_card.png" alt="Scenarios card" loading="lazy"><figcaption><em>Scenarios</em> compares results between layers marked <em>Scenario A</em> and <em>Scenario B</em> in step 2 of the dock. It needs both layers; the Konak scene has none, so this card was not run here.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_compare_4.png" alt="Four synced panels" loading="lazy"><figcaption>The 2 / 4 / 6 / 8 panel buttons show several results at once with one shared camera.</figcaption></figure>
+
+      <h4>Optimise building heights</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_opt_card.png" alt="Optimiser card" loading="lazy"><figcaption>Select buildings first. Set the floor height, the floor range, the sun date and hours and the ground level, then the population and generation counts and a seed.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_opt_card2.png" alt="Optimiser Pareto chart" loading="lazy"><figcaption>An NSGA-II run on 12 selected buildings (3.2 m floors, 1–12 floors, sun on 21 December 8–16 h, population 16, 12 generations, seed 1) evaluated 91 designs; 16 are on the Pareto front (floor area from about 2,580 to 22,800 m² against sun on open ground, top value 1.76 h). About 59 s.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_opt_result.png" alt="Optimised heights" loading="lazy"><figcaption>Click a point on the chart to apply that design's heights to the scene; the ringed point marked "now" is the current design.</figcaption></figure>
+
+      <!-- ---------------------------------------------------------------- 6 -->
+      <h3 id="g-export">6 · Exports and the round trip to QGIS</h3>
+      <figure class="hero-figure"><img src="guide_img/sa_export_image.png" alt="Save an image" loading="lazy"><figcaption><em>Save an image</em>: PNG, with a copy-to-clipboard option. Measured file: 1.3 MB for the full view.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_export_pdf.png" alt="Save a PDF sheet" loading="lazy"><figcaption><em>Save a PDF sheet</em>: view, legend and result statistics on one sheet (344 KB).</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_export_model.png" alt="3D model or interactive page" loading="lazy"><figcaption><em>Interactive HTML</em> (8.3 MB, one self-contained file) and <em>GLB model</em> (6.4 MB) for other 3D software.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_export_video.png" alt="Record a video" loading="lazy"><figcaption><em>Record a video</em> captures the animated sun or the camera. This panel was shown but a recording was not produced in this run.</figcaption></figure>
+      <p>The section tool also writes a profile CSV (34 KB) and a DXF (49 KB).</p>
+
+      <h4>To QGIS</h4>
+      <figure class="hero-figure"><img src="guide_img/sa_results_panel.png" alt="Results list with To QGIS buttons" loading="lazy"><figcaption>Each result has a <em>To QGIS</em> button.</figcaption></figure>
+      <p>The viewer sends results back through the loopback bridge. In this run:</p>
+      <ul>
+        <li>Sun hours, 21 March became a GeoTIFF (984 × 927 cells at 2 m) and 2,363 buildings received the <code>sun_h_roof</code> field.</li>
+        <li>Pedestrian wind became a GeoTIFF (563 × 530 at 3.5 m).</li>
+        <li>Flood depth became a GeoTIFF (81 × 77 at 24.29 m); no building was reached, so no <code>flood_depth_m</code> value was written.</li>
+        <li>The planning check wrote the six <code>check_*</code> fields to the 40 buildings it covered.</li>
+      </ul>
+      <figure class="hero-figure"><img src="guide_img/sa_qgis_sun.png" alt="Sun hours raster in QGIS" loading="lazy"><figcaption>The sun-hours GeoTIFF rendered in QGIS over the updated building layer.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_qgis_wind.png" alt="Wind raster in QGIS" loading="lazy"><figcaption>The wind GeoTIFF rendered in QGIS.</figcaption></figure>
+      <div class="callout good">Per-building results are written back to the <strong>same source layer</strong> in the project, in a results GeoPackage next to the scene. If that layer is removed from the project before you press <em>To QGIS</em>, the update is rejected with a message; keep it loaded.</div>
+
+      <h3>Not covered in this run</h3>
+      <p>These controls exist but were not run on the guide data, so no numbers are given for them: the <em>Scenarios</em> comparison (needs scenario A and B layers), <em>Pick observer…</em> (a click-picked viewshed), flooding from a picked point, manual UTCI conditions, <em>Facades too</em> in sun hours, video recording, <em>Load EPW file…</em> from the viewer (the file was supplied in the dock), and the 8 and 16 wind direction options. The matching reference chapters below describe them.</p>
+    </div>
+  </section>
+
+  <!-- ========================================================== ARCHITECTURE -->
+  <section id="architecture">
+    <div class="wrap">
+      <div class="eyebrow">01 · System design</div>
+      <h2>Two runtimes, one scene</h2>
+      <p>02 Geo3D Analyzer separates orchestration from computation. Python inside QGIS knows about layers, fields, expressions, coordinate systems and the user's project. The browser knows about geometry, light and the GPU. A small loopback HTTP bridge connects the two, so heavy per-pixel analysis never blocks the QGIS interface and results arrive as ordinary project layers.</p>
+
+      <div class="arch">
+        <div class="arch-panel python">
+          <h4><span class="dot"></span>Python · QGIS process</h4>
+          <ul>
+            <li>Three-step dock: terrain, objects, open in 3D.</li>
+            <li>Reads DEM tiles and extrudes features from any layer, field or expression.</li>
+            <li>Carries layer colours, height rules, bottom heights and filters into the scene.</li>
+            <li>Downloads OSM buildings and trees for the scene area.</li>
+            <li>Receives results, writes GeoTIFFs and a results GeoPackage, applies 3D styling.</li>
+            <li>Shares the QGIS selection with the viewer in both directions.</li>
+          </ul>
+        </div>
+        <div class="arch-panel browser">
+          <h4><span class="dot"></span>Browser · Three.js + WebGL 2</h4>
+          <ul>
+            <li>Renders terrain, extrusions, trees, poles and result overlays.</li>
+            <li>GPU raycasting for sun visibility, sky sampling and shadow casting.</li>
+            <li>Analysis runners for sun, SVF, radiation, PV, wind, comfort and morphology.</li>
+            <li>Terrain sections, flooding and cut/fill on the elevation grid.</li>
+            <li>NSGA-II optimisation and scenario difference maps.</li>
+            <li>Exports images, PDF sheets, interactive HTML, GLB and video.</li>
+          </ul>
+        </div>
+        <div class="arch-bridge"><b>127.0.0.1</b> · local HTTP bridge · <b>POST /api/result</b> · <b>POST /api/select</b> · <b>GET /api/selection</b> · <b>GET /api/ping</b></div>
+      </div>
+
+      <h3>Why a local bridge instead of QGIS-only computation</h3>
+      <p>Sun visibility, sky sampling and shadow maps are naturally parallel per cell. Running them in Python would either serialise millions of ray tests or require a compiled extension. The browser already ships a mature WebGL 2 implementation on every platform, so the plugin uses fragment and compute-style passes for the expensive part and keeps QGIS responsible for data and persistence.</p>
+
+      <div class="grid grid-3" style="margin-top:18px">
+        <div class="card">
+          <span class="kicker">Isolation</span>
+          <h4>QGIS never blocks</h4>
+          <p>The server runs on its own thread and queues results. QGIS objects are touched only on the QGIS thread, never from the HTTP handler.</p>
+        </div>
+        <div class="card emerald">
+          <span class="kicker">Privacy</span>
+          <h4>Loopback only</h4>
+          <p>The server binds to <code>127.0.0.1</code>. The scene is served from a temporary folder on the same machine; no cloud service is involved.</p>
+        </div>
+        <div class="card amber">
+          <span class="kicker">Freshness</span>
+          <h4>No stale terrain</h4>
+          <p>Scene responses are sent with <code>Cache-Control: no-store</code>, so a new export can never be shadowed by a cached scene at the same URL.</p>
+        </div>
+      </div>
+
+      <h3>Scene model</h3>
+      <p>The exported scene packages the project CRS, a local origin, terrain tiles with level of detail, one mesh group per QGIS layer, per-feature attributes used for colouring and reporting, and the analysis metadata (latitude, longitude, time zone, weather station). Grids travel as typed arrays; results return as indexed grids plus per-building field arrays, which is what makes a one-click round trip possible.</p>
+
+      <div class="callout">
+        <p><strong>Large DEMs.</strong> Terrain is tiled and rendered with level of detail. Grids up to 4096 × 4096 cells remain interactive because distant tiles are decimated while the analysis still runs on the full resolution grid.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ WORKFLOW -->
+  <section id="workflow">
+    <div class="wrap">
+      <div class="eyebrow">02 · Operator workflow</div>
+      <h2>DEM → layer selection → 3D session</h2>
+      <p>The dock is deliberately short. Everything that can be inferred from the project is inferred; everything that changes the meaning of a result stays visible and editable.</p>
+
+      <div class="flow">
+        <div class="flow-step">
+          <div class="num">1</div>
+          <h4>Terrain</h4>
+          <p>Pick a DEM raster, or leave it empty for flat ground. Set the scene area and, if needed, vertical exaggeration. <em>Quick 3D</em> opens a DEM alone in one click.</p>
+        </div>
+        <div class="flow-step">
+          <div class="num">2</div>
+          <h4>Objects &amp; heights</h4>
+          <p>Tick the layers to show. For each layer choose the role (building, wall, tree, pole, ground), the height source and the colour rule. Download OSM buildings and trees when the project has none.</p>
+        </div>
+        <div class="flow-step">
+          <div class="num">3</div>
+          <h4>Open in 3D</h4>
+          <p>The scene opens in the default browser. Run an analysis card, inspect the result, then press <em>To QGIS</em> to add rasters and fields to the project.</p>
+        </div>
+      </div>
+
+      <h3>Height rules</h3>
+      <p>A height can come from the QGIS expression stored on the layer, from a numeric field multiplied by a factor, or from a uniform value. A separate bottom height supports raised parts, bridges, balconies and OSM <code>min_height</code>. Buildings can be stood on the lowest, average or highest ground under their footprint, which matters on slopes.</p>
+
+      <pre><code>-- storeys to metres, with a floor-to-floor height of 3.2 m
+"floors" * 3.2
+
+-- explicit height, falling back to storeys, then to 9 m
+coalesce("height", "building:levels" * 3.0, 9)
+
+-- roof above the lowest ground under the footprint
+bottom = "min_height"</code></pre>
+
+      <div class="callout good">
+        <p><strong>Colour comes from QGIS.</strong> Single colour, graduated classes (natural breaks, quantile, equal interval) and categories are read from the layer style, so the 3D scene and the 2D map agree before any analysis is run. Results can then recolour the same geometry without touching the source data.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================== INSTALLATION -->
+  <section id="install">
+    <div class="wrap">
+      <div class="eyebrow">03 · Installation</div>
+      <h2>Install once, no external Python packages</h2>
+      <p>02 Geo3D Analyzer ships its own viewer assets and analysis code. It requires QGIS 3.28 or newer (QGIS 4 included) and a browser with WebGL 2 — the default in current Chrome, Edge, Firefox and Safari.</p>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <span class="kicker">Recommended</span>
+          <h4>QGIS Plugin Hub</h4>
+          <p>Open <em>Plugins → Manage and Install Plugins…</em>, search for <strong>“02 Geo3D Analyzer”</strong> and press <em>Install</em>. Updates arrive through the same dialog.</p>
+        </div>
+        <div class="card emerald">
+          <span class="kicker">Offline / pinned</span>
+          <h4>Install from ZIP</h4>
+          <p>Download the release ZIP, then use <em>Plugins → Install from ZIP</em>. The archive root is the package directory, as the Hub requires.</p>
+        </div>
+      </div>
+
+      <h3>First-run checklist</h3>
+      <ul>
+        <li>The toolbar icon and the <em>02 Geo3D Analyzer</em> entry appear under <em>Plugins</em>.</li>
+        <li>The project is in a projected CRS in metres, so heights and distances share a unit.</li>
+        <li>A DEM is loaded if the site is not flat.</li>
+        <li>The browser opens the local address; a firewall prompt for loopback traffic is not expected.</li>
+      </ul>
+
+      <div class="callout warn">
+        <p><strong>Not a CFD solver and not a formal daylight certificate.</strong> Wind, thermal comfort and the BRE 209 checks are screening proxies built for design comparison. Confirm borderline cases with a formal assessment or a validated simulation.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== SOLAR -->
+  <section id="solar">
+    <div class="wrap">
+      <div class="eyebrow">04 · Solar geometry</div>
+      <h2>The sun as a deterministic vector</h2>
+      <p>Every solar result starts from the same place: the position of the sun for a given latitude, longitude, date and time. The plugin follows the NOAA solar geometry equations, which are accurate to well under a degree for planning purposes and are cheap enough to evaluate for every hour of a year.</p>
+
+      <div class="formula" data-label="Fractional year and declination">
+        $$\gamma = \frac{2\pi}{365}\left(N - 1 + \frac{h - 12}{24}\right)$$
+        $$\delta = 0.006918 - 0.399912\cos\gamma + 0.070257\sin\gamma - 0.006758\cos 2\gamma + 0.000907\sin 2\gamma - 0.002697\cos 3\gamma + 0.00148\sin 3\gamma$$
+      </div>
+
+      <div class="formula" data-label="Equation of time and true solar time">
+        $$E_t = 229.18\left(0.000075 + 0.001868\cos\gamma - 0.032077\sin\gamma - 0.014615\cos 2\gamma - 0.040849\sin 2\gamma\right)$$
+        $$t_{solar} = h \cdot 60 + m + \frac{s}{60} + E_t + 4\lambda - 60\,t_z$$
+      </div>
+
+      <div class="formula" data-label="Hour angle, zenith and azimuth">
+        $$H = \frac{t_{solar}}{4} - 180^\circ$$
+        $$\cos z = \sin\varphi\sin\delta + \cos\varphi\cos\delta\cos H$$
+        $$\cos A = \frac{\sin\delta - \sin\varphi\cos z}{\cos\varphi\sin z}$$
+      </div>
+
+      <p>Here \(N\) is the day of the year, \(h\) the local clock hour, \(\lambda\) longitude (east positive), \(t_z\) the time-zone offset in hours, \(\varphi\) latitude, \(z\) the solar zenith angle and \(A\) the azimuth measured from north. The resulting unit vector is expressed in the scene's local east–north–up frame and used directly by the raycaster.</p>
+
+      <h3>Sunrise, sunset and day length</h3>
+      <p>Sunrise and sunset follow from the hour angle at the horizon, with a standard refraction correction. The viewer reports day length and uses it to bound the hourly sampling window, so a winter analysis does not waste rays on a sun that is already below the horizon.</p>
+
+      <div class="formula" data-label="Hour angle at sunrise and day length">
+        $$\cos H_0 = -\tan\varphi\tan\delta$$
+        $$D = \frac{2}{15}\arccos\left(-\tan\varphi\tan\delta\right) \quad \text{[hours]}$$
+      </div>
+
+      <div class="callout">
+        <p><strong>Time zone matters.</strong> The scene stores the longitude and time-zone offset used for the calculation. A scene exported for a site in a different time zone will still compute correct solar positions, but the labels on the sun clock will refer to that site's local time.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ SHADOWS -->
+  <section id="shadows">
+    <div class="wrap">
+      <div class="eyebrow">05 · Sun hours &amp; shadows</div>
+      <h2>Direct sun, measured where people stand</h2>
+      <p>The sun-hours analysis answers a deceptively simple question: for how much of the chosen day is a point directly lit by the sun? For every sample time the plugin computes the solar vector, then tests the point against the scene geometry with a GPU raycast. A point is lit when no triangle intersects the ray toward the sun.</p>
+
+      <div class="formula" data-label="Direct sun hours">
+        $$H_{sun}(x) = \Delta t \sum_{k=1}^{n} \mathbb{1}\left[\text{ray}(x, \mathbf{s}_k) \cap \mathcal{G} = \varnothing\right]$$
+        $$S_{shade}(x) = 1 - \frac{H_{sun}(x)}{H_{day}}$$
+      </div>
+
+      <p>\(\mathcal{G}\) is the set of scene triangles, \(\mathbf{s}_k\) the sun vector at sample \(k\), \(\Delta t\) the sampling interval in hours and \(H_{day}\) the length of the day. The default sampling is hourly; the step can be shortened for a more precise result.</p>
+
+      <h3>Three surfaces, three questions</h3>
+      <div class="grid grid-3">
+        <div class="card">
+          <span class="kicker">Ground</span>
+          <h4>Open-space comfort</h4>
+          <p>Sun hours on the terrain and on flat ground surfaces. This is the layer used for amenity-area checks, playground studies and the optimisation objective.</p>
+        </div>
+        <div class="card emerald">
+          <span class="kicker">Roofs</span>
+          <h4>Solar potential</h4>
+          <p>Roof cells are classified by normal direction. They feed the irradiation and PV analysis and reveal which roofs are shaded by taller neighbours.</p>
+        </div>
+        <div class="card amber">
+          <span class="kicker">Facades</span>
+          <h4>Daylight and passive gains</h4>
+          <p>Wall cells record direct sun and, in the daylight analysis, the vertical sky component. Facade results are averaged per building and per storey.</p>
+        </div>
+      </div>
+
+      <h3>Shadow share and the BRE 209 proxy</h3>
+      <p>Shadow share is the complement of sun hours over the analysis window. The planning check uses the BRE 209 amenity-area rule as a screening proxy: at least half of an open amenity area within 15 m of a building should receive two hours of sun on 21 March. The result row reports the share that passes, the mean, and the worst cell, and the same values are available as per-building fields.</p>
+
+      <div class="callout warn">
+        <p><strong>BRE 209 is guidance, not a certificate.</strong> The plugin evaluates the 21 March two-hour rule and the 25° daylight test on the geometry it can see. A formal assessment also considers room use, window orientation, internal reflections and the assessor's judgement.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================ SVF -->
+  <section id="svf">
+    <div class="wrap">
+      <div class="eyebrow">06 · Sky view factor</div>
+      <h2>How much sky a surface can see</h2>
+      <p>The sky view factor (SVF) is the fraction of the hemisphere that is visible from a point, weighted by the cosine of the incidence angle. It is the single most useful geometric indicator of urban enclosure: 1.0 means an unobstructed horizontal surface, 0.5 is a point on an open wall, and a deep street canyon falls well below 0.5.</p>
+
+      <div class="formula" data-label="Cosine-weighted sky view factor">
+        $$\text{SVF} = \frac{1}{\pi}\int_{0}^{2\pi}\int_{0}^{\pi/2}\cos\theta\,\sin\theta\,d\theta\,d\phi$$
+      </div>
+
+      <p>In discrete form the plugin shoots rays over the upper hemisphere and accumulates the cosine-weighted share that escapes the scene:</p>
+
+      <div class="formula" data-label="Discrete estimator">
+        $$\widehat{\text{SVF}} = \frac{1}{N}\sum_{i=1}^{N} \mathbb{1}\left[\text{ray}(x,\omega_i)\cap\mathcal{G}=\varnothing\right]\cos\theta_i$$
+      </div>
+
+      <p>Sampling uses 64 to 256 directions per cell depending on the requested quality. The directions are distributed over the hemisphere, and rays are tested against the same triangle set as the shadow analysis. Ground cells and wall cells use different hemisphere orientations, which is why a wall reads about 0.5 in an open field.</p>
+
+      <h3>Street canyons and nocturnal cooling</h3>
+      <p>SVF controls how much long-wave radiation a surface can lose to the cold sky. A low SVF means the surface mostly sees other surfaces at air temperature, so it cools more slowly at night. That is the physical link between the compact canyon and the urban heat island. The morphology analysis reports SVF together with the aspect ratio \(H/W\), plan area fraction \(\lambda_p\) and frontal area index \(\lambda_f\), which is the combination needed to interpret the result.</p>
+
+      <div class="grid grid-2" style="margin-top:16px">
+        <div class="card">
+          <span class="kicker">Interpretation</span>
+          <h4>SVF ≈ 0.8–1.0</h4>
+          <p>Open squares, low-density suburbs, rooftops. Strong nocturnal cooling, high solar exposure, little wind shelter at pedestrian level.</p>
+        </div>
+        <div class="card purple">
+          <span class="kicker">Interpretation</span>
+          <h4>SVF ≈ 0.2–0.4</h4>
+          <p>Deep canyons and enclosed courtyards. Reduced heat loss, persistent shade in winter, stronger shelter but also weaker dispersion of pollutants.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========================================================== RADIATION -->
+  <section id="radiation">
+    <div class="wrap">
+      <div class="eyebrow">07 · Irradiation &amp; photovoltaics</div>
+      <h2>From sun position to annual yield</h2>
+      <p>Sun hours count time; irradiation counts energy. The radiation analysis integrates the plane-of-array irradiance over the year (or a season) for every ground, roof and facade cell, using either a measured EnergyPlus weather file or a clear-sky model.</p>
+
+      <div class="formula" data-label="Plane-of-array irradiance">
+        $$G_{POA} = G_{b}\,DNI\,\cos\theta + G_{d} + G_{r}$$
+        $$G_{r} = \rho\,GHI\,\frac{1-\cos\beta}{2}$$
+      </div>
+
+      <p>\(DNI\) is direct normal irradiance, \(\theta\) the angle between the surface normal and the sun, \(\beta\) the surface tilt, \(\rho\) the ground albedo and \(GHI\) global horizontal irradiance. The diffuse term \(G_d\) is the part that separates a crude model from a credible one.</p>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <span class="kicker">Default</span>
+          <h4>Perez anisotropic sky</h4>
+          <p>Perez et al. (1990) separates diffuse irradiance into circumsolar, horizon-brightening and isotropic components. It is the recommended model for tilted surfaces and is used whenever the weather file provides the required inputs.</p>
+        </div>
+        <div class="card emerald">
+          <span class="kicker">Fallback</span>
+          <h4>Hay–Davies</h4>
+          <p>An anisotropic model with a circumsolar term and an isotropic remainder. It needs fewer inputs and is used when the Perez parameters are unavailable, or for a clear-sky run without an EPW file.</p>
+        </div>
+      </div>
+
+      <h3>From irradiance to PV yield</h3>
+      <p>Roof tilt and azimuth are read from the extruded geometry: the roof normal gives both, and flat roofs are treated as horizontal arrays. Facade cells are handled with the same integration but a vertical normal. Annual yield is reported in \(\text{kWh/m}^2/\text{year}\), then multiplied by a system efficiency and a performance ratio to estimate usable electricity.</p>
+
+      <div class="formula" data-label="Annual specific yield">
+        $$E_{PV} = \frac{1}{1000}\int_{year} G_{POA}\,dt \cdot \eta_{sys}\cdot PR$$
+      </div>
+
+      <p>\(\eta_{sys}\) is the module-plus-inverter efficiency and \(PR\) the performance ratio that accounts for temperature, soiling, wiring and mismatch. Both are editable, so a study can use a conservative or an optimistic assumption without changing the geometry.</p>
+
+      <h3>Rooftop suitability</h3>
+      <p>Not every roof cell is usable. The suitability filter removes cells below a minimum annual irradiation, cells on steep or north-facing pitches, and cells within a margin of the roof edge or of obstructions. The result is a per-building usable area and a potential installed capacity, which is the number a pre-feasibility study actually needs.</p>
+
+      <div class="callout good">
+        <p><strong>Weather data.</strong> Use <em>Nearest station…</em> to download the closest TMYx station in one click, or load an EnergyPlus EPW file directly. Without a weather file the analysis falls back to clear-sky irradiance, which is useful for comparing designs but not for absolute yield claims.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================================================== WIND -->
+  <section id="wind">
+    <div class="wrap">
+      <div class="eyebrow">08 · Pedestrian wind</div>
+      <h2>A screening model, not a wind tunnel</h2>
+      <p>Pedestrian wind is the result of approaching flow, building wakes, channelling between blocks and corner acceleration around tall buildings. A full CFD study is out of scope for a design tool, so the plugin uses a fast morphological model calibrated to the same quantities CFD would report: a pedestrian-level wind ratio and a speed in metres per second per sector.</p>
+
+      <h3>Roughness and displacement</h3>
+      <p>The urban canopy is described by the plan area fraction \(\lambda_p\) and the frontal area index \(\lambda_f\). Macdonald et al. (1998) provide the displacement height \(d\) and roughness length \(z_0\) that follow from those two numbers:</p>
+
+      <div class="formula" data-label="Macdonald et al. (1998)">
+        $$\frac{d}{H} = 1 + A^{-\lambda_p}\left(\lambda_p - 1\right), \qquad A \approx 4.43$$
+        $$\frac{z_0}{H} = \left(1-\frac{d}{H}\right)\exp\left\{-\left[\frac{1}{2}\,\beta\,C_D\,\kappa^{-2}\left(1-\frac{d}{H}\right)\lambda_f\right]^{-1/2}\right\}$$
+      </div>
+
+      <p>with \(\beta \approx 1\), \(C_D \approx 1.2\) and \(\kappa = 0.4\). The resulting profile is used to scale the reference wind from the weather file down to pedestrian height and to compute the sheltering ratio in each sector.</p>
+
+      <div class="formula" data-label="Mean pedestrian wind speed">
+        $$U_p = U_{ref}\left(\frac{z_p}{z_{ref}}\right)^{\alpha}\cdot r_{shelter}\cdot r_{corner}$$
+      </div>
+
+      <p>The shelter ratio \(r_{shelter}\) falls in the wake of upstream buildings, while the corner factor \(r_{corner}\) rises near the exposed corners of tall blocks. Both are functions of the local geometry and the wind sector, and both are reported separately so the result can be explained rather than merely coloured.</p>
+
+      <h3>What the result contains</h3>
+      <ul>
+        <li>Mean and maximum pedestrian wind speed per sector, in m/s.</li>
+        <li>The ratio to the reference wind at the same height.</li>
+        <li>The share of hours above a comfort threshold, by season.</li>
+        <li>A per-building wind rose that can be read in the building report.</li>
+      </ul>
+
+      <div class="callout warn">
+        <p><strong>Screening only.</strong> Do not use the wind layer as evidence for safety certification, structural design or pollutant dispersion. Its purpose is to compare massing options and to flag locations that deserve a proper study.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ THERMAL -->
+  <section id="thermal">
+    <div class="wrap">
+      <div class="eyebrow">09 · Thermal comfort</div>
+      <h2>Mean radiant temperature and UTCI</h2>
+      <p>Air temperature alone does not describe how a place feels. On a sunny square the radiant load can add more than ten degrees of equivalent temperature; in a shaded courtyard the same air temperature feels cool. The plugin estimates both the radiant field and a standard comfort index for a chosen hour or for the full year.</p>
+
+      <h3>Mean radiant temperature</h3>
+      <p>The mean radiant temperature \(T_{mrt}\) is computed with the SolarCal approach (Arens et al. 2011). It combines the absorbed direct and diffuse solar radiation with the long-wave exchange between the person and the surrounding surfaces and sky. The sky view factor from the previous section is an input here: a person under a narrow canyon sees less sky and therefore exchanges less long-wave radiation with the cold upper hemisphere.</p>
+
+      <div class="formula" data-label="Radiant balance (conceptual form)">
+        $$T_{mrt} = \left[\frac{1}{\varepsilon_p\sigma}\left(S_{abs} + \varepsilon_p\,\sigma\,T_{surf}^{4}\right)\right]^{1/4}$$
+      </div>
+
+      <p>\(S_{abs}\) is the short-wave radiation absorbed by the body, \(\varepsilon_p\) the body emissivity, \(\sigma\) the Stefan–Boltzmann constant and \(T_{surf}\) the effective temperature of the surrounding surfaces. The implementation follows SolarCal's projected-area factors rather than a simple sphere, so posture and sun angle are represented.</p>
+
+      <h3>UTCI</h3>
+      <p>The Universal Thermal Climate Index combines air temperature, mean radiant temperature, wind speed and humidity into an equivalent temperature. The plugin uses the sixth-order polynomial approximation of Bröde et al. (2012), the same approximation used by the reference UTCI code.</p>
+
+      <div class="formula" data-label="UTCI polynomial">
+        $$UTCI = f\left(T_a, T_{mrt}, v_{10m}, RH\right)$$
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>UTCI (°C)</th><th>Stress category</th><th>Planning reading</th></tr></thead>
+          <tbody>
+            <tr><td>&lt; −13</td><td>Very strong cold stress</td><td>Uncomfortable without shelter; exposure should be minimised.</td></tr>
+            <tr><td>−13 to 0</td><td>Moderate to strong cold stress</td><td>Winter comfort depends on sun and wind shelter.</td></tr>
+            <tr><td>0 to 9</td><td>Slight cold stress</td><td>Acceptable for active use with appropriate clothing.</td></tr>
+            <tr><td>9 to 26</td><td>No thermal stress</td><td>The comfortable band used by the comfort-hours metric.</td></tr>
+            <tr><td>26 to 32</td><td>Moderate heat stress</td><td>Shade and evaporative cooling become valuable.</td></tr>
+            <tr><td>32 to 38</td><td>Strong heat stress</td><td>Long summer exposure is a design problem.</td></tr>
+            <tr><td>38 to 46</td><td>Very strong heat stress</td><td>Unshaded hard surfaces should be avoided.</td></tr>
+            <tr><td>&gt; 46</td><td>Extreme heat stress</td><td>Health risk; emergency and adaptation planning.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>When a full EPW year is loaded, the plugin reports comfortable hours, heat-stress hours and cold-stress hours per building and per season. Those are the fields used by the planning check and by the building report's “outdoor comfort by season” panel.</p>
+    </div>
+  </section>
+
+  <!-- ================================================================ UHI -->
+  <section id="uhi">
+    <div class="wrap">
+      <div class="eyebrow">10 · Heat island &amp; morphology</div>
+      <h2>Geometry that traps heat</h2>
+      <p>The urban heat island is not a single number; it is the outcome of several geometric and material properties. The morphology analysis measures the geometric ones that can be derived from footprints and heights, then maps the result to an approximate Local Climate Zone.</p>
+
+      <div class="formula" data-label="Plan and frontal area fractions">
+        $$\lambda_p = \frac{A_{plan}}{A_{total}}, \qquad \lambda_f(\phi) = \frac{A_{frontal}(\phi)}{A_{total}}$$
+      </div>
+
+      <p>\(\lambda_p\) describes how much of the ground is covered by buildings. \(\lambda_f\) describes how much vertical surface faces the wind, as a function of direction. Together with the mean building height \(H\) and the mean street width \(W\), they determine the canyon aspect ratio \(H/W\), the sky view factor, the roughness length and the displacement height.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Indicator</th><th>What it explains</th><th>Typical range</th></tr></thead>
+          <tbody>
+            <tr><td>λ<sub>p</sub></td><td>Ground sealing and the share of built surface</td><td>0.1 low density · 0.5+ compact</td></tr>
+            <tr><td>λ<sub>f</sub></td><td>Wind resistance and frontal exposure</td><td>0.05 sparse · 0.5+ dense</td></tr>
+            <tr><td>H/W</td><td>Canyon enclosure and radiation trapping</td><td>0.5 wide · 2+ deep canyon</td></tr>
+            <tr><td>SVF</td><td>Nocturnal long-wave loss</td><td>0.9 open · 0.3 enclosed</td></tr>
+            <tr><td>z<sub>0</sub>, d</td><td>Wind profile and pedestrian shelter</td><td>Derived from λ<sub>p</sub>, λ<sub>f</sub></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Approximate Local Climate Zones</h3>
+      <p>The LCZ classification follows Stewart and Oke (2012). Built types 1–6, 8 and 9 are separated using plan fraction, mean height and footprint size. Types 7 (lightweight low-rise) and 10 (heavy industry) need material and land-use information that footprints alone cannot supply, so the plugin does not pretend to detect them.</p>
+
+      <div class="grid grid-3">
+        <div class="card">
+          <span class="kicker">LCZ 1–3</span>
+          <h4>Compact high-, mid- and low-rise</h4>
+          <p>High plan fraction, low SVF, strong radiation trapping. The hottest night-time patterns usually appear here.</p>
+        </div>
+        <div class="card emerald">
+          <span class="kicker">LCZ 4–6</span>
+          <h4>Open high-, mid- and low-rise</h4>
+          <p>Lower plan fraction, more sky, better ventilation. Comfort depends more on orientation and shade than on trapping.</p>
+        </div>
+        <div class="card amber">
+          <span class="kicker">LCZ 8–9</span>
+          <h4>Large low-rise and sparse built</h4>
+          <p>Extensive roofs, low heights and high solar exposure. Rooftop PV and surface albedo dominate the design response.</p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <p><strong>Read the indicators together.</strong> A high λ<sub>p</sub> with a high SVF is a different problem from a high λ<sub>p</sub> with a low SVF. The first is about ground sealing and surface materials; the second is about canyon geometry and nocturnal cooling. The analysis reports both so that the diagnosis is not reduced to a single colour.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ SECTIONS -->
+  <section id="sections">
+    <div class="wrap">
+      <div class="eyebrow">11 · Terrain sections</div>
+      <h2>Draw a line, get a section with buildings</h2>
+      <p>The section tool samples the terrain along a line and adds the building silhouettes that intersect it. The result is the drawing that a planner or an architect would otherwise construct by hand: ground profile, vertical exaggeration, storey lines and a scale bar.</p>
+
+      <div class="grid grid-3">
+        <div class="card">
+          <span class="kicker">Input</span>
+          <h4>Drawn or imported line</h4>
+          <p>Draw the line in the 3D view, or use a line layer from the QGIS project. The tool reports length and bearing.</p>
+        </div>
+        <div class="card emerald">
+          <span class="kicker">Geometry</span>
+          <h4>Ground and silhouettes</h4>
+          <p>Terrain is sampled at a fixed interval; each building contributes its footprint intersections and its height above the ground.</p>
+        </div>
+        <div class="card amber">
+          <span class="kicker">Output</span>
+          <h4>PNG, CSV, DXF</h4>
+          <p>Export a publication image, the sampled profile as CSV, or a CAD-ready DXF for further drafting.</p>
+        </div>
+      </div>
+
+      <p>Vertical exaggeration is a display setting, not a data transformation: the CSV and DXF always contain true elevations. This matters when a section is used for cut/fill or for checking a slope against a regulation.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================ FLOODING -->
+  <section id="flooding">
+    <div class="wrap">
+      <div class="eyebrow">12 · Water level &amp; flooding</div>
+      <h2>Bathtub and connected inundation</h2>
+      <p>The flooding tool fills the terrain from a chosen water level and reports depth, affected buildings and the flooded area. Two modes are available because they answer different questions.</p>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <span class="kicker">Bathtub</span>
+          <h4>Every cell below the level</h4>
+          <p>Fast and conservative. Useful for a first scan, for a uniform design flood or for a site with no clear drainage path.</p>
+        </div>
+        <div class="card emerald">
+          <span class="kicker">Connected</span>
+          <h4>Reachable from a source</h4>
+          <p>A flood-fill from a chosen seed cell or water body. Cells below the level but isolated by higher ground stay dry, which is closer to how water actually arrives.</p>
+        </div>
+      </div>
+
+      <div class="formula" data-label="Depth and affected stock">
+        $$h(x) = \max\left(0,\; z_w - z_{ground}(x)\right)$$
+        $$A_{flood} = \sum_{x\,:\,h(x)>0} a_{cell}, \qquad N_{bldg} = \sum_{b} \mathbb{1}\left[\min_{x\in b} z_{ground}(x) \lt z_w\right]$$
+      </div>
+
+      <p>Buildings are counted when the water level exceeds the lowest ground under their footprint. The result also reports the depth at each building entrance when a footprint edge is available, which is more useful for adaptation planning than a simple binary flag.</p>
+    </div>
+  </section>
+
+  <!-- =========================================================== EARTHWORK -->
+  <section id="earthwork">
+    <div class="wrap">
+      <div class="eyebrow">13 · Cut &amp; fill</div>
+      <h2>Balancing the earthwork</h2>
+      <p>Cut and fill compares the existing terrain with a design level. The volume above the design level is cut; the volume below is filled. The balancing level is the elevation at which the two volumes are equal, which is the first number a grading study needs.</p>
+
+      <div class="formula" data-label="Volumes on a regular grid">
+        $$V_{cut} = \sum_{i}\max\left(0,\; z_i - z_d\right)a_i, \qquad V_{fill} = \sum_{i}\max\left(0,\; z_d - z_i\right)a_i$$
+      </div>
+
+      <p>For a uniform cell area \(a\), the balancing level can be found without iteration by sorting the elevations and accumulating area until the cut and fill integrals match. The plugin reports both volumes, the net imbalance, the balancing level and a raster of cut and fill depths.</p>
+
+      <div class="formula" data-label="Balancing condition">
+        $$V_{cut}(z_d^{*}) = V_{fill}(z_d^{*})$$
+      </div>
+
+      <div class="callout good">
+        <p><strong>Design use.</strong> A net-zero balance is a useful starting point, but real projects also care about haul distance, soil bulking and the difference between rock and topsoil. The plugin gives the geometric baseline; the construction estimate adds the rest.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ COMPARE -->
+  <section id="compare">
+    <div class="wrap">
+      <div class="eyebrow">14 · Scenario comparison</div>
+      <h2>B minus A, on the same grid</h2>
+      <p>Two scenes can be compared cell by cell. Scenario A is the baseline; scenario B is the proposal. The difference map shows where sun, sky view, irradiation or wind improves or worsens, and the summary reports the area that gains and the area that loses.</p>
+
+      <div class="formula" data-label="Difference field">
+        $$\Delta f(x) = f_B(x) - f_A(x)$$
+      </div>
+
+      <p>Because both scenes share the same grid and origin, no resampling is needed. The comparison is exact where the geometry is identical and explicit where it is not. A swipe control and synced 2, 4, 6 or 8 panel layouts make the spatial pattern visible without reading a table.</p>
+
+      <h3>Scenario-aware planning check</h3>
+      <p>The planning check can evaluate scenario B against the thresholds defined for A. For daylight, it reports the retained vertical sky component as a ratio to the former value; the BRE 209 screening threshold is 0.8, below which a loss is considered noticeable. For sun on open ground and for heat stress, the check reports the share of the surrounding area that meets the chosen threshold.</p>
+    </div>
+  </section>
+
+  <!-- =========================================================== OPTIMIZE -->
+  <section id="optimize">
+    <div class="wrap">
+      <div class="eyebrow">15 · Multi-objective optimisation</div>
+      <h2>Floor area versus sun on the ground</h2>
+      <p>The optimiser searches over the floor counts of selected buildings. More floors add floor area but cast longer shadows, so the two objectives conflict. NSGA-II is used because it returns a set of non-dominated designs rather than a single weighted compromise.</p>
+
+      <div class="formula" data-label="Bi-objective problem">
+        $$\max_{\mathbf{h}}\;\left(\;FAR(\mathbf{h}),\; H_{sun}^{open}(\mathbf{h})\;\right)$$
+        $$\text{subject to}\quad h_i \in \left[h_i^{min}, h_i^{max}\right],\quad \text{planning constraints}$$
+      </div>
+
+      <p>Each candidate is evaluated on the GPU using the same sun model as the interactive analysis. Optional constraints include minimum sun around each building and the BRE 209 25° test for the windows of neighbouring buildings. The latter is prepared once from the existing geometry, which keeps the per-design cost low.</p>
+
+      <h3>Algorithm</h3>
+      <ul>
+        <li><strong>Population.</strong> A set of floor-count vectors, initialised within the allowed ranges.</li>
+        <li><strong>Non-dominated sorting.</strong> Candidates are ranked by Pareto dominance on floor area and sun hours.</li>
+        <li><strong>Crowding distance.</strong> Diversity is preserved by preferring candidates in sparse regions of the front.</li>
+        <li><strong>Variation.</strong> Simulated binary crossover and polynomial mutation generate the next generation.</li>
+        <li><strong>Selection.</strong> Elitist survival keeps the best fronts until the population size is reached.</li>
+      </ul>
+
+      <p>The result is a Pareto front. The knee point is the design that gains the most floor area for the least loss of sun; the extreme points show the maximum floor area and the maximum sun. Selecting a point applies its heights to the scene, so the chosen design can be inspected, compared and exported like any other result.</p>
+
+      <div class="callout">
+        <p><strong>Interpretation.</strong> A Pareto front is a negotiation tool, not an answer. The choice of a point is a planning decision that depends on policy, programme and the value of open space — the optimiser only makes the trade-off explicit.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================================================== QGIS -->
+  <section id="qgis">
+    <div class="wrap">
+      <div class="eyebrow">16 · Bidirectional integration</div>
+      <h2>Results become project layers</h2>
+      <p>An analysis that stays in a browser is a screenshot. The round trip is the point of the plugin: every grid result can be written as a GeoTIFF in the project CRS, and every per-building result can be written as fields in a results GeoPackage.</p>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <span class="kicker">Raster</span>
+          <h4>GeoTIFF per analysis</h4>
+          <p>Sun hours, shadow share, SVF, irradiation, PV yield, wind speed, UTCI, flooding depth and cut/fill depth are written with the correct extent, cell size and CRS.</p>
+        </div>
+        <div class="card emerald">
+          <span class="kicker">Vector</span>
+          <h4>Fields per building</h4>
+          <p>Per-building means, maxima, ranks, suitability, comfort hours and planning-check outcomes are joined back to the source features in a results GeoPackage.</p>
+        </div>
+      </div>
+
+      <h3>How the export works</h3>
+      <ul>
+        <li>Press <em>To QGIS</em> on a result card. The browser posts the grid and the field table to the bridge.</li>
+        <li>QGIS writes a GeoTIFF to a temporary or user-chosen folder and adds it to the project.</li>
+        <li>The results GeoPackage is created or updated with one layer per source layer, keyed by feature id.</li>
+        <li>Symbology is applied so the raster is readable immediately; the user can replace it with any QGIS style.</li>
+        <li>For extrusion layers, a 3D style can be applied so the same buildings are coloured by the result in QGIS's own 3D view.</li>
+      </ul>
+
+      <h3>Selection sync</h3>
+      <p>Selecting features in QGIS sends their ids to the viewer, which highlights the corresponding meshes. Selecting a building in the viewer posts the ids back, and the QGIS selection changes. The bridge stores a monotonic sequence number so that an old selection cannot overwrite a newer one, and it caps the number of ids per message to keep the loop responsive.</p>
+
+      <div class="callout good">
+        <p><strong>No hidden state.</strong> The results GeoPackage is an ordinary file. It can be shared, versioned, joined or mapped without the plugin, which is what makes the workflow reproducible.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ TUTORIAL -->
+  <section id="tutorial">
+    <div class="wrap">
+      <div class="eyebrow">17 · Practical tutorial</div>
+      <h2>A complete solar study, start to finish</h2>
+      <p>The walkthrough below uses only QGIS and the plugin. It takes a project with no data and ends with a solar-potential GeoTIFF and a set of building fields.</p>
+
+      <div class="steps">
+        <div class="tstep">
+          <h4>Prepare the project</h4>
+          <p>Create a project in a projected CRS in metres. Set the project CRS before loading data; the plugin uses it for the scene and for the exported rasters.</p>
+          <ul>
+            <li><em>Project → Properties → CRS</em>: choose the local projected CRS.</li>
+            <li>Keep the map extent around the site; the scene area follows the canvas or the chosen boundary.</li>
+          </ul>
+        </div>
+
+        <div class="tstep">
+          <h4>Load or download a DEM</h4>
+          <p>Add a terrain raster, or skip this step for a flat site. A DEM in metres is required for flooding, cut/fill and sections.</p>
+          <ul>
+            <li>Use a raster with a cell size appropriate to the design scale (1–5 m for a district study).</li>
+            <li>If the DEM is in a geographic CRS, reproject it first; slope and volume calculations assume metres.</li>
+          </ul>
+        </div>
+
+        <div class="tstep">
+          <h4>Get buildings and trees</h4>
+          <p>If the project has no building layer, press <em>Download OSM buildings &amp; trees</em>. The plugin queries OpenStreetMap for the scene area, derives heights from <code>height</code> and <code>building:levels</code> tags, and falls back to a height by building type.</p>
+          <pre><code>-- check the downloaded heights in the attribute table
+"height"          -- explicit metres, when tagged
+"building:levels" -- storeys, converted with 3.0 m per storey
+"building"        -- used for the type-based fallback</code></pre>
+        </div>
+
+        <div class="tstep">
+          <h4>Configure the objects</h4>
+          <p>Open the plugin dock. In step 2, tick the building layer, set its role to <em>building</em>, choose <em>height expression</em> and enter <code>"floors" * 3.2</code> (or the expression that matches your data). Set the colour rule from the QGIS style.</p>
+          <p>If the site is on a slope, choose whether buildings stand on the lowest, average or highest ground under their footprint. Add trees and poles from point layers with a height field.</p>
+        </div>
+
+        <div class="tstep">
+          <h4>Open the 3D scene</h4>
+          <p>Press <em>Open in 3D</em>. The browser opens the local viewer. Check the scene: terrain, extrusions, colours and the north arrow. Use the sun clock to move through the day and confirm that shadows fall in the expected direction.</p>
+        </div>
+
+        <div class="tstep">
+          <h4>Run sun hours for 21 March and 21 June</h4>
+          <p>Open <em>Analyze</em>, choose <em>Sun hours &amp; shadows</em>, set the date and the sampling step, and run. The result colours ground, roofs and facades. Switch to the section view to inspect a street canyon and to the chart view for the distribution.</p>
+          <pre><code>Recommended screening settings
+Date           21 March (equinox) and 21 June (summer solstice)
+Sampling       hourly (step = 1 h)
+Quality        high for the final run, medium while iterating
+Surfaces       ground + roofs + facades</code></pre>
+        </div>
+
+        <div class="tstep">
+          <h4>Add the weather file and run irradiation</h4>
+          <p>Press <em>Nearest station…</em> to download the closest TMYx EPW, or load a project EPW. Run <em>Solar radiation &amp; PV</em> for the annual period. Check the roof suitability threshold and the assumed system efficiency before reading the yield.</p>
+        </div>
+
+        <div class="tstep">
+          <h4>Send the results to QGIS</h4>
+          <p>Press <em>To QGIS</em> on each result you want to keep. The GeoTIFF appears in the project and the results GeoPackage receives the per-building fields. Open the layer properties to confirm the CRS and the value range.</p>
+        </div>
+
+        <div class="tstep">
+          <h4>Compare a proposal</h4>
+          <p>Change the building heights, reopen the scene as scenario B, and run <em>Run A vs B</em> with the same settings. The difference map shows where the proposal gains or loses sun. Use the planning check to test the thresholds and export the one-page PDF sheet with the CSV of per-building outcomes.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================================================== TOOLS -->
+  <section id="tools">
+    <div class="wrap">
+      <div class="eyebrow">18 · Tool reference</div>
+      <h2>Every analysis in one table</h2>
+      <p>The viewer groups tools by task. The tabs below summarise what each one needs and what it returns.</p>
+
+      <div class="tabbar" role="tablist" aria-label="Tool groups">
+        <button class="tabbtn" id="tab-analyze" role="tab" aria-selected="true" aria-controls="panel-analyze">Analyze</button>
+        <button class="tabbtn" id="tab-terrain" role="tab" aria-selected="false" aria-controls="panel-terrain">Terrain</button>
+        <button class="tabbtn" id="tab-compare" role="tab" aria-selected="false" aria-controls="panel-compare">Compare</button>
+        <button class="tabbtn" id="tab-export" role="tab" aria-selected="false" aria-controls="panel-export">Export</button>
+      </div>
+
+      <div class="tabpanel active" id="panel-analyze" role="tabpanel" aria-labelledby="tab-analyze">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tool</th><th>Inputs</th><th>Output</th></tr></thead>
+            <tbody>
+              <tr><td>Sun hours &amp; shadows</td><td>Date, sampling step, surfaces</td><td>Hours of direct sun, shadow share, BRE 2 h proxy</td></tr>
+              <tr><td>Sky view factor</td><td>Sampling quality (64–256 rays)</td><td>Cosine-weighted SVF on ground, roofs and walls</td></tr>
+              <tr><td>Solar radiation &amp; PV</td><td>EPW or clear sky, period, efficiency, PR</td><td>Irradiation (kWh/m²), roof and facade yield, suitable area</td></tr>
+              <tr><td>Visibility</td><td>Viewer point or top of a building</td><td>Binary viewshed and visible area</td></tr>
+              <tr><td>Wind</td><td>Weather file, sector, pedestrian height</td><td>Wind ratio and speed, sheltered share, per-building rose</td></tr>
+              <tr><td>Thermal comfort</td><td>EPW, date and hour</td><td>UTCI and mean radiant temperature grids</td></tr>
+              <tr><td>Heat island &amp; morphology</td><td>Building footprints and heights</td><td>λ<sub>p</sub>, λ<sub>f</sub>, H/W, z<sub>0</sub>, d, approximate LCZ</td></tr>
+              <tr><td>Planning check</td><td>Threshold profile</td><td>Pass/fail per building, PDF sheet, CSV</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tabpanel" id="panel-terrain" role="tabpanel" aria-labelledby="tab-terrain">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tool</th><th>Inputs</th><th>Output</th></tr></thead>
+            <tbody>
+              <tr><td>Section &amp; profile</td><td>Drawn line or QGIS line layer</td><td>Section image, CSV profile, DXF</td></tr>
+              <tr><td>Water level &amp; flooding</td><td>Water level, bathtub or seed point</td><td>Depth grid, flooded area, affected buildings</td></tr>
+              <tr><td>Cut &amp; fill</td><td>Design level or balancing mode</td><td>Cut and fill volumes, net imbalance, depth grid</td></tr>
+              <tr><td>Terrain maps</td><td>DEM</td><td>Elevation, slope, aspect, hillshade, curvature, TPI, ruggedness, wetness</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tabpanel" id="panel-compare" role="tabpanel" aria-labelledby="tab-compare">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tool</th><th>Inputs</th><th>Output</th></tr></thead>
+            <tbody>
+              <tr><td>Scenario A vs B</td><td>Two scenes with the same grid</td><td>Difference grids for sun, SVF, irradiation or wind</td></tr>
+              <tr><td>Swipe and panels</td><td>Two results or two scenes</td><td>Synced 2, 4, 6 or 8 panel comparison</td></tr>
+              <tr><td>Optimise heights</td><td>Selected buildings, floor ranges, constraints</td><td>NSGA-II Pareto front, knee point, applied heights</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tabpanel" id="panel-export" role="tabpanel" aria-labelledby="tab-export">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Export</th><th>What it contains</th><th>Typical use</th></tr></thead>
+            <tbody>
+              <tr><td>GeoTIFF</td><td>One grid result in the project CRS</td><td>Further QGIS analysis, layouts, sharing</td></tr>
+              <tr><td>GeoPackage</td><td>Per-building fields joined by feature id</td><td>Tables, joins, thematic maps</td></tr>
+              <tr><td>PNG up to 8K</td><td>Scene with legend and north arrow</td><td>Reports and presentations</td></tr>
+              <tr><td>PDF sheet</td><td>One-page result and planning summary</td><td>Design review and permits</td></tr>
+              <tr><td>Interactive HTML</td><td>Single-file scene</td><td>Sharing without QGIS</td></tr>
+              <tr><td>GLB</td><td>Scene geometry</td><td>CAD, Blender, web viewers</td></tr>
+              <tr><td>Video</td><td>Orbit or sun-through-the-day animation</td><td>Communication and teaching</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <h3>Keyboard</h3>
+      <p>While a drawing tool is active, <kbd>Esc</kbd> cancels it, <kbd>Enter</kbd> finishes the current line or polygon and <kbd>Backspace</kbd> removes the last vertex. <kbd>Esc</kbd> also closes an open comparison or help overlay.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================== THEORY -->
+  <section id="theory">
+    <div class="wrap">
+      <div class="eyebrow">19 · Theory &amp; sources</div>
+      <h2>What the models assume</h2>
+      <p>The plugin is deliberately explicit about its methods. Every result carries a note naming the model and its limits, and the sources below are the ones implemented in the viewer.</p>
+
+      <h3>Core assumptions</h3>
+      <ul>
+        <li><strong>Clear geometry.</strong> Buildings are extruded prisms from footprints; roof shape is flat unless the source geometry says otherwise.</li>
+        <li><strong>Direct sun is geometric.</strong> A ray either reaches the sun or it does not; there is no partial penumbra from the solar disc.</li>
+        <li><strong>Diffuse sky is anisotropic.</strong> Perez or Hay–Davies, not a uniform sky, except where a result explicitly says otherwise.</li>
+        <li><strong>Surfaces are opaque.</strong> No transmission through glass, no transparent canopies and no vegetation porosity in the radiation model.</li>
+        <li><strong>Wind is morphological.</strong> A screening model based on roughness, wakes and corners, not a solution of the Navier–Stokes equations.</li>
+        <li><strong>Comfort uses standard indices.</strong> SolarCal for radiant temperature and the Bröde polynomial for UTCI.</li>
+      </ul>
+
+      <h3>References</h3>
+      <ul class="cite-list">
+        <li><strong>Oke, T. R. (1987).</strong> <em>Boundary Layer Climates</em>, 2nd edition. Routledge, London. The foundation for the canyon, roughness and energy-balance interpretation used throughout the climate tools.</li>
+        <li><strong>Macdonald, R. W., Griffiths, R. F., &amp; Hall, D. J. (1998).</strong> An improved method for the estimation of surface roughness of obstacle arrays. <em>Atmospheric Environment</em>, 32(11), 1857–1864. <span class="doi">doi:10.1016/S1352-2310(97)00403-2</span></li>
+        <li><strong>Stewart, I. D., &amp; Oke, T. R. (2012).</strong> Local Climate Zones for urban temperature studies. <em>Bulletin of the American Meteorological Society</em>, 93(12), 1879–1900. <span class="doi">doi:10.1175/BAMS-D-11-00019.1</span></li>
+        <li><strong>Littlefair, P. (2011).</strong> <em>Site Layout Planning for Daylight and Sunlight: A Guide to Good Practice</em>, 2nd edition (BRE Report 209). BRE Press. The source of the amenity-area, VSC and 25° screening tests.</li>
+        <li><strong>Perez, R., Ineichen, P., Seals, R., Michalsky, J., &amp; Stewart, R. (1990).</strong> Modeling daylight availability and irradiance components from direct and global irradiance. <em>Solar Energy</em>, 44(5), 271–289. <span class="doi">doi:10.1016/0038-092X(90)90055-H</span></li>
+        <li><strong>Bröde, P., Fiala, D., Blazejczyk, K., et al. (2012).</strong> Deriving the operational procedure for the Universal Thermal Climate Index (UTCI). <em>International Journal of Biometeorology</em>, 56, 481–494. <span class="doi">doi:10.1007/s00484-011-0454-1</span></li>
+        <li><strong>Arens, E., Clark, R., Kimes, R., &amp; Saito, M. (2011).</strong> Estimating solar radiation on a person: SolarCal. Center for the Built Environment, University of California, Berkeley.</li>
+        <li><strong>NOAA Global Monitoring Laboratory.</strong> Solar Calculation Details — the NOAA solar position equations used for declination, equation of time and hour angle.</li>
+        <li><strong>Deb, K., Pratap, A., Agarwal, S., &amp; Meyarivan, T. (2002).</strong> A fast and elitist multiobjective genetic algorithm: NSGA-II. <em>IEEE Transactions on Evolutionary Computation</em>, 6(2), 182–197. <span class="doi">doi:10.1109/4235.996017</span></li>
+      </ul>
+
+      <div class="callout">
+        <p><strong>Reproducibility.</strong> A result depends on the scene geometry, the CRS, the solar parameters, the weather file and the analysis settings. The result card records the settings used, and the exported GeoTIFF carries the grid definition, so a study can be repeated or audited later.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================ META -->
+  <section id="meta">
+    <div class="wrap">
+      <div class="eyebrow">20 · Metadata</div>
+      <h2>Document and software record</h2>
+
+      <div class="table-wrap">
+        <table>
+          <tbody>
+            <tr><td>Plugin</td><td>02 Geo3D Analyzer</td></tr>
+            <tr><td>Package</td><td><code>zero2geospatial3d</code></td></tr>
+            <tr><td>Version</td><td>1.0.0</td></tr>
+            <tr><td>QGIS</td><td>3.28 or newer; QGIS 4 supported</td></tr>
+            <tr><td>Runtime</td><td>WebGL 2 browser, local loopback bridge</td></tr>
+            <tr><td>Dependencies</td><td>None beyond QGIS and the bundled viewer</td></tr>
+            <tr><td>Author</td><td>Yusuf Eminoğlu</td></tr>
+            <tr><td>Studio</td><td>GEOPHILO Spatial Software Studio</td></tr>
+            <tr><td>License</td><td>MIT</td></tr>
+            <tr><td>Contact</td><td><a href="mailto:geospacephilo@gmail.com">geospacephilo@gmail.com</a></td></tr>
+            <tr><td>Source</td><td><a href="https://github.com/YusufEminoglu/zero2geospatial3d" target="_blank" rel="noopener">github.com/YusufEminoglu/zero2geospatial3d</a></td></tr>
+            <tr><td>Hub</td><td><a href="https://plugins.qgis.org/plugins/zero2geospatial3d/" target="_blank" rel="noopener">plugins.qgis.org/plugins/zero2geospatial3d</a></td></tr>
+            <tr><td>Revision</td><td>October 2026</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Scope of this manual</h3>
+      <p>This document describes the plugin as shipped in version 1.0.0. Analyses are screening tools for design and planning; they are not a substitute for a formal daylight assessment, a wind-tunnel study, a structural calculation or a statutory compliance report. The note attached to each result names the method and the main limitation.</p>
+    </div>
+  </section>
+
+  <footer>
+    <div class="footer-inner">
+      <div>
+        <p><strong>02 Geo3D Analyzer</strong> — 3D sun, sky, wind and terrain analysis for QGIS.</p>
+        <p style="margin-top:6px">© 2026 Yusuf Eminoğlu · GEOPHILO Spatial Software Studio · MIT License</p>
+      </div>
+      <div class="footer-links">
+        <a href="#top">Back to top</a>
+        <a href="https://geophilo.com/software/">Software studio</a>
+        <a href="https://github.com/YusufEminoglu/zero2geospatial3d" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://plugins.qgis.org/plugins/zero2geospatial3d/" target="_blank" rel="noopener">QGIS Hub</a>
+      </div>
+    </div>
+  </footer>
+</main>
+
+<button class="totop" id="totop" aria-label="Back to top">↑</button>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ------------------------------------------------ mobile sidebar */
+  var sidebar = document.getElementById('sidebar');
+  var menuToggle = document.getElementById('menu-toggle');
+  if (menuToggle) {
+    menuToggle.addEventListener('click', function () {
+      var open = sidebar.classList.toggle('open');
+      menuToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    sidebar.addEventListener('click', function (event) {
+      if (event.target.closest('a') && window.innerWidth <= 900) {
+        sidebar.classList.remove('open');
+        menuToggle.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  /* ------------------------------------------------ active section */
+  var links = Array.prototype.slice.call(document.querySelectorAll('.nav-link'));
+  var byId = {};
+  links.forEach(function (link) {
+    var id = link.getAttribute('href').slice(1);
+    byId[id] = link;
+  });
+
+  var sections = Array.prototype.slice.call(document.querySelectorAll('main section[id], main section.hero'));
+  if (sections.length && 'IntersectionObserver' in window) {
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        var id = entry.target.id || 'top';
+        links.forEach(function (link) { link.classList.remove('active'); });
+        if (byId[id]) byId[id].classList.add('active');
+      });
+    }, { rootMargin: '-15% 0px -70% 0px', threshold: 0 });
+    sections.forEach(function (section) { observer.observe(section); });
+  }
+
+  /* ------------------------------------------------ sidebar filter */
+  var search = document.getElementById('manual-search');
+  var empty = document.getElementById('search-empty');
+  var groups = Array.prototype.slice.call(document.querySelectorAll('.nav-group'));
+
+  function filterNav() {
+    var term = search.value.trim().toLowerCase();
+    var visible = 0;
+    links.forEach(function (link) {
+      var match = !term || link.textContent.toLowerCase().indexOf(term) !== -1;
+      link.classList.toggle('hidden', !match);
+      if (match) visible += 1;
+    });
+    groups.forEach(function (group) {
+      var any = group.querySelectorAll('.nav-link:not(.hidden)').length > 0;
+      group.style.display = any ? '' : 'none';
+    });
+    empty.style.display = term && visible === 0 ? 'block' : 'none';
+  }
+  if (search) search.addEventListener('input', filterNav);
+
+  /* ------------------------------------------------ reading progress */
+  var progress = document.getElementById('read-progress');
+  var totop = document.getElementById('totop');
+  function onScroll() {
+    var doc = document.documentElement;
+    var max = doc.scrollHeight - doc.clientHeight;
+    var ratio = max > 0 ? (doc.scrollTop || document.body.scrollTop) / max : 0;
+    if (progress) progress.style.width = (ratio * 100).toFixed(2) + '%';
+    if (totop) totop.classList.toggle('show', ratio > 0.04);
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+  if (totop) totop.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
+
+  /* ------------------------------------------------ tabs */
+  var tabButtons = Array.prototype.slice.call(document.querySelectorAll('.tabbtn'));
+  tabButtons.forEach(function (button) {
+    button.addEventListener('click', function () {
+      tabButtons.forEach(function (other) {
+        other.setAttribute('aria-selected', other === button ? 'true' : 'false');
+        var panel = document.getElementById(other.getAttribute('aria-controls'));
+        if (panel) panel.classList.toggle('active', other === button);
+      });
+    });
+  });
+
+  /* ------------------------------------------------ copy buttons */
+  Array.prototype.forEach.call(document.querySelectorAll('pre'), function (block) {
+    var button = document.createElement('button');
+    button.className = 'copy-btn';
+    button.type = 'button';
+    button.textContent = 'Copy';
+    button.addEventListener('click', function () {
+      var text = block.querySelector('code') ? block.querySelector('code').textContent : block.textContent;
+      var done = function () {
+        button.textContent = 'Copied';
+        button.classList.add('copied');
+        window.setTimeout(function () {
+          button.textContent = 'Copy';
+          button.classList.remove('copied');
+        }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, done);
+      } else {
+        var area = document.createElement('textarea');
+        area.value = text;
+        document.body.appendChild(area);
+        area.select();
+        try { document.execCommand('copy'); } catch (err) { /* clipboard unavailable */ }
+        document.body.removeChild(area);
+        done();
+      }
+    });
+    block.appendChild(button);
+  });
+})();
+</script>
+</body>
+</html>
