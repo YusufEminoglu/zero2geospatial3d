@@ -103,7 +103,7 @@ def download_station(url: str, target_path: str) -> str:
         request.setTransferTimeout(120000)
     client = QgsBlockingNetworkRequest()
     code = client.get(request, False, None)
-    if enum_value(code) != enum_value(QgsBlockingNetworkRequest.NoError):
+    if enum_value(code) != enum_value(QgsBlockingNetworkRequest.ErrorCode.NoError):
         raise EpwError(f"Download failed: {client.errorMessage()}")
     content = bytes(client.reply().content())
     return extract_epw(content, target_path)

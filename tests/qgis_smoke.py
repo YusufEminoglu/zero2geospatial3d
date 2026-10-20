@@ -345,7 +345,7 @@ def test_results(scene_dir, manifest, b):
             first = sip.cast(rules[0].symbol(), QgsPolygon3DSymbol)
             from qgis.core import QgsAbstract3DSymbol
 
-            expr = first.dataDefinedProperties().property(QgsAbstract3DSymbol.PropertyExtrusionHeight).expressionString()
+            expr = first.dataDefinedProperties().property(QgsAbstract3DSymbol.Property.PropertyExtrusionHeight).expressionString()
             ranges = list(renderer2.ranges()) if hasattr(renderer2, "ranges") else []
             colour_ok = bool(ranges) and first.materialSettings().diffuse().name() == ranges[0].symbol().color().name()
             ok3d = (len(rules) == len(ranges) + 1 and colour_ok and expr == '"floors" * 3'

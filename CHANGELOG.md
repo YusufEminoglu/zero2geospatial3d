@@ -3,6 +3,11 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.3] - 2026-10-20
+
+### Compatibility
+- Full QGIS 4 and Qt6 compatibility: updated all QGIS enum references to scoped enum classes (`QgsAbstract3DSymbol.Property`, `QgsVectorFileWriter.WriterError`, `QgsVectorFileWriter.ActionOnExistingFile`, and `QgsBlockingNetworkRequest.ErrorCode`).
+
 ## [1.0.2] - 2026-10-20
 
 ### UI & Documentation Integration

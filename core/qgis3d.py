@@ -90,7 +90,7 @@ def _symbol(height_expr: str, color: QColor, default_height: float = 9.0):
     symbol.setExtrusionHeight(default_height)
     if height_expr:
         props = symbol.dataDefinedProperties()
-        props.setProperty(QgsAbstract3DSymbol.PropertyExtrusionHeight, QgsProperty.fromExpression(height_expr))
+        props.setProperty(QgsAbstract3DSymbol.Property.PropertyExtrusionHeight, QgsProperty.fromExpression(height_expr))
         symbol.setDataDefinedProperties(props)
     symbol.setAltitudeClamping(Qgis.AltitudeClamping.Terrain)
     return symbol

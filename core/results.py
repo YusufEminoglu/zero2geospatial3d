@@ -304,7 +304,7 @@ class ResultWriter:
         options.fileEncoding = "UTF-8"
         result = QgsVectorFileWriter.writeAsVectorFormatV3(
             memory, path, QgsProject.instance().transformContext(), options)
-        if result[0] != QgsVectorFileWriter.NoError:
+        if result[0] != QgsVectorFileWriter.WriterError.NoError:
             raise ResultError(f"cannot write {path}: {result[1]}")
 
     def _style_categories(self, layer: QgsVectorLayer, field: str, categories: list, other: dict) -> None:

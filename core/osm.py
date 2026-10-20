@@ -110,7 +110,7 @@ def _post(endpoint: str, query: str):
     request.setRawHeader(b"User-Agent", _user_agent().encode("ascii", errors="replace"))
     client = QgsBlockingNetworkRequest()
     code = client.post(request, body, False, None)
-    if enum_value(code) != enum_value(QgsBlockingNetworkRequest.NoError):
+    if enum_value(code) != enum_value(QgsBlockingNetworkRequest.ErrorCode.NoError):
         return None, (client.errorMessage() or "network error").strip(), True
     reply = client.reply()
     try:
@@ -266,11 +266,11 @@ def download_to_gpkg(extent: QgsRectangle, extent_crs: QgsCoordinateReferenceSys
         options = QgsVectorFileWriter.SaveVectorOptions()
         options.driverName = "GPKG"
         options.layerName = name
-        options.actionOnExistingFile = (QgsVectorFileWriter.CreateOrOverwriteFile if first
-                                        else QgsVectorFileWriter.CreateOrOverwriteLayer)
+        options.actionOnExistingFile = (QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile if first
+                                        else QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer)
         result = QgsVectorFileWriter.writeAsVectorFormatV3(layer, out_path, QgsProject.instance().transformContext(),
                                                            options)
-        if result[0] != QgsVectorFileWriter.NoError:
+        if result[0] != QgsVectorFileWriter.WriterError.NoError:
             raise OsmError(f"Cannot write {out_path}: {result[1]}")
         first = False
     return {"buildings": b_count, "trees": t_count, "crs": dest.authid(),

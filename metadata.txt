@@ -3,7 +3,7 @@ name=02 Geo3D Analyzer
 qgisMinimumVersion=3.28
 qgisMaximumVersion=4.99
 description=3D viewer and analyzer for terrain and buildings: sun and shadow, sky view and facade daylight (VSC), solar PV, visibility, wind and thermal comfort, terrain analyses, a planning check after BRE 209 and building-height optimisation, with every result returned to QGIS.
-version=1.0.2
+version=1.0.3
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 about=
@@ -32,6 +32,8 @@ hasProcessingProvider=no
 plugin_dependencies=
 license=MIT
 changelog=
+    1.0.3 - Full QGIS 4 and Qt6 scoped enum compatibility.
+        - Scoped enum updates for QgsAbstract3DSymbol.Property, QgsVectorFileWriter, and QgsBlockingNetworkRequest.
     1.0.2 - Enhanced manual integration and styling.
         - Illustrated reference manual themed to 02 Geo3D Electric Blue identity.
         - Direct "Manual" quick button in QGIS dock panel header.
