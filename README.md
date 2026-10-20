@@ -8,7 +8,7 @@
 
 [![QGIS](https://img.shields.io/badge/QGIS-3.28%2B%20%7C%204-93b023?logo=qgis&logoColor=white)](https://plugins.qgis.org/plugins/zero2geospatial3d/)
 [![Version](https://img.shields.io/badge/version-1.0.1-blue)](https://github.com/YusufEminoglu/zero2geospatial3d/releases)
-[![Manual](https://img.shields.io/badge/manual-reference%20guide-teal?logo=read-the-docs&logoColor=white)](https://yusufeminoglu.github.io/zero2geospatial3d/)
+[![Manual](https://img.shields.io/badge/manual-reference%20guide-teal?logo=read-the-docs&logoColor=white)](https://github.com/YusufEminoglu/zero2geospatial3d/blob/main/docs/index.html)
 [![License](https://img.shields.io/badge/license-MIT-orange)](LICENSE)
 [![QGIS Plugin Hub](https://img.shields.io/badge/QGIS%20Hub-install-589632?logo=qgis&logoColor=white)](https://plugins.qgis.org/plugins/zero2geospatial3d/)
 
@@ -18,7 +18,7 @@
 
 ---
 
-> 📖 **Illustrated Reference Manual & Visual Guide:** [yusufeminoglu.github.io/zero2geospatial3d](https://yusufeminoglu.github.io/zero2geospatial3d/) — step-by-step walkthrough, visual diagrams, mathematical formulations, and standards.
+> 📖 **Illustrated Reference Manual & Visual Guide:** [Reference Manual (docs/index.html)](https://github.com/YusufEminoglu/zero2geospatial3d/blob/main/docs/index.html) — step-by-step walkthrough, visual diagrams, mathematical formulations, and standards.
 
 ## Why 02 Geo3D Analyzer?
 
