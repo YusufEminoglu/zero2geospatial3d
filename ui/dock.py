@@ -48,7 +48,7 @@ from ..core import scene_export as sx
 from ..core.server import ViewerServer, web_root_for
 from .widgets import PANEL_QSS, Fold, Header, StepCard, hint, muted, theme_icon
 
-HELP_URL = "https://github.com/YusufEminoglu/zero2geospatial3d#readme"
+HELP_URL = "https://yusufeminoglu.github.io/zero2geospatial3d/"
 
 AREA_DEM, AREA_VIEW, AREA_OBJECTS = range(3)
 DETAIL_CHOICES = [("1024 cells (light)", 1024), ("2048 cells", 2048), ("4096 cells (large, fine DEMs)", 4096)]
@@ -229,6 +229,13 @@ class Geo3DDock(QDockWidget):
         project.layersAdded.connect(self._schedule_refresh)
         project.layersRemoved.connect(self._schedule_refresh)
 
+    def _open_manual(self) -> None:
+        local_doc = os.path.join(self.plugin_dir, "docs", "index.html")
+        if os.path.exists(local_doc):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(local_doc))
+        else:
+            QDesktopServices.openUrl(QUrl(HELP_URL))
+
     # ------------------------------------------------------------ UI
     def _build(self) -> None:
         body = QWidget()
@@ -238,7 +245,7 @@ class Geo3DDock(QDockWidget):
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(8)
         root.addWidget(Header(os.path.join(self.plugin_dir, "icons", "icon.png"), PLUGIN_VERSION,
-                              lambda: QDesktopServices.openUrl(QUrl(HELP_URL))))
+                              self._open_manual))
 
         # 1 Terrain
         c1 = StepCard(1, "Terrain", "A DEM gives the ground its shape; leave it empty for flat ground.")

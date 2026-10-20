@@ -173,6 +173,11 @@ def _canvas_matches_name(canvas, name: str = "02 Geo3D") -> bool:
     return bool(target and target in haystack)
 
 
+def _is_cpp_qgis_iface(iface) -> bool:
+    mod = getattr(type(iface), "__module__", "") or ""
+    return mod.startswith("qgis")
+
+
 def _is_3d_canvas_object(obj) -> bool:
     with contextlib.suppress(Exception):
         from qgis._3d import Qgs3DMapCanvas
@@ -187,11 +192,19 @@ def find_3d_map_canvases(iface) -> list:
     """Return active Qgs3DMapCanvas objects from widgets and QWindow instances."""
     if iface is None:
         return []
-    candidates = []
     with contextlib.suppress(Exception):
-        fn = getattr(iface, "mapCanvases3D", None)
-        if fn is not None:
-            candidates.extend(fn())
+        import qgis._3d  # noqa: F401 - ensure SIP registers Qgs3DMapCanvas type
+    candidates = []
+    # Note: on C++ QgisInterface in QGIS 3.44 LTR, iface.mapCanvases3D() and
+    # iface.createNewMapCanvas3D() wrap Qgs3DMapCanvas* inside _gui.pyd where
+    # Qgs3DMapCanvas is an external SIP type, which can segfault in PyInit_sip.
+    # Only call mapCanvases3D() on Python test doubles; in real QGIS, inspect
+    # the Qt widget/window tree directly.
+    if not _is_cpp_qgis_iface(iface):
+        with contextlib.suppress(Exception):
+            fn = getattr(iface, "mapCanvases3D", None)
+            if fn is not None:
+                candidates.extend(fn())
     with contextlib.suppress(Exception):
         win = iface.mainWindow() if hasattr(iface, "mainWindow") else None
         if win is not None:
@@ -249,11 +262,14 @@ def open_3d_view(iface, name: str = "02 Geo3D") -> bool:
     """Open or raise a QGIS 3D map view defensively.
 
     Reuses an existing canvas with this name if one is already open. If not,
-    triggers QGIS's built-in View > New 3D Map View action (or falls back to
-    createNewMapCanvas3D) to avoid synchronous Qt3D / OpenGL event-loop crashes.
+    triggers QGIS's built-in View > 3D Map Views > New 3D Map View action
+    via the Qt event loop so _gui.pyd never wraps a raw Qgs3DMapCanvas* pointer
+    across module boundaries in PyInit_sip.
     """
     if iface is None:
         return False
+    with contextlib.suppress(Exception):
+        import qgis._3d  # noqa: F401
 
     # 1. Reuse existing canvas if present
     existing = find_owned_3d_map_canvas(iface, name)
@@ -264,46 +280,63 @@ def open_3d_view(iface, name: str = "02 Geo3D") -> bool:
     with contextlib.suppress(Exception):
         win = iface.mainWindow() if hasattr(iface, "mainWindow") else None
 
-    # 2. Prefer triggering the built-in QAction so QGIS manages canvas lifecycle cleanly
-    triggered = False
+    # 2. Trigger the built-in QAction so QGIS C++ manages the 3D canvas lifecycle
+    target_action = None
     if win is not None:
-        from qgis.PyQt.QtWidgets import QAction
+        try:
+            from qgis.PyQt.QtGui import QAction
+        except ImportError:
+            from qgis.PyQt.QtWidgets import QAction
 
-        for obj_name in ("mActionNew3DMapView", "mActionNew3DMapCanvas", "mActionNew3DMap"):
+        for obj_name in ("mActionNew3DMapCanvas", "mActionNew3DMapView", "mActionNew3DMap"):
             act = win.findChild(QAction, obj_name)
             if act is not None:
-                with contextlib.suppress(Exception):
-                    act.trigger()
-                    triggered = True
-                    break
+                target_action = act
+                break
 
-        if not triggered:
+        if target_action is None and hasattr(iface, "viewMenu"):
             with contextlib.suppress(Exception):
-                for act in win.findChildren(QAction):
-                    text = (act.text() or "").lower()
-                    if "3d" in text and ("map" in text or "harita" in text):
-                        act.trigger()
-                        triggered = True
-                        break
+                view_menu = iface.viewMenu()
+                if view_menu is not None:
+                    for menu_act in view_menu.actions():
+                        sub = menu_act.menu()
+                        if sub is not None:
+                            for sub_act in sub.actions():
+                                oname = (sub_act.objectName() or "").lower()
+                                txt = (sub_act.text() or "").lower()
+                                if "3d" in oname or ("3d" in txt and ("new" in txt or "yeni" in txt)):
+                                    target_action = sub_act
+                                    break
+                        if target_action is not None:
+                            break
 
-    if triggered:
+    if target_action is not None:
         with contextlib.suppress(Exception):
             from qgis.PyQt.QtCore import QTimer
 
-            def _label_new_canvas():
-                canvases = find_3d_map_canvases(iface)
-                if canvases:
-                    target_canvas = canvases[-1]
-                    for setter in ("setObjectName", "setWindowTitle", "setTitle"):
-                        fn = getattr(target_canvas, setter, None)
-                        if fn is not None:
-                            with contextlib.suppress(Exception):
-                                fn(name)
+            def _trigger_and_label():
+                with contextlib.suppress(Exception):
+                    target_action.trigger()
 
-            QTimer.singleShot(600, _label_new_canvas)
-        return True
+                def _label_new_canvas():
+                    canvases = find_3d_map_canvases(iface)
+                    if canvases:
+                        target_canvas = canvases[-1]
+                        for setter in ("setObjectName", "setWindowTitle", "setTitle"):
+                            fn = getattr(target_canvas, setter, None)
+                            if fn is not None:
+                                with contextlib.suppress(Exception):
+                                    fn(name)
 
-    # 3. Direct API fallback
+                QTimer.singleShot(500, _label_new_canvas)
+
+            QTimer.singleShot(0, _trigger_and_label)
+            return True
+
+    # 3. Direct API fallback ONLY for non-C++ test doubles (calling
+    # createNewMapCanvas3D on C++ QgisInterface in QGIS 3.44 LTR segfaults in PyInit_sip).
+    if _is_cpp_qgis_iface(iface):
+        return False
     create = getattr(iface, "createNewMapCanvas3D", None)
     if create is None:
         return False

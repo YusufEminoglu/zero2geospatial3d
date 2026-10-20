@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.1] - 2026-10-20
+
+### Documentation & Reference Manual
+- Complete Illustrated Reference Manual added (`docs/index.html` with step-by-step visual guides, formulas, standards, and screenshot walkthrough): [https://yusufeminoglu.github.io/zero2geospatial3d/](https://yusufeminoglu.github.io/zero2geospatial3d/).
+- Direct manual access button from the QGIS panel header and the 3D web viewer top bar.
+
+### Stability & Compatibility
+- Fixed QGIS 3.44 LTR 3D view crash (`Windows fatal exception: access violation` in SIP wrapper `PyInit_sip`): QGIS 3D canvas management now safely inspects canvas widgets without calling broken `createNewMapCanvas3D`/`mapCanvases3D` SIP methods, triggering native actions with clean lifecycle management.
+
 ## [1.0.0] - 2026-10-16
 
 First release.

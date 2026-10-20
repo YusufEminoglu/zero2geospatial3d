@@ -7,7 +7,8 @@
 **3D viewer and analyzer for terrain and extruded layers: sun hours, sky view factor, shadows, solar PV, visibility, wind and thermal-comfort screening, terrain sections, flooding and cut/fill, with results returned to QGIS.**
 
 [![QGIS](https://img.shields.io/badge/QGIS-3.28%2B%20%7C%204-93b023?logo=qgis&logoColor=white)](https://plugins.qgis.org/plugins/zero2geospatial3d/)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/YusufEminoglu/zero2geospatial3d/releases)
+[![Version](https://img.shields.io/badge/version-1.0.1-blue)](https://github.com/YusufEminoglu/zero2geospatial3d/releases)
+[![Manual](https://img.shields.io/badge/manual-reference%20guide-teal?logo=read-the-docs&logoColor=white)](https://yusufeminoglu.github.io/zero2geospatial3d/)
 [![License](https://img.shields.io/badge/license-MIT-orange)](LICENSE)
 [![QGIS Plugin Hub](https://img.shields.io/badge/QGIS%20Hub-install-589632?logo=qgis&logoColor=white)](https://plugins.qgis.org/plugins/zero2geospatial3d/)
 
@@ -16,6 +17,8 @@
 </div>
 
 ---
+
+> 📖 **Illustrated Reference Manual & Visual Guide:** [yusufeminoglu.github.io/zero2geospatial3d](https://yusufeminoglu.github.io/zero2geospatial3d/) — step-by-step walkthrough, visual diagrams, mathematical formulations, and standards.
 
 ## Why 02 Geo3D Analyzer?
 

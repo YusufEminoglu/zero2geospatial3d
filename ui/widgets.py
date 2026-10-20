@@ -153,7 +153,7 @@ class Header(QWidget):
         lay.addLayout(text, 1)
         help_button = QToolButton()
         help_button.setIcon(theme_icon("/mActionHelpContents.svg"))
-        help_button.setToolTip("How to use 02 Geo3D Analyzer (opens the project page)")
+        help_button.setToolTip("02 Geo3D Analyzer Reference Manual")
         help_button.setAutoRaise(True)
         help_button.clicked.connect(on_help)
         lay.addWidget(help_button, 0, Qt.AlignmentFlag.AlignTop)

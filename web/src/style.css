@@ -37,6 +37,12 @@ html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
 .clock-time { font-variant-numeric: tabular-nums; font-weight: 600; width: 3.2em; }
 .clock-sun { color: var(--muted); min-width: 170px; }
 .fps { color: var(--muted); font-size: 11px; min-width: 110px; text-align: right; }
+.topbar-manual {
+  color: var(--muted); text-decoration: none; font-size: 12px; font-weight: 500;
+  padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px;
+  white-space: nowrap; transition: color 0.15s, border-color 0.15s;
+}
+.topbar-manual:hover { color: var(--accent); border-color: var(--accent); }
 #sidebar { grid-area: side; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); min-height: 0; }
 #tabs { display: flex; border-bottom: 1px solid var(--line); }
 #tabs button {
