@@ -26,7 +26,13 @@ export const CRITERIA = [
     help: 'Share of the hours with pedestrian wind above 5 m/s (needs the climate year and an EPW).' },
   { id: 'heat', label: 'Summer heat-stress hours around it', short: 'Summer heat',
     unit: 'h', test: 'max', threshold: 300,
-    help: 'Summer hours with UTCI of 32 °C or more on the surrounding ground (needs the climate year and an EPW). The limit is a project choice.' }
+    help: 'Summer hours with UTCI of 32 °C or more on the surrounding ground (needs the climate year and an EPW). The limit is a project choice.' },
+  { id: 'facade_noise', label: 'Max facade noise level (Lden)', short: 'Facade noise',
+    unit: 'dB(A)', test: 'max', threshold: 65,
+    help: 'Highest road/environmental noise level at the building perimeter (WHO / EU environmental noise threshold).' },
+  { id: 'green_view', label: 'Green View Index around it (GVI)', short: 'Green view',
+    unit: '%', test: 'min', threshold: 15,
+    help: 'Mean pedestrian-level Green View Index on the surrounding open ground.' }
 ];
 
 export const PROFILE_FORMAT = '02geo3d-planning-profile';
@@ -179,6 +185,28 @@ export async function planningCheck(app, { scope, criteria, thresholds, profile 
       const k = keyOf(t);
       if (values.has('wind')) values.get('wind').set(k, t.layer.extraFields.get('windy_pct')?.[t.f]);
       if (values.has('heat')) values.get('heat').set(k, t.layer.extraFields.get('heat_stress_h_jja')?.[t.f]);
+    }
+  }
+  // 6. Facade noise level (Lden).
+  if (values.has('facade_noise')) {
+    const missing = fresh || targets.some((t) => !Number.isFinite(t.layer.extraFields.get('noise_dba_max')?.[t.f]));
+    if (missing) {
+      const res = await a.noise({ area, cell: Math.max(2, cell) });
+      for (const fld of res[0].fields) fld.layer.setResultField(fld.name, fld.values);
+    }
+    for (const t of targets) {
+      values.get('facade_noise').set(keyOf(t), t.layer.extraFields.get('noise_dba_max')?.[t.f]);
+    }
+  }
+  // 7. Green View Index (GVI).
+  if (values.has('green_view')) {
+    const missing = fresh || targets.some((t) => !Number.isFinite(t.layer.extraFields.get('gvi_pct')?.[t.f]));
+    if (missing) {
+      const res = await a.greenView({ area, cell: Math.max(2, cell) });
+      for (const fld of res[0].fields) fld.layer.setResultField(fld.name, fld.values);
+    }
+    for (const t of targets) {
+      values.get('green_view').set(keyOf(t), t.layer.extraFields.get('gvi_pct')?.[t.f]);
     }
   }
   onProgress?.(1);

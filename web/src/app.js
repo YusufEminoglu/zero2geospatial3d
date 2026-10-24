@@ -1,11 +1,13 @@
 // @ts-check
 // Application state and the glue between scene, analyses and panels.
 import * as THREE from 'three';
-import { Viewer } from './scene/viewer.js';
+import { Viewer, LAYER_OCCLUDER } from './scene/viewer.js';
 import { Terrain } from './scene/terrain.js';
 import { createLayer, splitKey, ExtrudedLayer, SurfaceLayer } from './scene/objects.js';
 import { hideOverlay, setOverlayOpacity, resultTexture, useOverlay } from './scene/overlay.js';
-import { Analyst, frameForHour, setShadowFrame } from './analysis/runners.js';
+import { Analyst, frameForHour, setShadowFrame, setDiurnalFrame } from './analysis/runners.js';
+import { WindStreamlines } from './scene/wind_streamlines.js';
+import { diurnalPointProfile } from './core/microclimate.js';
 import { solarPosition, sunVector } from './core/solar.js';
 import { parseEpw, typicalDoy } from './core/weather.js';
 import { makeGrid, gridStats, slopeAspect, slopeAspectAt } from './core/terrain_math.js';
@@ -14,6 +16,7 @@ import { applyRule, defaultRule } from './ui/colorize.js';
 import { Tools } from './ui/tools.js';
 import { reportBlock } from './ui/building_report.js';
 import { h, clear, toast } from './ui/dom.js';
+import { drawDiurnalChart, drawSunPathDiagram } from './ui/charts.js';
 import { qgisOnline, qgisSelection, selectInQgis } from './ui/qgis_link.js';
 
 export class App {
@@ -42,6 +45,11 @@ export class App {
     this.facadeMesh = null;
     this.markers = new THREE.Group();
     this.viewer.helpers.add(this.markers);
+    this.streamlines = new WindStreamlines(this);
+    this.plantedTrees = []; // Array of [x, y, radius, height]
+    this.plantedTreesGroup = new THREE.Group();
+    this.viewer.world.add(this.plantedTreesGroup);
+    this.drawnRoads = [];   // Array of polylines [[x, y], ...]
   }
 
   on(fn) { this.listeners.add(fn); }
@@ -117,10 +125,11 @@ export class App {
     this.viewer.setSun(sunVector(p.elevation, p.azimuth));
     // A shadow study follows the clock: show the moment closest to it.
     const r = this.activeResult;
-    if (r?.kind === 'shadowstudy' && r.date.month === this.date.month && r.date.day === this.date.day) {
+    if ((r?.kind === 'shadowstudy' || r?.kind === 'diurnalstudy') && r.date.month === this.date.month && r.date.day === this.date.day) {
       const k = frameForHour(r, this.time);
       if (k >= 0 && k !== r.frame) {
-        setShadowFrame(r, k);
+        if (r.kind === 'shadowstudy') setShadowFrame(r, k);
+        else setDiurnalFrame(r, k);
         this.showResult(r);
       }
     }
@@ -219,6 +228,17 @@ export class App {
     else hideOverlay();
     this._showFacade(r?.facade && r.showFacade !== false ? r.facade : null);
     this._showMarker(r?.marker);
+    if (r?.kind === 'wind' && r.showStreamlines !== false && r.grid) {
+      this.streamlines.show({
+        grid: { ...r.grid, minX: r.grid.minX - 0.5 * r.grid.cell, maxY: r.grid.maxY + 0.5 * r.grid.cell },
+        values: r.ratio || r.values,
+        ids: r.ids,
+        windFromDeg: r.wind?.fromDeg ?? 270,
+        speed10: r.wind?.speed10 ?? 4
+      });
+    } else {
+      this.streamlines.hide();
+    }
     this.renderLegend();
     this.viewer.requestRender();
     this.emit('active');
@@ -230,6 +250,7 @@ export class App {
     hideOverlay();
     this._showFacade(null);
     this._showMarker(null);
+    this.streamlines.hide();
     this.renderLegend();
     this.viewer.requestRender();
     this.emit('active');
@@ -360,6 +381,57 @@ export class App {
     if (this.activeResult?.facade) this._showFacade(null);
     this.analyst?.cache.clear();
     this.emit('exaggeration');
+  }
+
+  // ------------------------------------------------------------ what-if trees
+  addPlantedTree(x, y, height = 10, radius = 3.5) {
+    this.plantedTrees.push([x, y, radius, height]);
+    const gy = this.terrain ? this.terrain.groundY(x, y) : 0;
+    const treeGroup = new THREE.Group();
+    treeGroup.position.set(x, gy, -y);
+
+    const trunkH = Math.max(0.8, height - radius);
+    const trunkGeom = new THREE.CylinderGeometry(0.25, 0.35, trunkH, 8);
+    trunkGeom.translate(0, trunkH / 2, 0);
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a3d28, roughness: 0.9 });
+    const trunk = new THREE.Mesh(trunkGeom, trunkMat);
+    trunk.castShadow = true;
+    trunk.receiveShadow = true;
+    trunk.layers.enable(LAYER_OCCLUDER);
+    treeGroup.add(trunk);
+
+    const crownGeom = new THREE.IcosahedronGeometry(radius, 1);
+    crownGeom.translate(0, height - radius * 0.8, 0);
+    const crownMat = new THREE.MeshStandardMaterial({ color: 0x3d7e3e, roughness: 0.8 });
+    const crown = new THREE.Mesh(crownGeom, crownMat);
+    crown.castShadow = true;
+    crown.receiveShadow = true;
+    crown.layers.enable(LAYER_OCCLUDER);
+    treeGroup.add(crown);
+
+    treeGroup.layers.enable(LAYER_OCCLUDER);
+    this.plantedTreesGroup.add(treeGroup);
+
+    this.analyst?.cache.clear();
+    this.viewer.requestRender();
+    this.emit('trees');
+  }
+
+  clearPlantedTrees() {
+    this.plantedTrees = [];
+    for (const child of [...this.plantedTreesGroup.children]) {
+      this.plantedTreesGroup.remove(child);
+      child.traverse?.((obj) => {
+        obj.geometry?.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+          else obj.material.dispose();
+        }
+      });
+    }
+    this.analyst?.cache.clear();
+    this.viewer.requestRender();
+    this.emit('trees');
   }
 
   // ------------------------------------------------------------ picking and selection
@@ -493,7 +565,33 @@ export class App {
     if (v !== null) pairs.push([this.activeResult.title, fmt(v, this.activeResult.unit)]);
     el.appendChild(h('div', { class: 'insp-head' }, h('b', { text: 'Ground' }), h('button', { class: 'close', text: '×', onclick: () => { el.hidden = true; } })));
     el.appendChild(h('table', { class: 'stats' }, ...pairs.map(([k, val]) => h('tr', {}, h('td', { text: k }), h('td', { text: val })))));
+
+    const diurnalCanvas = h('canvas', { class: 'chart' });
+    const sunCanvas = h('canvas', { class: 'chart' });
+    el.appendChild(h('div', { class: 'insp-sub', text: '24 h microclimate at this point' }));
+    el.appendChild(diurnalCanvas);
+    el.appendChild(h('div', { class: 'insp-sub', text: 'Solar path' }));
+    el.appendChild(sunCanvas);
+
     el.hidden = false;
+
+    requestAnimationFrame(() => {
+      const mat = this.params?.comfort?.material || 'concrete';
+      const lai = this.params?.comfort?.lai ?? 3.0;
+      const prof = diurnalPointProfile({
+        lat: this.site.lat, lon: this.site.lon, utcOffset: this.site.utcOffset,
+        month: this.date.month, day: this.date.day, weather: this.weather,
+        airTempMean: (this.params?.comfort?.airTemp ?? 30) - 3, airTempAmp: 5,
+        rhMean: this.params?.comfort?.rh ?? 50, windSpeed: this.params?.comfort?.windSpeed ?? 2,
+        svf: 0.75, material: mat, treeCrown: false, lai
+      });
+      drawDiurnalChart(diurnalCanvas, prof, 155);
+      drawSunPathDiagram(sunCanvas, {
+        lat: this.site.lat, lon: this.site.lon, utcOffset: this.site.utcOffset,
+        month: this.date.month, day: this.date.day, hour: this.time,
+        solarPosition, typicalDoy
+      }, 175);
+    });
   }
 
   terrainStats() {

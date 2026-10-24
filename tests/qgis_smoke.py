@@ -85,6 +85,7 @@ class _Iface(QObject):
         self._canvas = QgsMapCanvas(self._window)
         self._window.setCentralWidget(self._canvas)
         self.docks = []
+        self.menus = []
 
     def mainWindow(self):
         return self._window
@@ -110,6 +111,13 @@ class _Iface(QObject):
         if dock in self.docks:
             self.docks.remove(dock)
         self._window.removeDockWidget(dock)
+
+    def addPluginToMenu(self, name, action):
+        self.menus.append((name, action))
+
+    def removePluginMenu(self, name, action):
+        if (name, action) in self.menus:
+            self.menus.remove((name, action))
 
 
 # ---------------------------------------------------------------- fixtures
@@ -212,8 +220,8 @@ def test_lifecycle(iface):
     app.sendPostedEvents()
     app.processEvents()
     after = {tb.objectName() for tb in iface.mainWindow().findChildren(QToolBar)}
-    check("initGui, open panel, unload: nothing left behind", dock_ok and not (after - before) and not iface.docks,
-          f"dock={dock_ok} toolbars={sorted(after - before)} docks={len(iface.docks)}")
+    check("initGui, open panel, unload: nothing left behind", dock_ok and not (after - before) and not iface.docks and not iface.menus,
+          f"dock={dock_ok} toolbars={sorted(after - before)} docks={len(iface.docks)} menus={len(iface.menus)}")
 
 
 def test_guesses(b, t, w):

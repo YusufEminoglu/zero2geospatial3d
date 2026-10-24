@@ -548,7 +548,7 @@
         <span>Reference Manual</span>
       </div>
     </div>
-    <div class="version-pill">v1.0.3 · QGIS 3.28+ | 4</div>
+    <div class="version-pill">v1.1.0 · QGIS 3.28+ | 4</div>
   </div>
 
   <div class="search-wrap">
@@ -1581,10 +1581,14 @@ Surfaces       ground + roofs + facades</code></pre>
               <tr><td>Sky view factor</td><td>Sampling quality (64–256 rays)</td><td>Cosine-weighted SVF on ground, roofs and walls</td></tr>
               <tr><td>Solar radiation &amp; PV</td><td>EPW or clear sky, period, efficiency, PR</td><td>Irradiation (kWh/m²), roof and facade yield, suitable area</td></tr>
               <tr><td>Visibility</td><td>Viewer point or top of a building</td><td>Binary viewshed and visible area</td></tr>
-              <tr><td>Wind</td><td>Weather file, sector, pedestrian height</td><td>Wind ratio and speed, sheltered share, per-building rose</td></tr>
-              <tr><td>Thermal comfort</td><td>EPW, date and hour</td><td>UTCI and mean radiant temperature grids</td></tr>
+              <tr><td>Wind &amp; streamlines</td><td>Weather file, sector, pedestrian height</td><td>Wind ratio and speed, sheltered share, animated 3D streamlines, rose</td></tr>
+              <tr><td>Thermal comfort (UTCI &amp; PET)</td><td>EPW or custom weather, date, hour, materials, LAI</td><td>UTCI, PET (MEMI energy balance), surface temperature, canopy cooling (ΔTa)</td></tr>
+              <tr><td>Canyon ventilation &amp; air quality</td><td>Wind direction, speed, road emissions, background, trees</td><td>Ventilation Efficiency Index (VEI), normalized air age, traffic NO2/PM2.5 dispersion</td></tr>
+              <tr><td>Acoustic &amp; noise screening</td><td>Road network, sound power dB(A), receiver height, ground</td><td>3D noise propagation (Lden), facade maximum/mean exposure, quiet-facade detection</td></tr>
+              <tr><td>Green View Index (GVI)</td><td>Eye height, view radius, tree crowns, green surfaces</td><td>Panoramic pedestrian visible green fraction (0–100%) around buildings</td></tr>
+              <tr><td>3D Solar envelope</td><td>Date, sun window, floor height, height cap</td><td>Knowles / BRE maximum buildable height envelope and floor capacity</td></tr>
               <tr><td>Heat island &amp; morphology</td><td>Building footprints and heights</td><td>λ<sub>p</sub>, λ<sub>f</sub>, H/W, z<sub>0</sub>, d, approximate LCZ</td></tr>
-              <tr><td>Planning check</td><td>Threshold profile</td><td>Pass/fail per building, PDF sheet, CSV</td></tr>
+              <tr><td>Planning check</td><td>Threshold profile (sun, daylight, wind, heat, noise, GVI)</td><td>Pass/fail per building, PDF sheet, CSV</td></tr>
             </tbody>
           </table>
         </div>
@@ -1610,6 +1614,8 @@ Surfaces       ground + roofs + facades</code></pre>
             <thead><tr><th>Tool</th><th>Inputs</th><th>Output</th></tr></thead>
             <tbody>
               <tr><td>Scenario A vs B</td><td>Two scenes with the same grid</td><td>Difference grids for sun, SVF, irradiation or wind</td></tr>
+              <tr><td>Diurnal thermal study</td><td>Date, hour range (e.g. 6:00–21:00), material, trees</td><td>24-hour continuous animated UTCI comfort cycle with scrubbable timeline</td></tr>
+              <tr><td>What-If tree planting</td><td>Interactive 3D tree placement, crown radius and height</td><td>Real-time canopy shading, microclimate cooling advection, and GVI improvement</td></tr>
               <tr><td>Swipe and panels</td><td>Two results or two scenes</td><td>Synced 2, 4, 6 or 8 panel comparison</td></tr>
               <tr><td>Optimise heights</td><td>Selected buildings, floor ranges, constraints</td><td>NSGA-II Pareto front, knee point, applied heights</td></tr>
             </tbody>
@@ -1659,6 +1665,11 @@ Surfaces       ground + roofs + facades</code></pre>
       <h3>References</h3>
       <ul class="cite-list">
         <li><strong>Oke, T. R. (1987).</strong> <em>Boundary Layer Climates</em>, 2nd edition. Routledge, London. The foundation for the canyon, roughness and energy-balance interpretation used throughout the climate tools.</li>
+        <li><strong>Höppe, P. (1999).</strong> The physiological equivalent temperature (PET) — a new approach for the physiological assessment of the thermal environment. <em>International Journal of Biometeorology</em>, 43(2), 71–75. <span class="doi">doi:10.1007/s004840050118</span></li>
+        <li><strong>Walther, E., &amp; Goestchel, Q. (2018).</strong> The thermo-physiological approach for examining outdoor thermal comfort: The Munich Energy-balance Model for Individuals (MEMI) and PET. <em>Building and Environment</em>, 144, 428–440. <span class="doi">doi:10.1016/j.buildenv.2018.08.046</span></li>
+        <li><strong>Berkowicz, R. (2000).</strong> OSPM — a parameterised street canyon model. <em>Environmental Monitoring and Assessment</em>, 65(1/2), 323–331. <span class="doi">doi:10.1023/A:1006448321977</span></li>
+        <li><strong>Maekawa, Z. (1968).</strong> Noise reduction by screens. <em>Applied Acoustics</em>, 1(3), 157–173. <span class="doi">doi:10.1016/0003-682X(68)90020-0</span></li>
+        <li><strong>Knowles, R. L. (1981).</strong> <em>Sun Rhythm Form</em>. MIT Press, Cambridge, MA. The foundational treatise on solar envelope zoning and solar rights in urban design.</li>
         <li><strong>Macdonald, R. W., Griffiths, R. F., &amp; Hall, D. J. (1998).</strong> An improved method for the estimation of surface roughness of obstacle arrays. <em>Atmospheric Environment</em>, 32(11), 1857–1864. <span class="doi">doi:10.1016/S1352-2310(97)00403-2</span></li>
         <li><strong>Stewart, I. D., &amp; Oke, T. R. (2012).</strong> Local Climate Zones for urban temperature studies. <em>Bulletin of the American Meteorological Society</em>, 93(12), 1879–1900. <span class="doi">doi:10.1175/BAMS-D-11-00019.1</span></li>
         <li><strong>Littlefair, P. (2011).</strong> <em>Site Layout Planning for Daylight and Sunlight: A Guide to Good Practice</em>, 2nd edition (BRE Report 209). BRE Press. The source of the amenity-area, VSC and 25° screening tests.</li>
@@ -1686,7 +1697,7 @@ Surfaces       ground + roofs + facades</code></pre>
           <tbody>
             <tr><td>Plugin</td><td>02 Geo3D Analyzer</td></tr>
             <tr><td>Package</td><td><code>zero2geospatial3d</code></td></tr>
-            <tr><td>Version</td><td>1.0.0</td></tr>
+            <tr><td>Version</td><td>1.1.0</td></tr>
             <tr><td>QGIS</td><td>3.28 or newer; QGIS 4 supported</td></tr>
             <tr><td>Runtime</td><td>WebGL 2 browser, local loopback bridge</td></tr>
             <tr><td>Dependencies</td><td>None beyond QGIS and the bundled viewer</td></tr>
@@ -1702,7 +1713,7 @@ Surfaces       ground + roofs + facades</code></pre>
       </div>
 
       <h3>Scope of this manual</h3>
-      <p>This document describes the plugin as shipped in version 1.0.0. Analyses are screening tools for design and planning; they are not a substitute for a formal daylight assessment, a wind-tunnel study, a structural calculation or a statutory compliance report. The note attached to each result names the method and the main limitation.</p>
+      <p>This document describes the plugin as shipped in version 1.1.0. Analyses are screening tools for design and planning; they are not a substitute for a formal daylight assessment, a wind-tunnel study, a structural calculation or a statutory compliance report. The note attached to each result names the method and the main limitation.</p>
     </div>
   </section>
 

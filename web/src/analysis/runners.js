@@ -8,12 +8,16 @@ import * as THREE from 'three';
 import { GpuEngine, planTiles } from './gpu.js';
 import { sunPath, skyHemisphere, solarPosition, sunVector } from '../core/solar.js';
 import { annualSunBins, clearSkyYear, typicalDoy, conditionsAt, windRose } from '../core/weather.js';
-import { meanRadiantTemperature, skyTemperature, utci, UTCI_CATEGORIES } from '../core/comfort.js';
+import { meanRadiantTemperature, skyTemperature, utci, UTCI_CATEGORIES, pet, PET_CATEGORIES } from '../core/comfort.js';
+import { SURFACE_MATERIALS, surfaceTemperature, canopyCoolingGrid } from '../core/microclimate.js';
+import { ventilationEfficiency, VENTILATION_CLASSES, ventilationClass, pollutantDispersion, AIR_QUALITY_CLASSES, airQualityClass } from '../core/dispersion.js';
+import { noisePropagation, buildingFacadeNoise, NOISE_CLASSES, noiseClass } from '../core/acoustics.js';
+import { greenViewIndex, GVI_CLASSES, gviClass, solarEnvelope as calcSolarEnvelope } from '../core/urban_form.js';
 import { windRatio, OPEN_PEDESTRIAN_FACTOR, lawsonClass } from '../core/wind.js';
 import { blockIndicators, LCZ_LABELS, LCZ_COLORS } from '../core/morphology.js';
 import { gridStats } from '../core/terrain_math.js';
-import { splitKey, ExtrudedLayer, PointLayer } from '../scene/objects.js';
-import { climateAroundBuildings } from './climate.js';
+import { splitKey, ExtrudedLayer, PointLayer, SurfaceLayer, LineLayer } from '../scene/objects.js';
+import { climateAroundBuildings, surroundings } from './climate.js';
 import { vscDirections, VSC_OPEN, VSC_TARGET } from '../core/daylight_rule.js';
 import { coverIndex, coverAt, isOpen } from '../core/party_walls.js';
 
@@ -514,6 +518,92 @@ export class Analyst {
     }];
   }
 
+  treeObstacles() {
+    const out = [];
+    for (const layer of this.app.layers) {
+      if (layer instanceof PointLayer && layer.visible && layer.isTree) out.push(...layer.obstacles());
+    }
+    if (Array.isArray(this.app.plantedTrees)) out.push(...this.app.plantedTrees);
+    return out;
+  }
+
+  greenMask(grid) {
+    const mask = new Uint8Array(grid.cols * grid.rows);
+    for (const [x, y, rad] of this.treeObstacles()) {
+      const c0 = Math.floor((x - rad - grid.minX) / grid.cell);
+      const c1 = Math.ceil((x + rad - grid.minX) / grid.cell);
+      const r0 = Math.floor((grid.maxY - y - rad) / grid.cell);
+      const r1 = Math.ceil((grid.maxY - y + rad) / grid.cell);
+      for (let r = Math.max(0, r0); r <= Math.min(grid.rows - 1, r1); r++) {
+        for (let c = Math.max(0, c0); c <= Math.min(grid.cols - 1, c1); c++) {
+          if (Math.hypot(grid.minX + c * grid.cell - x, grid.maxY - r * grid.cell - y) <= rad) {
+            mask[r * grid.cols + c] = 1;
+          }
+        }
+      }
+    }
+    const greenPattern = /green|park|grass|veg|lawn|garden|tree|forest|meadow/i;
+    const greenLayers = this.app.layers.filter(
+      (l) => l instanceof SurfaceLayer && l.visible && greenPattern.test(l.entry?.name || '')
+    );
+    if (greenLayers.length > 0) {
+      for (let r = 0; r < grid.rows; r++) {
+        for (let c = 0; c < grid.cols; c++) {
+          const idx = r * grid.cols + c;
+          if (mask[idx] === 1) continue;
+          const x = grid.minX + c * grid.cell;
+          const y = grid.maxY - r * grid.cell;
+          for (const layer of greenLayers) {
+            if (layer.featureAt(x, y) >= 0) {
+              mask[idx] = 1;
+              break;
+            }
+          }
+        }
+      }
+    }
+    return mask;
+  }
+
+  roadLines() {
+    const out = [];
+    if (Array.isArray(this.app.drawnRoads)) {
+      for (const line of this.app.drawnRoads) {
+        if (Array.isArray(line) && line.length >= 2) out.push(line);
+      }
+    }
+    for (const layer of this.app.layers) {
+      if (layer instanceof LineLayer && layer.visible && Array.isArray(layer.lines)) {
+        for (const parts of layer.lines) {
+          if (Array.isArray(parts)) {
+            for (const line of parts) {
+              if (Array.isArray(line) && line.length >= 2) out.push(line);
+            }
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  surroundingFields(ids, heights, cols, rows, cell, values, fieldName, ringMetres = 15) {
+    if (!ids) return [];
+    const buildingLayers = new Set(this.app.layers.filter((l) => l instanceof ExtrudedLayer && !l.isWall).map((l) => l.index));
+    const label = surroundings(ids, heights, cols, rows, Math.max(1, Math.round(ringMetres / cell)),
+      (key) => buildingLayers.has(splitKey(key).layerIndex));
+    const acc = new Map();
+    for (let i = 0; i < label.length; i++) {
+      const k = label[i];
+      if (!k || !Number.isFinite(values[i])) continue;
+      let a = acc.get(k);
+      if (!a) { a = { sum: 0, n: 0 }; acc.set(k, a); }
+      a.sum += values[i];
+      a.n++;
+    }
+    for (const a of acc.values()) a.mean = a.sum / a.n;
+    return this.toFields(acc, fieldName);
+  }
+
   // ------------------------------------------------------------ geometry grid (wind, morphology)
   async obstacleGrid({ area, cell, onProgress }) {
     const key = cacheKey('geom', area, cell);
@@ -531,20 +621,17 @@ export class Analyst {
         heights[i] = Math.max(0, (run.heights[i] - ground) / terrain.exaggeration);
       }
     }
-    // Trees: porous obstacles rasterised from their crowns.
-    for (const layer of this.app.layers) {
-      if (!(layer instanceof PointLayer) || !layer.visible || !layer.isTree) continue;
-      for (const [x, y, rad, h] of layer.obstacles()) {
-        const c0 = Math.floor((x - rad - grid.minX) / cell), c1 = Math.ceil((x + rad - grid.minX) / cell);
-        const r0 = Math.floor((grid.maxY - y - rad) / cell), r1 = Math.ceil((grid.maxY - y + rad) / cell);
-        for (let r = Math.max(0, r0); r <= Math.min(grid.rows - 1, r1); r++) {
-          for (let c = Math.max(0, c0); c <= Math.min(grid.cols - 1, c1); c++) {
-            const i = r * grid.cols + c;
-            if (heights[i] > 0 && !porosity[i]) continue;
-            if (Math.hypot(grid.minX + c * cell - x, grid.maxY - r * cell - y) > rad) continue;
-            heights[i] = Math.max(heights[i], h);
-            porosity[i] = 0.5;
-          }
+    // Trees: porous obstacles rasterised from their crowns (including planted trees).
+    for (const [x, y, rad, h] of this.treeObstacles()) {
+      const c0 = Math.floor((x - rad - grid.minX) / cell), c1 = Math.ceil((x + rad - grid.minX) / cell);
+      const r0 = Math.floor((grid.maxY - y - rad) / cell), r1 = Math.ceil((grid.maxY - y + rad) / cell);
+      for (let r = Math.max(0, r0); r <= Math.min(grid.rows - 1, r1); r++) {
+        for (let c = Math.max(0, c0); c <= Math.min(grid.cols - 1, c1); c++) {
+          const i = r * grid.cols + c;
+          if (heights[i] > 0 && !porosity[i]) continue;
+          if (Math.hypot(grid.minX + c * cell - x, grid.maxY - r * cell - y) > rad) continue;
+          heights[i] = Math.max(heights[i], h);
+          porosity[i] = 0.5;
         }
       }
     }
@@ -567,20 +654,21 @@ export class Analyst {
     return [{
       kind: 'wind', title: `Pedestrian wind, from ${windFromDeg}°`, subtitle: `${speed10.toFixed(1)} m/s at 10 m; screening estimate, not CFD`,
       unit: 'm/s', grid, values: speed, ids: og.ids, display: { min: 0, max: Math.max(1, Math.ceil(st.max)), ramp: 'spectral-r' },
-      fields: [],
+      fields: this.surroundingFields(og.ids, og.heights, grid.cols, grid.rows, cell, speed, 'ped_wind_ms'),
       stats: [
         ['Open-terrain pedestrian wind', `${(speed10 * OPEN_PEDESTRIAN_FACTOR).toFixed(1)} m/s`],
         ['Mean at pedestrian level', `${st.mean.toFixed(1)} m/s`],
         ['Sheltered (< half of open)', `${open.length ? ((100 * sheltered) / open.length).toFixed(0) : 0} %`],
         ...[...counts].map(([k, v]) => [`Comfort: ${k}`, `${((100 * v) / open.length).toFixed(0)} %`])
       ],
-      wind: { fromDeg: windFromDeg },
+      wind: { fromDeg: windFromDeg, speed10 },
+      ratio,
       notes: 'Geometric screening (wakes, channelling, tall-building corners). Confirm critical places with CFD or a wind-tunnel study. Comfort classes use LDDC (Lawson) thresholds, which apply to the speed exceeded 5 % of the time.'
     }];
   }
 
   // ------------------------------------------------------------ thermal comfort
-  async comfort({ area, cell, month, day, hour, conditions, onProgress }) {
+  async comfort({ area, cell, month, day, hour, conditions, material = 'concrete', lai = 3.0, onProgress }) {
     const s = this.site();
     const doy = typicalDoy(month, day);
     const p = solarPosition(doy, hour - 0.5, s.lat, s.lon, s.utcOffset);
@@ -603,18 +691,72 @@ export class Analyst {
       windFromDeg: conditions.windDir ?? 270, onProgress: (f) => onProgress?.(0.7 + 0.3 * f) });
     const grid = svfRun.grid;
     const n = grid.cols * grid.rows;
+
+    const green = this.greenMask(grid);
+    const dTa = canopyCoolingGrid({
+      heights: og.heights,
+      porosity: og.porosity,
+      greenMask: green,
+      cols: grid.cols,
+      rows: grid.rows,
+      cell,
+      windFromDeg: conditions.windDir ?? 270,
+      windSpeed: conditions.windSpeed ?? 2,
+      airTemp: conditions.airTemp,
+      rh: conditions.rh ?? 50,
+      lai,
+      svf: svfRun.values
+    });
+
     const tSky = skyTemperature(conditions.airTemp, conditions.ir);
     const mrt = new Float32Array(n).fill(NaN);
     const index = new Float32Array(n).fill(NaN);
+    const petGrid = new Float32Array(n).fill(NaN);
+    const tsurf = new Float32Array(n).fill(NaN);
+
     for (let i = 0; i < n; i++) {
       if (svfRun.ids[i] !== 0 || !Number.isFinite(svfRun.values[i])) continue; // open ground only
-      const tr = meanRadiantTemperature({ airTemp: conditions.airTemp, skyTemp: tSky, svf: svfRun.values[i],
-        sunlit: sunlit ? sunlit[i] : 0, dni: conditions.dni, dhi: conditions.dhi, ghi: conditions.ghi, elevationDeg: elevDeg });
-      mrt[i] = tr;
-      // UTCI takes the 10 m wind; scale it by the local sheltering ratio.
+
+      const localTa = conditions.airTemp + (Number.isFinite(dTa[i]) ? dTa[i] : 0);
       const v10 = Math.max(0.5, Math.min(17, (conditions.windSpeed ?? 2) * (Number.isFinite(ratio[i]) ? ratio[i] : 1)));
-      index[i] = utci(conditions.airTemp, tr, v10, conditions.rh ?? 50);
+      const vPed = Math.max(0.1, v10 * OPEN_PEDESTRIAN_FACTOR);
+      const treeShade = og.porosity[i] > 0;
+      const matKey = green[i] ? 'grass' : (SURFACE_MATERIALS[material] ? material : 'concrete');
+
+      const ts = surfaceTemperature({
+        airTemp: localTa,
+        skyTemp: tSky,
+        svf: svfRun.values[i],
+        sunlit: sunlit ? sunlit[i] : 0,
+        dni: conditions.dni,
+        dhi: conditions.dhi,
+        ghi: conditions.ghi,
+        elevationDeg: elevDeg,
+        windSpeed: vPed,
+        material: matKey,
+        treeShade,
+        lai
+      });
+      tsurf[i] = ts;
+
+      const tr = meanRadiantTemperature({
+        airTemp: localTa,
+        skyTemp: tSky,
+        svf: svfRun.values[i],
+        sunlit: sunlit ? sunlit[i] : 0,
+        dni: conditions.dni,
+        dhi: conditions.dhi,
+        ghi: conditions.ghi,
+        elevationDeg: elevDeg,
+        groundTemp: ts,
+        wallTemp: localTa
+      });
+      mrt[i] = tr;
+
+      index[i] = utci(localTa, tr, v10, conditions.rh ?? 50);
+      petGrid[i] = pet(localTa, tr, vPed, conditions.rh ?? 50);
     }
+
     const st = gridStats(index);
     const counts = new Map();
     for (const v of index) {
@@ -623,21 +765,110 @@ export class Analyst {
       if (c) counts.set(c.label, (counts.get(c.label) || 0) + 1);
     }
     const total = [...counts.values()].reduce((a, b) => a + b, 0);
+
+    const petStats = gridStats(petGrid);
+    const petCounts = new Map();
+    for (const v of petGrid) {
+      if (!Number.isFinite(v)) continue;
+      const c = PET_CATEGORIES.find((k) => v < k.max) || PET_CATEGORIES[PET_CATEGORIES.length - 1];
+      if (c) petCounts.set(c.label, (petCounts.get(c.label) || 0) + 1);
+    }
+    const petTotal = [...petCounts.values()].reduce((a, b) => a + b, 0);
+
     const when = `${day} ${monthName(month)} ${String(hour - 1).padStart(2, '0')}:00–${String(hour).padStart(2, '0')}:00`;
     const cond = `air ${conditions.airTemp.toFixed(1)} °C, RH ${Math.round(conditions.rh ?? 50)} %, wind ${(conditions.windSpeed ?? 2).toFixed(1)} m/s`;
     const utciMin = Math.floor(Math.min(st.min, conditions.airTemp - 5));
     const utciMax = Math.ceil(Math.max(st.max, conditions.airTemp + 5));
-    return [{
-      kind: 'utci', title: `UTCI, ${when}`, subtitle: cond, unit: '°C', grid, values: index, ids: svfRun.ids,
-      display: { min: utciMin, max: utciMax, ramp: 'rdylbu-r' }, fields: [],
-      stats: [['Mean UTCI on open ground', `${st.mean.toFixed(1)} °C`], ['Range', `${st.min.toFixed(1)} – ${st.max.toFixed(1)} °C`],
-        ...[...counts].map(([k, v]) => [k, `${((100 * v) / total).toFixed(0)} %`])],
-      notes: 'UTCI (Bröde et al. 2012) from air temperature, humidity, sheltered wind and a SolarCal mean radiant temperature; surfaces are taken at air temperature.'
-    }, {
-      kind: 'mrt', title: `Mean radiant temperature, ${when}`, subtitle: cond, unit: '°C', grid, values: mrt, ids: svfRun.ids,
-      display: { min: Math.floor(gridStats(mrt).min), max: Math.ceil(gridStats(mrt).max), ramp: 'inferno' }, fields: [],
-      stats: [['Mean MRT on open ground', `${gridStats(mrt).mean.toFixed(1)} °C`]]
-    }];
+
+    const utciFields = this.surroundingFields(svfRun.ids, og.heights, grid.cols, grid.rows, cell, index, 'utci_c');
+    const petFields = this.surroundingFields(svfRun.ids, og.heights, grid.cols, grid.rows, cell, petGrid, 'pet_c');
+    const tsurfFields = this.surroundingFields(svfRun.ids, og.heights, grid.cols, grid.rows, cell, tsurf, 'tsurf_c');
+    const dtCoolFields = this.surroundingFields(svfRun.ids, og.heights, grid.cols, grid.rows, cell, dTa, 'dt_cool_c');
+
+    return [
+      {
+        kind: 'utci',
+        title: `UTCI, ${when}`,
+        subtitle: cond,
+        unit: '°C',
+        grid,
+        values: index,
+        ids: svfRun.ids,
+        display: { min: utciMin, max: utciMax, ramp: 'rdylbu-r' },
+        fields: [...utciFields, ...petFields, ...tsurfFields, ...dtCoolFields],
+        stats: [
+          ['Mean UTCI on open ground', `${st.mean.toFixed(1)} °C`],
+          ['Range', `${st.min.toFixed(1)} – ${st.max.toFixed(1)} °C`],
+          ...[...counts].map(([k, v]) => [k, `${((100 * v) / Math.max(1, total)).toFixed(0)} %`])
+        ],
+        notes: 'UTCI (Bröde et al. 2012) from air temperature, humidity, sheltered wind and a SolarCal mean radiant temperature; surfaces are taken at air temperature.'
+      },
+      {
+        kind: 'pet',
+        title: `PET, ${when}`,
+        subtitle: cond,
+        unit: '°C',
+        grid,
+        values: petGrid,
+        ids: svfRun.ids,
+        display: {
+          min: Math.floor(Math.min(petStats.min, conditions.airTemp - 5)),
+          max: Math.ceil(Math.max(petStats.max, conditions.airTemp + 5)),
+          ramp: 'rdylbu-r'
+        },
+        fields: petFields,
+        stats: [
+          ['Mean PET on open ground', `${petStats.mean.toFixed(1)} °C`],
+          ['Range', `${petStats.min.toFixed(1)} – ${petStats.max.toFixed(1)} °C`],
+          ...[...petCounts].map(([k, v]) => [k, `${((100 * v) / Math.max(1, petTotal)).toFixed(0)} %`])
+        ],
+        notes: 'Physiological Equivalent Temperature (Höppe 1999; Walther & Goestchel 2018 MEMI balance) at 1.1 m.'
+      },
+      {
+        kind: 'mrt',
+        title: `Mean radiant temperature, ${when}`,
+        subtitle: cond,
+        unit: '°C',
+        grid,
+        values: mrt,
+        ids: svfRun.ids,
+        display: { min: Math.floor(gridStats(mrt).min), max: Math.ceil(gridStats(mrt).max), ramp: 'inferno' },
+        fields: [],
+        stats: [['Mean MRT on open ground', `${gridStats(mrt).mean.toFixed(1)} °C`]]
+      },
+      {
+        kind: 'tsurf',
+        title: `Surface temperature, ${when}`,
+        subtitle: `${SURFACE_MATERIALS[material]?.label || material}, LAI ${lai.toFixed(1)}`,
+        unit: '°C',
+        grid,
+        values: tsurf,
+        ids: svfRun.ids,
+        display: { min: Math.floor(gridStats(tsurf).min), max: Math.ceil(gridStats(tsurf).max), ramp: 'magma' },
+        fields: tsurfFields,
+        stats: [
+          ['Mean surface temp.', `${gridStats(tsurf).mean.toFixed(1)} °C`],
+          ['Max surface temp.', `${gridStats(tsurf).max.toFixed(1)} °C`]
+        ],
+        notes: 'Steady-state radiative-convective surface energy balance with Bowen ratio partitioning and tree canopy attenuation.'
+      },
+      {
+        kind: 'dt_cool',
+        title: `Canopy & canyon air anomaly (ΔTa), ${when}`,
+        subtitle: cond,
+        unit: '°C',
+        grid,
+        values: dTa,
+        ids: svfRun.ids,
+        display: { min: -3.5, max: 2.0, ramp: 'rdbu-r' },
+        fields: dtCoolFields,
+        stats: [
+          ['Mean ΔTa', `${gridStats(dTa).mean.toFixed(2)} °C`],
+          ['Max cooling', `${gridStats(dTa).min.toFixed(2)} °C`]
+        ],
+        notes: 'Local air temperature anomaly from tree/green evapotranspiration advected downwind and deep-canyon heat trapping.'
+      }
+    ];
   }
 
   // ------------------------------------------------------------ morphology / heat island
@@ -702,6 +933,436 @@ export class Analyst {
     if (this.app.weather?.dryBulb) return conditionsAt(this.app.weather, month, day, hour);
     return null;
   }
+
+  async diurnalStudy({ area, cell, date, material = 'concrete', lai = 3.0, startHour = 6, endHour = 21, onProgress }) {
+    const s = this.site();
+    const doy = typicalDoy(date.month, date.day);
+    const svfKey = cacheKey('svf', area, cell);
+    let svfRun = this.cache.get(svfKey);
+    if (!svfRun) {
+      svfRun = await this.gridRun({ area, cell, directions: skyHemisphere(96), cosMode: 1, lift: 1.1, withIds: true,
+        onProgress: (f) => onProgress?.(0.2 * f) });
+    }
+    const og = await this.obstacleGrid({ area, cell, onProgress: (f) => onProgress?.(0.2 + 0.1 * f) });
+    const { grid } = og;
+    const n = grid.cols * grid.rows;
+    const green = this.greenMask(grid);
+
+    const hours = [];
+    const frames = [];
+    let minVal = Infinity;
+    let maxVal = -Infinity;
+
+    const totalHours = Math.floor(endHour - startHour) + 1;
+    let hourIdx = 0;
+
+    for (let hh = startHour; hh <= endHour + 1e-9; hh += 1) {
+      const p = solarPosition(doy, hh - 0.5, s.lat, s.lon, s.utcOffset);
+      const elevDeg = p.elevation / DEG;
+
+      let cond = this.conditionsFor(date.month, date.day, hh);
+      if (!cond) {
+        const airTemp = 26 + 5 * Math.sin(((hh - 9) / 24) * 2 * Math.PI);
+        const sunElevFrac = Math.max(0, Math.sin(p.elevation));
+        cond = {
+          airTemp,
+          rh: 50,
+          windSpeed: 2.5,
+          windDir: 270,
+          dni: 800 * sunElevFrac,
+          dhi: 150 * sunElevFrac,
+          ghi: (800 * sunElevFrac + 150) * sunElevFrac,
+          ir: null
+        };
+      }
+
+      let sunlit = null;
+      if (elevDeg > 0.5) {
+        const dir = sunVector(p.elevation, p.azimuth);
+        const sun = await this.gridRun({ area, cell, directions: [{ dir, weight: 1 }], cosMode: 0, lift: 1.1,
+          onProgress: (f) => onProgress?.(0.3 + 0.7 * ((hourIdx + f) / totalHours)) });
+        sunlit = sun.values;
+      }
+
+      const ratio = await windRatio({ heights: og.heights, porosity: og.porosity, cols: grid.cols, rows: grid.rows, cell,
+        windFromDeg: cond.windDir ?? 270 });
+
+      const dTa = canopyCoolingGrid({
+        heights: og.heights,
+        porosity: og.porosity,
+        greenMask: green,
+        cols: grid.cols,
+        rows: grid.rows,
+        cell,
+        windFromDeg: cond.windDir ?? 270,
+        windSpeed: cond.windSpeed ?? 2.5,
+        airTemp: cond.airTemp,
+        rh: cond.rh ?? 50,
+        lai,
+        svf: svfRun.values
+      });
+
+      const tSky = skyTemperature(cond.airTemp, cond.ir);
+      const frame = new Float32Array(n).fill(NaN);
+
+      for (let i = 0; i < n; i++) {
+        if (svfRun.ids[i] !== 0 || !Number.isFinite(svfRun.values[i])) continue;
+
+        const localTa = cond.airTemp + (Number.isFinite(dTa[i]) ? dTa[i] : 0);
+        const v10 = Math.max(0.5, Math.min(17, (cond.windSpeed ?? 2) * (Number.isFinite(ratio[i]) ? ratio[i] : 1)));
+        const vPed = Math.max(0.1, v10 * OPEN_PEDESTRIAN_FACTOR);
+        const treeShade = og.porosity[i] > 0;
+        const matKey = green[i] ? 'grass' : (SURFACE_MATERIALS[material] ? material : 'concrete');
+
+        const ts = surfaceTemperature({
+          airTemp: localTa,
+          skyTemp: tSky,
+          svf: svfRun.values[i],
+          sunlit: sunlit ? sunlit[i] : 0,
+          dni: cond.dni,
+          dhi: cond.dhi,
+          ghi: cond.ghi,
+          elevationDeg: elevDeg,
+          windSpeed: vPed,
+          material: matKey,
+          treeShade,
+          lai
+        });
+
+        const tr = meanRadiantTemperature({
+          airTemp: localTa,
+          skyTemp: tSky,
+          svf: svfRun.values[i],
+          sunlit: sunlit ? sunlit[i] : 0,
+          dni: cond.dni,
+          dhi: cond.dhi,
+          ghi: cond.ghi,
+          elevationDeg: elevDeg,
+          groundTemp: ts,
+          wallTemp: localTa
+        });
+
+        const u = utci(localTa, tr, v10, cond.rh ?? 50);
+        frame[i] = u;
+        if (Number.isFinite(u)) {
+          if (u < minVal) minVal = u;
+          if (u > maxVal) maxVal = u;
+        }
+      }
+
+      hours.push(hh);
+      frames.push(frame);
+      hourIdx++;
+    }
+
+    if (!Number.isFinite(minVal)) minVal = 10;
+    if (!Number.isFinite(maxVal)) maxVal = 35;
+
+    const result = {
+      kind: 'diurnalstudy',
+      title: `Diurnal UTCI study, ${date.day} ${monthName(date.month)}`,
+      subtitle: `${hours.length} hourly frames (${fmtHour(hours[0])}–${fmtHour(hours[hours.length - 1])})`,
+      unit: '°C',
+      grid,
+      ids: svfRun.ids,
+      frames,
+      hours,
+      frame: 0,
+      date,
+      values: new Float32Array(frames[0].length),
+      display: { min: Math.floor(minVal), max: Math.ceil(maxVal), ramp: 'rdylbu-r' },
+      fields: [],
+      stats: [
+        ['Hourly frames', String(hours.length)],
+        ['Period', `${fmtHour(hours[0])}–${fmtHour(hours[hours.length - 1])}`],
+        ['UTCI range', `${minVal.toFixed(1)} – ${maxVal.toFixed(1)} °C`]
+      ],
+      notes: 'Continuous diurnal outdoor thermal comfort animation (UTCI) accounting for surface energy balance, tree canopy shading, and evapotranspirative cooling advection.'
+    };
+    setDiurnalFrame(result, 0);
+    return [result];
+  }
+
+  async ventilation({ area, cell, windFromDeg = 270, speed10 = 4, emissionRateUgMS = 450, backgroundUgM3 = 18, treeDepositionFactor = 0.25, roads = null, onProgress }) {
+    const og = await this.obstacleGrid({ area, cell, onProgress: (f) => onProgress?.(0.25 * f) });
+    const { grid } = og;
+    const ratio = await windRatio({ heights: og.heights, porosity: og.porosity, cols: grid.cols, rows: grid.rows, cell,
+      windFromDeg, onProgress: (f) => onProgress?.(0.25 + 0.25 * f) });
+    const svfKey = cacheKey('svf', area, cell);
+    let svfRun = this.cache.get(svfKey);
+    if (!svfRun) {
+      svfRun = await this.gridRun({ area, cell, directions: skyHemisphere(96), cosMode: 1, lift: 1.1, withIds: true,
+        onProgress: (f) => onProgress?.(0.5 + 0.2 * f) });
+    }
+    const { vei, airAge } = ventilationEfficiency({
+      windRatioGrid: ratio,
+      heights: og.heights,
+      porosity: og.porosity,
+      svf: svfRun.values,
+      cols: grid.cols,
+      rows: grid.rows,
+      cell
+    });
+
+    const activeRoads = roads || this.roadLines();
+    const conc = pollutantDispersion({
+      heights: og.heights,
+      porosity: og.porosity,
+      windRatioGrid: ratio,
+      svf: svfRun.values,
+      cols: grid.cols,
+      rows: grid.rows,
+      cell,
+      minX: grid.minX,
+      maxY: grid.maxY,
+      windFromDeg,
+      windSpeed10: speed10,
+      roads: activeRoads,
+      emissionRateUgMS,
+      backgroundUgM3,
+      treeDepositionFactor
+    });
+
+    const ventFields = this.surroundingFields(og.ids, og.heights, grid.cols, grid.rows, cell, vei, 'vent_index');
+    const no2Fields = this.surroundingFields(og.ids, og.heights, grid.cols, grid.rows, cell, conc, 'air_no2_ugm3');
+
+    const openVei = vei.filter(Number.isFinite);
+    const stVei = gridStats(openVei);
+    const vCounts = new Map();
+    for (const v of openVei) {
+      const c = ventilationClass(v);
+      if (c) vCounts.set(c.label, (vCounts.get(c.label) || 0) + 1);
+    }
+
+    const openAirAge = airAge.filter(Number.isFinite);
+    const stAge = gridStats(openAirAge);
+
+    const openConc = conc.filter(Number.isFinite);
+    const stConc = gridStats(openConc);
+    const aqCounts = new Map();
+    for (const v of openConc) {
+      const c = airQualityClass(v);
+      if (c) aqCounts.set(c.label, (aqCounts.get(c.label) || 0) + 1);
+    }
+
+    return [
+      {
+        kind: 'vei',
+        title: `Street canyon ventilation (VEI), from ${windFromDeg}°`,
+        subtitle: `${speed10.toFixed(1)} m/s at 10 m`,
+        unit: '',
+        grid,
+        values: vei,
+        ids: og.ids,
+        display: { min: 0, max: 1.2, ramp: 'spectral-r' },
+        fields: ventFields,
+        stats: [
+          ['Open ground, mean VEI', stVei.mean.toFixed(2)],
+          ['Open ground, min VEI', stVei.min.toFixed(2)],
+          ...[...vCounts].map(([k, v]) => [k, `${((100 * v) / Math.max(1, openVei.length)).toFixed(0)} %`])
+        ],
+        notes: 'Ventilation Efficiency Index (VEI) combining pedestrian wind ratio and sky view factor. Low values indicate stagnant street canyons.'
+      },
+      {
+        kind: 'airage',
+        title: `Normalized air age (tau), from ${windFromDeg}°`,
+        subtitle: `${speed10.toFixed(1)} m/s at 10 m`,
+        unit: '',
+        grid,
+        values: airAge,
+        ids: og.ids,
+        display: { min: 1, max: 8, ramp: 'spectral' },
+        fields: [],
+        stats: [
+          ['Mean normalized air age', stAge.mean.toFixed(1)],
+          ['Max air age (stagnant pockets)', stAge.max.toFixed(1)]
+        ],
+        notes: 'Dimensionless mean age of air relative to open flow. Higher values signify air stagnation and poor flush rates.'
+      },
+      {
+        kind: 'dispersion',
+        title: `Traffic pollutant concentration (NO2), from ${windFromDeg}°`,
+        subtitle: `Emission ${emissionRateUgMS} µg/(m·s), background ${backgroundUgM3} µg/m³`,
+        unit: 'µg/m³',
+        grid,
+        values: conc,
+        ids: og.ids,
+        display: { min: backgroundUgM3, max: Math.min(150, Math.ceil(stConc.max)), ramp: 'spectral-r' },
+        fields: no2Fields,
+        stats: [
+          ['Open ground, mean concentration', `${stConc.mean.toFixed(1)} µg/m³`],
+          ['Highest local concentration', `${stConc.max.toFixed(1)} µg/m³`],
+          ...[...aqCounts].map(([k, v]) => [k, `${((100 * v) / Math.max(1, openConc.length)).toFixed(0)} %`])
+        ],
+        notes: 'Street-canyon pollutant dispersion based on OSPM Gaussian plume and canyon vortex trapping with tree canopy filtration.'
+      }
+    ];
+  }
+
+  async noise({ area, cell, soundPowerDb = 78, receiverHeight = 1.5, groundFactor = 0.5, roads = null, onProgress }) {
+    const og = await this.obstacleGrid({ area, cell, onProgress: (f) => onProgress?.(0.4 * f) });
+    const { grid } = og;
+    const activeRoads = roads || this.roadLines();
+
+    const noiseGrid = noisePropagation({
+      heights: og.heights,
+      porosity: og.porosity,
+      cols: grid.cols,
+      rows: grid.rows,
+      cell,
+      minX: grid.minX,
+      maxY: grid.maxY,
+      roads: activeRoads,
+      soundPowerDb,
+      receiverHeight,
+      groundFactor
+    });
+
+    const facadeMap = buildingFacadeNoise(noiseGrid, og.ids, grid.cols, grid.rows);
+    const fields = [
+      ...this.toFields(facadeMap, 'noise_dba_max', (a) => a.max),
+      ...this.toFields(facadeMap, 'noise_dba_mean', (a) => a.mean),
+      ...this.toFields(facadeMap, 'quiet_facade', (a) => a.quietFacade)
+    ];
+
+    const openNoise = noiseGrid.filter(Number.isFinite);
+    const st = gridStats(openNoise);
+    const loudCount = openNoise.filter((v) => v >= 65).length;
+
+    const nCounts = new Map();
+    for (const v of openNoise) {
+      const c = noiseClass(v);
+      if (c) nCounts.set(c.label, (nCounts.get(c.label) || 0) + 1);
+    }
+
+    return [{
+      kind: 'noise',
+      title: 'Environmental noise (Lden)',
+      subtitle: `Sound power ${soundPowerDb} dB(A)/m, receiver at ${receiverHeight.toFixed(1)} m`,
+      unit: 'dB(A)',
+      grid,
+      values: noiseGrid,
+      ids: og.ids,
+      display: { min: 40, max: 80, ramp: 'magma' },
+      fields,
+      stats: [
+        ['Mean open-ground noise', `${st.mean.toFixed(1)} dB(A)`],
+        ['Max noise level', `${st.max.toFixed(1)} dB(A)`],
+        ['Share of area ≥ 65 dB(A)', `${openNoise.length ? ((100 * loudCount) / openNoise.length).toFixed(0) : 0} %`],
+        ...[...nCounts].map(([k, v]) => [k, `${((100 * v) / Math.max(1, openNoise.length)).toFixed(0)} %`])
+      ],
+      notes: '3D acoustic propagation (ISO 9613-2 / CNOSSOS-EU proxy) with Maekawa barrier diffraction and tree attenuation.'
+    }];
+  }
+
+  async greenView({ area, cell, eyeHeight = 1.6, maxRadius = 80, onProgress }) {
+    const og = await this.obstacleGrid({ area, cell, onProgress: (f) => onProgress?.(0.3 * f) });
+    const { grid } = og;
+    const buildingHeights = og.heights.map((h, i) => (og.ids[i] ? h : 0));
+    const treeObs = this.treeObstacles();
+    const green = this.greenMask(grid);
+
+    const gvi = greenViewIndex({
+      buildingHeights,
+      treeObstacles: treeObs,
+      greenMask: green,
+      cols: grid.cols,
+      rows: grid.rows,
+      cell,
+      minX: grid.minX - 0.5 * cell,
+      maxY: grid.maxY + 0.5 * cell,
+      eyeHeight,
+      maxRadius
+    });
+
+    const fields = this.surroundingFields(og.ids, og.heights, grid.cols, grid.rows, cell, gvi, 'gvi_pct');
+
+    const openGvi = gvi.filter(Number.isFinite);
+    const st = gridStats(openGvi);
+    const highGreen = openGvi.filter((v) => v >= 20).length;
+
+    const gCounts = new Map();
+    for (const v of openGvi) {
+      const c = gviClass(v);
+      if (c) gCounts.set(c.label, (gCounts.get(c.label) || 0) + 1);
+    }
+
+    return [{
+      kind: 'gvi',
+      title: 'Green View Index (GVI)',
+      subtitle: `Panoramic eye-level green visibility at ${eyeHeight.toFixed(1)} m, radius ${maxRadius} m`,
+      unit: '%',
+      grid,
+      values: gvi,
+      ids: og.ids,
+      display: { min: 0, max: 50, ramp: 'greens' },
+      fields,
+      stats: [
+        ['Mean GVI on open ground', `${st.mean.toFixed(1)} %`],
+        ['Share of area ≥ 20 % green view', `${openGvi.length ? ((100 * highGreen) / openGvi.length).toFixed(0) : 0} %`],
+        ...[...gCounts].map(([k, v]) => [k, `${((100 * v) / Math.max(1, openGvi.length)).toFixed(0)} %`])
+      ],
+      notes: 'Panoramic Green View Index (Treepedia / MIT Senseable City Lab proxy) evaluating eye-level visible green canopy and surface vegetation.'
+    }];
+  }
+
+  async solarEnvelope({ area, cell, date = { month: 12, day: 21 }, startHour = 9, endHour = 15, minSunHours = 2, maxBuildableHeight = 72, floorHeight = 3.2, onProgress }) {
+    const s = this.site();
+    const og = await this.obstacleGrid({ area, cell, onProgress: (f) => onProgress?.(0.3 * f) });
+    const { grid } = og;
+    const buildingHeights = og.heights.map((h, i) => (og.ids[i] ? h : 0));
+    const sunVectors = sunPath(typicalDoy(date.month, date.day), s.lat, s.lon, s.utcOffset, { startHour, endHour, stepMinutes: 30 });
+
+    const env = calcSolarEnvelope({
+      buildingHeights,
+      ids: og.ids,
+      cols: grid.cols,
+      rows: grid.rows,
+      cell,
+      sunVectors,
+      minSunHours,
+      stepHours: 0.5,
+      maxBuildableHeight,
+      floorHeight
+    });
+
+    const fields = this.toFields(this.aggregateGrid(og.ids, env.maxHeight, cell * cell), 'env_max_h');
+    const stH = gridStats(env.maxHeight);
+    const stF = gridStats(env.maxFloors);
+
+    return [
+      {
+        kind: 'solarenvelope',
+        title: 'Solar envelope height limit',
+        subtitle: `${date.day} ${monthName(date.month)}, ${minSunHours} h sun window (${fmtHour(startHour)}–${fmtHour(endHour)})`,
+        unit: 'm',
+        grid,
+        values: env.maxHeight,
+        ids: og.ids,
+        display: { min: 0, max: maxBuildableHeight, ramp: 'viridis' },
+        fields,
+        stats: [
+          ['Mean height limit', `${stH.mean.toFixed(1)} m`],
+          ['Max allowed height', `${stH.max.toFixed(1)} m`]
+        ],
+        notes: 'Solar envelope (Knowles 1981): maximum buildable height that preserves neighbours\' direct solar access.'
+      },
+      {
+        kind: 'solarfloors',
+        title: 'Solar envelope floor capacity',
+        subtitle: `${floorHeight.toFixed(1)} m per floor, cap ${Math.floor(maxBuildableHeight / floorHeight)} floors`,
+        unit: 'floors',
+        grid,
+        values: env.maxFloors,
+        ids: og.ids,
+        display: { min: 0, max: Math.floor(maxBuildableHeight / floorHeight), ramp: 'viridis' },
+        fields: [],
+        stats: [
+          ['Mean floor capacity', `${stF.mean.toFixed(0)} floors`]
+        ]
+      }
+    ];
+  }
 }
 
 // ---------------------------------------------------------------- helpers
@@ -748,6 +1409,14 @@ export function setShadowFrame(result, k) {
   const frame = result.frames[Math.max(0, Math.min(result.frames.length - 1, k))];
   const v = result.values;
   for (let i = 0; i < v.length; i++) v[i] = frame[i] === 255 ? NaN : frame[i];
+  result.frame = k;
+  if (result._tex) { result._tex.dispose(); delete result._tex; }
+}
+
+/** Show frame k of a continuous diurnal study (Float32Array values + fresh drape texture). */
+export function setDiurnalFrame(result, k) {
+  const frame = result.frames[Math.max(0, Math.min(result.frames.length - 1, k))];
+  result.values.set(frame);
   result.frame = k;
   if (result._tex) { result._tex.dispose(); delete result._tex; }
 }

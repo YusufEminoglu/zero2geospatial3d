@@ -8,6 +8,7 @@ import { solarPosition } from '../core/solar.js';
 import { ExtrudedLayer } from '../scene/objects.js';
 import { CRITERIA, planningCheck, parseProfile, profileJson, defaultProfile } from '../analysis/compliance.js';
 import { planningSheet, planningCsv } from '../export/check_pdf.js';
+import { SURFACE_MATERIALS } from '../core/microclimate.js';
 
 const MONTHS = MONTH_NAMES.map((m, i) => [i + 1, m]);
 const DATE_PRESETS = [['3-21', '21 Mar (equinox)'], ['6-21', '21 Jun (summer solstice)'], ['12-21', '21 Dec (winter solstice)'], ['custom', 'Custom date']];
@@ -22,7 +23,10 @@ export function defaultParams(app) {
     solar: { period: 'year', tilt: 0, azimuth: 180, efficiency: 0.2, pr: 0.8, coverage: 0.6, minShare: 0.7, facades: false },
     view: { height: 1.6, radius: 600 },
     wind: { from: rose ? rose.prevailingDirection : 270, speed: rose ? Math.max(1, rose.prevailingSpeed) : 4, cell: 0 },
-    comfort: { month: 7, day: 21, hour: 15, manual: !app.weather?.dryBulb, airTemp: 32, rh: 45, windSpeed: 2.5, windDir: rose ? rose.prevailingDirection : 270 },
+    comfort: { month: 7, day: 21, hour: 15, manual: !app.weather?.dryBulb, airTemp: 32, rh: 45, windSpeed: 2.5, windDir: rose ? rose.prevailingDirection : 270, material: 'concrete', lai: 3.0, treeHeight: 10, treeRadius: 3.5 },
+    vent: { from: rose ? rose.prevailingDirection : 270, speed: rose ? Math.max(1, rose.prevailingSpeed) : 3.5, emission: 450, background: 18, deposition: 0.25 },
+    noise: { power: 78, receiverHeight: 1.5, ground: 0.5 },
+    form: { eyeHeight: 1.6, radius: 80, preset: '12-21', month: 12, day: 21, start: 9, end: 15, minHours: 2, maxH: 72, floorH: 3.2 },
     morph: { block: 100, from: rose ? rose.prevailingDirection : 270 },
     climate: { from: 7, to: 22, sectors: 8, ring: 15 },
     check: { scope: 'selected', criteria: CRITERIA.map((c) => c.id), thresholds: Object.fromEntries(CRITERIA.map((c) => [c.id, c.threshold])) }
@@ -43,6 +47,9 @@ export function buildAnalyzePanel(app, root) {
     root.appendChild(windCard(app));
     root.appendChild(comfortCard(app));
     root.appendChild(morphCard(app));
+    root.appendChild(ventilationCard(app));
+    root.appendChild(noiseCard(app));
+    root.appendChild(urbanFormCard(app));
     root.appendChild(climateCard(app));
     root.appendChild(checkCard(app));
     root.appendChild(h('h3', { class: 'section', text: 'Results' }));
@@ -52,7 +59,7 @@ export function buildAnalyzePanel(app, root) {
   app.on((what) => {
     if (what === 'results' || what === 'active') renderResults(app, resultsBox);
     if (what === 'weather') { app.params = defaultParams(app); render(); }
-    if (what === 'params') render();
+    if (what === 'params' || what === 'trees') render();
     if (what === 'busy') root.querySelectorAll('button.run').forEach((b) => { /** @type {any} */ (b).disabled = app.busy; });
   });
   render();
@@ -273,21 +280,43 @@ function comfortCard(app) {
       ['Direct / diffuse', `${Math.round(c.dni)} / ${Math.round(c.dhi)} W/m²`]
     ]));
   };
+  const treeCountText = h('span', { class: 'muted small', text: `${app.plantedTrees?.length || 0} planted` });
   const body = h('div', {},
-    h('p', { class: 'muted small', text: 'Outdoor heat stress (UTCI) at pedestrian level for one hour: sun and shade, sky view, sheltered wind and humidity.' }),
+    h('p', { class: 'muted small', text: 'Outdoor heat stress (UTCI) and Physiological Equivalent Temperature (PET) at pedestrian level with surface energy balance.' }),
     row('Month / day', h('span', { class: 'inline' },
       select(MONTHS, p.month, (v) => { p.month = Number(v); drawCond(); }),
       number(p.day, { min: 1, max: 31, step: 1, width: '4em', onChange: (v) => { p.day = v; drawCond(); } }))),
     row('Hour ending', select(Array.from({ length: 24 }, (_, i) => [i + 1, `${String(i).padStart(2, '0')}:00–${String(i + 1).padStart(2, '0')}:00`]), p.hour, (v) => { p.hour = Number(v); drawCond(); })),
+    row('Surface material', select(Object.entries(SURFACE_MATERIALS).map(([k, v]) => [k, v.label]), p.material, (v) => { p.material = v; })),
+    row('Tree canopy LAI', number(p.lai, { min: 0.5, max: 6, step: 0.5, onChange: (v) => { p.lai = v; } })),
     app.weather?.dryBulb ? row('Conditions', select([['epw', 'From the weather file'], ['manual', 'Enter manually']], p.manual ? 'manual' : 'epw', (v) => { p.manual = v === 'manual'; drawCond(); })) : null,
     condBox,
-    h('div', { class: 'btn-row' }, runButton(app, 'Run UTCI', () => {
-      const c = conditions();
-      return app.run('Thermal comfort', (prog) => app.analyst.comfort({ area: app.area(), cell: Math.max(1, app.cell(700)),
-        month: p.month, day: p.day, hour: p.hour, conditions: c, onProgress: prog }));
-    })));
+    row('What-if greening', h('span', { class: 'inline' },
+      button('Plant tree…', async () => {
+        const pt = await app.tools.pickPoint('Click ground to plant a tree', { roofs: false });
+        if (pt) app.addPlantedTree(pt.local[0], pt.local[1], p.treeHeight, p.treeRadius);
+      }),
+      button('Clear trees', () => app.clearPlantedTrees()),
+      treeCountText)),
+    h('div', { class: 'btn-row' },
+      runButton(app, 'Run UTCI & PET', () => {
+        const c = conditions();
+        return app.run('Thermal comfort', (prog) => app.analyst.comfort({ area: app.area(), cell: Math.max(1, app.cell(700)),
+          month: p.month, day: p.day, hour: p.hour, conditions: c, material: p.material, lai: p.lai, onProgress: prog }));
+      }),
+      runButton(app, '24 h diurnal study', async () => {
+        const res = await app.run('Diurnal thermal study', (prog) => app.analyst.diurnalStudy({
+          area: app.area(), cell: Math.max(2, app.cell(600)), date: { month: p.month, day: p.day },
+          material: p.material, lai: p.lai, onProgress: prog }));
+        if (res?.[0]) {
+          app.date = { month: p.month, day: p.day };
+          app.time = res[0].hours ? res[0].hours[0] : 12;
+          app.updateSun();
+          toast('Press ▶ on the sun clock (or drag it) to play the day.');
+        }
+      })));
   drawCond();
-  return card('Thermal comfort (UTCI)', body);
+  return card('Thermal comfort (UTCI & PET)', body);
 }
 
 function morphCard(app) {
@@ -299,6 +328,89 @@ function morphCard(app) {
     h('div', { class: 'btn-row' }, runButton(app, 'Run morphology', () => app.run('Urban morphology', (prog) => app.analyst.morphology({
       area: app.area(), cell: Math.max(1, app.cell(800)), blockSize: p.block, windFromDeg: p.from, onProgress: prog })))));
   return card('Heat island & morphology', body);
+}
+
+function ventilationCard(app) {
+  const p = app.params.vent;
+  const roadsInfo = h('span', { class: 'muted small', text: `${app.drawnRoads?.length || 0} drawn` });
+  const body = h('div', {},
+    h('p', { class: 'muted small', text: 'Street canyon ventilation efficiency (VEI), local air age and line-source pollutant dispersion with vegetative canopy filtration.' }),
+    row('Wind from (°)', number(p.from, { min: 0, max: 359, step: 5, onChange: (v) => { p.from = v; } })),
+    row('Speed at 10 m (m/s)', number(p.speed, { min: 0.5, max: 25, step: 0.5, onChange: (v) => { p.speed = v; } })),
+    row('Traffic emission (µg/(m·s))', number(p.emission, { min: 10, max: 5000, step: 50, onChange: (v) => { p.emission = v; } })),
+    row('Background (µg/m³)', number(p.background, { min: 0, max: 200, step: 1, onChange: (v) => { p.background = v; } })),
+    row('Tree filtration share', number(p.deposition, { min: 0, max: 0.8, step: 0.05, onChange: (v) => { p.deposition = v; } })),
+    row('Road line sources', h('span', { class: 'inline' },
+      button('Draw road source…', async () => {
+        const line = await app.tools.drawLine('Click points along the road source');
+        if (line) {
+          app.drawnRoads.push(line);
+          app.tools.outline(`drawn_road_${app.drawnRoads.length}`, line, 0xff4f2e);
+          roadsInfo.textContent = `${app.drawnRoads.length} drawn`;
+        }
+      }),
+      button('Clear roads', () => {
+        for (let i = 1; i <= app.drawnRoads.length; i++) app.tools.outline(`drawn_road_${i}`, null);
+        app.drawnRoads = [];
+        roadsInfo.textContent = '0 drawn';
+      }),
+      roadsInfo)),
+    h('div', { class: 'btn-row' }, runButton(app, 'Run ventilation & dispersion', () => app.run('Ventilation & dispersion', (prog) => app.analyst.ventilation({
+      area: app.area(), cell: Math.max(2, app.cell(600)), windFromDeg: p.from, speed10: p.speed,
+      emissionRateUgMS: p.emission, backgroundUgM3: p.background, treeDepositionFactor: p.deposition,
+      roads: app.drawnRoads, onProgress: prog })))));
+  return card('Canyon ventilation & air quality', body);
+}
+
+function noiseCard(app) {
+  const p = app.params.noise;
+  const roadsInfo = h('span', { class: 'muted small', text: `${app.drawnRoads?.length || 0} drawn` });
+  const body = h('div', {},
+    h('p', { class: 'muted small', text: 'Environmental road traffic noise propagation, Maekawa building edge diffraction and facade quiet-side detection.' }),
+    row('Road sound power Lw (dB(A)/m)', number(p.power, { min: 50, max: 110, step: 1, onChange: (v) => { p.power = v; } })),
+    row('Receiver height (m)', number(p.receiverHeight, { min: 0.5, max: 10, step: 0.5, onChange: (v) => { p.receiverHeight = v; } })),
+    row('Ground absorption', number(p.ground, { min: 0, max: 1, step: 0.1, onChange: (v) => { p.ground = v; } }), '0 = hard paved ground, 1 = soft grass / soil'),
+    row('Road line sources', h('span', { class: 'inline' },
+      button('Draw road source…', async () => {
+        const line = await app.tools.drawLine('Click points along the road source');
+        if (line) {
+          app.drawnRoads.push(line);
+          app.tools.outline(`drawn_road_${app.drawnRoads.length}`, line, 0xff4f2e);
+          roadsInfo.textContent = `${app.drawnRoads.length} drawn`;
+        }
+      }),
+      button('Clear roads', () => {
+        for (let i = 1; i <= app.drawnRoads.length; i++) app.tools.outline(`drawn_road_${i}`, null);
+        app.drawnRoads = [];
+        roadsInfo.textContent = '0 drawn';
+      }),
+      roadsInfo)),
+    h('div', { class: 'btn-row' }, runButton(app, 'Run noise map', () => app.run('Environmental noise', (prog) => app.analyst.noise({
+      area: app.area(), cell: Math.max(2, app.cell(600)), soundPowerDb: p.power,
+      receiverHeight: p.receiverHeight, groundFactor: p.ground, roads: app.drawnRoads, onProgress: prog })))));
+  return card('Acoustic & noise screening', body);
+}
+
+function urbanFormCard(app) {
+  const p = app.params.form;
+  const body = h('div', {},
+    h('p', { class: 'muted small', text: 'Panoramic pedestrian Green View Index (GVI) and Knowles / BRE right-to-light 3D solar envelope volume.' }),
+    row('Eye height (m)', number(p.eyeHeight, { min: 0.5, max: 3, step: 0.1, onChange: (v) => { p.eyeHeight = v; } })),
+    row('Sight radius (m)', number(p.radius, { min: 20, max: 300, step: 10, onChange: (v) => { p.radius = v; } })),
+    h('div', { class: 'btn-row' }, runButton(app, 'Run Green View Index (GVI)', () => app.run('Green View Index', (prog) => app.analyst.greenView({
+      area: app.area(), cell: Math.max(2, app.cell(600)), eyeHeight: p.eyeHeight, maxRadius: p.radius, onProgress: prog })))),
+    h('div', { class: 'insp-sub', text: '3D Solar Envelope (right to light)' }),
+    dateRows(p),
+    row('Sun window From–To (h)', h('span', { class: 'inline' },
+      number(p.start, { min: 6, max: 18, step: 0.5, width: '4.5em', onChange: (v) => { p.start = v; } }),
+      number(p.end, { min: 6, max: 18, step: 0.5, width: '4.5em', onChange: (v) => { p.end = v; } }))),
+    row('Min sun hours (h)', number(p.minHours, { min: 1, max: 6, step: 0.5, onChange: (v) => { p.minHours = v; } })),
+    row('Max height cap (m)', number(p.maxH, { min: 10, max: 200, step: 5, onChange: (v) => { p.maxH = v; } })),
+    row('Floor height (m)', number(p.floorH, { min: 2.5, max: 5, step: 0.1, onChange: (v) => { p.floorH = v; } })),
+    h('div', { class: 'btn-row' }, runButton(app, 'Run solar envelope', () => app.run('Solar envelope', (prog) => app.analyst.solarEnvelope({
+      area: app.area(), cell: Math.max(2, app.cell(600)), date: { month: p.month, day: p.day },
+      startHour: p.start, endHour: p.end, minSunHours: p.minHours, maxBuildableHeight: p.maxH, floorHeight: p.floorH, onProgress: prog })))));
+  return card('Green view & solar envelope', body);
 }
 
 function climateCard(app) {
@@ -398,6 +510,7 @@ function renderResults(app, box) {
     const actions = h('div', { class: 'btn-row' },
       button(active ? 'Hide' : 'Show', () => (active ? app.hideResult() : app.showResult(r)), { kind: active ? 'on' : '' }),
       r.facade ? toggle(r.showFacade !== false, (v) => { r.showFacade = v; if (app.activeResult === r) app.showResult(r); }, 'Facades') : null,
+      r.kind === 'wind' ? toggle(r.showStreamlines !== false, (v) => { r.showStreamlines = v; if (app.activeResult === r) app.showResult(r); }, 'Streamlines') : null,
       app.qgis ? button('To QGIS', async () => {
         try {
           const key = `${r.kind}_${r.created.toISOString().slice(0, 16).replace(/[-:T]/g, '')}`;
@@ -410,7 +523,7 @@ function renderResults(app, box) {
       r.fields?.length ? button('CSV', () => download(`${r.kind}_buildings.csv`, fieldsCsv(r.fields), 'text/csv')) : null,
       button('×', () => { app.results.splice(app.results.indexOf(r), 1); if (active) app.hideResult(); app.emit('results'); }, { title: 'Remove' }));
     let studyControls = null;
-    if (r.kind === 'shadowstudy') {
+    if (r.kind === 'shadowstudy' || r.kind === 'diurnalstudy') {
       const label = (k) => { const hr = r.hours[k]; return `${String(Math.floor(hr)).padStart(2, '0')}:${String(Math.round((hr % 1) * 60)).padStart(2, '0')}`; };
       const go = (k) => { app.date = { ...r.date }; app.time = r.hours[k]; if (app.activeResult !== r) app.showResult(r); app.updateSun(); };
       const sl = slider(r.frame, { min: 0, max: r.hours.length - 1, step: 1, format: label, onInput: go });

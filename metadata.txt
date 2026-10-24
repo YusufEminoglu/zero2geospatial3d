@@ -2,8 +2,8 @@
 name=02 Geo3D Analyzer
 qgisMinimumVersion=3.28
 qgisMaximumVersion=4.99
-description=3D viewer and analyzer for terrain and buildings: sun and shadow, sky view and facade daylight (VSC), solar PV, visibility, wind and thermal comfort, terrain analyses, a planning check after BRE 209 and building-height optimisation, with every result returned to QGIS.
-version=1.0.3
+description=3D viewer and analyzer for terrain and buildings: ENVI-met style microclimate (UTCI, PET, surface temperature, canopy cooling), street-canyon ventilation and pollutant dispersion, 3D acoustics, Green View Index, solar envelope, sun and shadow, sky view and facade daylight (VSC), solar PV, visibility, terrain analyses, BRE 209 planning checks and NSGA-II height optimisation, with every result returned to QGIS.
+version=1.1.0
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 about=
@@ -11,11 +11,14 @@ about=
     
     KEY CAPABILITIES:
     - Three-Step Workflow: Ground elevation mesh (DEM), extruded objects (buildings, walls, trees, poles) from fields or expressions with QGIS symbology, and single-click 3D launch.
-    - Solar & Microclimate Analyses: Sun hours, shadow casting, Sky View Factor (SVF), facade daylight (Vertical Sky Component under CIE overcast sky), annual solar irradiation, and rooftop/facade PV yield.
-    - Urban Comfort & Environment: Pedestrian wind screening, UTCI heat stress, heat-island morphology, approximate Local Climate Zones (LCZ), and seasonal outdoor comfort around buildings using EnergyPlus (EPW/TMYx) weather files.
-    - Topographic & Hydrologic Analyses: Slope, aspect, hillshade, curvature, Topographic Position Index (TPI), ruggedness (TRI), topographic wetness index (TWI), dynamic cross-sections, flood inundation, and cut & fill earthwork volume calculations.
-    - Planning Regulations & Optimization: BRE 209 daylight and sunlight compliance checks with shareable threshold profiles, side-by-side scenario comparison (A vs B), and multi-objective NSGA-II building height optimization.
-    - Interoperability & Export: Synchronized multi-panel view (up to 8 synced panels), 8K high-resolution capture, PDF documentation sheets, standalone offline HTML packages, GLB 3D models, and animated MP4 video recording.
+    - Solar and Daylight Analyses: Sun hours, shadow casting, Sky View Factor (SVF), facade daylight (Vertical Sky Component under CIE overcast sky), annual solar irradiation, and rooftop and facade PV yield.
+    - Microclimate and Thermal Comfort: Surface energy balance with Bowen ratio partitioning, ground surface temperature, tree canopy evapotranspiration cooling, Physiological Equivalent Temperature (PET) and UTCI heat stress, 24-hour diurnal thermal studies, and interactive 3D tree planting.
+    - Ventilation, Air Quality and Acoustics: Street canyon ventilation efficiency (VEI), normalized air age, traffic pollutant dispersion (NO2 and PM2.5) with tree filtration, and 3D acoustic propagation (ISO 9613-2 proxy) with quiet-facade detection.
+    - Green View and Solar Envelope: Panoramic pedestrian Green View Index (GVI) and Knowles and BRE 3D Solar Envelope height limits and floor capacity.
+    - Urban Comfort and Environment: Pedestrian wind screening with animated streamlines, heat-island morphology, approximate Local Climate Zones (LCZ), and seasonal outdoor comfort around buildings using EnergyPlus (EPW/TMYx) weather files.
+    - Topographic and Hydrologic Analyses: Slope, aspect, hillshade, curvature, Topographic Position Index (TPI), ruggedness (TRI), topographic wetness index (TWI), dynamic cross-sections, flood inundation, and cut and fill earthwork volume calculations.
+    - Planning Regulations and Optimization: BRE 209 daylight and sunlight compliance checks with shareable threshold profiles, side-by-side scenario comparison (A vs B), and multi-objective NSGA-II building height optimization.
+    - Interoperability and Export: Synchronized multi-panel view (up to 8 synced panels), 8K high-resolution capture, PDF documentation sheets, standalone offline HTML packages, GLB 3D models, and animated MP4 video recording.
     
     Runs entirely on your local machine via an embedded web server (127.0.0.1); no cloud dependencies or data uploads. Compatible with QGIS 3.28 through QGIS 4.x.
     
@@ -24,7 +27,7 @@ tracker=https://github.com/YusufEminoglu/zero2geospatial3d/issues
 repository=https://github.com/YusufEminoglu/zero2geospatial3d
 homepage=https://geophilo.com/zero2geospatial3d/
 category=Web
-tags=3d,three.js,dem,terrain,sun hours,shadow,sky view factor,daylight,vsc,bre 209,solar,pv,irradiation,viewshed,wind,utci,thermal comfort,urban heat island,local climate zone,slope,aspect,wetness index,profile,flood,cut and fill,epw,nsga-ii,optimisation,urban planning,extrusion
+tags=3d,three.js,dem,terrain,sun hours,shadow,sky view factor,daylight,vsc,bre 209,solar,pv,irradiation,viewshed,wind,streamlines,utci,pet,microclimate,surface temperature,ventilation,air quality,dispersion,acoustics,noise,green view index,solar envelope,urban heat island,local climate zone,slope,aspect,wetness index,profile,flood,cut and fill,epw,nsga-ii,optimisation,urban planning,extrusion
 icon=icons/icon.png
 experimental=False
 deprecated=False
@@ -32,6 +35,14 @@ hasProcessingProvider=no
 plugin_dependencies=
 license=MIT
 changelog=
+    1.1.0 - ENVI-met style microclimate, canyon ventilation, 3D acoustics, Green View Index and solar envelope.
+        - Surface energy balance and microclimate physics: surface temperature, canopy evapotranspiration cooling, Bowen ratio partitioning, and interactive 3D tree planting.
+        - Physiological Equivalent Temperature (PET, MEMI energy balance) alongside UTCI and surface-aware Mean Radiant Temperature.
+        - 24-hour animated diurnal thermal comfort studies with point microclimate profile curves and polar sun-path stereographic diagrams.
+        - Street-canyon ventilation efficiency (VEI), normalized air age, and traffic pollutant dispersion (NO2/PM2.5) with tree filtration.
+        - 3D environmental noise propagation (ISO 9613-2 / CNOSSOS-EU proxy) with Maekawa barrier diffraction and quiet-facade detection.
+        - Pedestrian Green View Index (GVI) and Knowles / BRE 3D Solar Envelope height limits and floor capacity.
+        - Animated 3D wind streamlines in the viewer canvas.
     1.0.3 - Full QGIS 4 and Qt6 scoped enum compatibility.
         - Scoped enum updates for QgsAbstract3DSymbol.Property, QgsVectorFileWriter, and QgsBlockingNetworkRequest.
     1.0.2 - Enhanced manual integration and styling.

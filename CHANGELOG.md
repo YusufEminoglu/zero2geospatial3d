@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] - 2026-10-24
+
+### Added
+- Surface energy balance & microclimate physics (`surfaceTemperature`, `canopyCoolingGrid`, Bowen ratio partitioning, Leaf Area Index shading, and What-If interactive 3D tree planting).
+- Physiological Equivalent Temperature (`pet`, MEMI energy balance) alongside UTCI, surface-aware Mean Radiant Temperature, and 24-hour animated diurnal thermal comfort studies (`diurnalStudy`).
+- Street-canyon ventilation efficiency (`vei`), normalized air age (`airage`), and OSPM-inspired traffic pollutant dispersion (`dispersion`, NO2/PM2.5) with tree canopy filtration.
+- 3D environmental noise propagation (`noise`, ISO 9613-2 / CNOSSOS-EU screening proxy with Maekawa barrier diffraction and quiet-facade detection).
+- Pedestrian Green View Index (`gvi`) and Knowles / BRE 3D Solar Envelope (`solarenvelope`, `solarfloors`).
+- Animated 3D wind streamlines (`WindStreamlines`), 24-hour point microclimate curves (`drawDiurnalChart`), and polar stereographic sun-path diagrams (`drawSunPathDiagram`) in the ground inspector.
+
 ## [1.0.3] - 2026-10-20
 
 ### Compatibility

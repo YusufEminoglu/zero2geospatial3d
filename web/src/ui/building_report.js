@@ -40,7 +40,18 @@ export const FIELD_INFO = {
   ped_wind_ms: ['Pedestrian wind (year)', 'm/s', 'Mean sheltered wind at 1.5 m around the building'],
   windy_pct: ['Windy hours', '%', 'Share of hours with pedestrian wind above 5 m/s'],
   svf_ground: ['Sky view around it', '', 'Mean sky view factor of the surrounding open ground'],
-  opt_height_m: ['Optimised height', 'm', 'Height of the applied optimisation design']
+  opt_height_m: ['Optimised height', 'm', 'Height of the applied optimisation design'],
+  utci_c: ['Outdoor heat stress (UTCI)', '°C', 'Mean UTCI on the open ground around the building'],
+  pet_c: ['Physiological Eq. Temp. (PET)', '°C', 'Mean PET thermal comfort index around the building'],
+  tsurf_c: ['Ground surface temperature', '°C', 'Mean ground surface temperature around the building'],
+  dt_cool_c: ['Microclimate air cooling (ΔTa)', '°C', 'Local air temperature anomaly from trees and street geometry'],
+  vent_index: ['Canyon ventilation (VEI)', '', 'Ventilation efficiency index around the building'],
+  air_no2_ugm3: ['Street pollutant conc.', 'µg/m³', 'Modelled traffic pollutant concentration around the building'],
+  noise_dba_max: ['Max facade noise (Lden)', 'dB(A)', 'Highest environmental noise level at the building perimeter'],
+  noise_dba_mean: ['Mean facade noise (Lden)', 'dB(A)', 'Mean environmental noise level around the building perimeter'],
+  quiet_facade: ['Has quiet facade', '', '1 if the building has a quiet side (< 55 dB(A) or ≥ 6 dB quieter than the loudest side)'],
+  gvi_pct: ['Green View Index (GVI)', '%', 'Visible green canopy and ground vegetation share from pedestrian level around the building'],
+  env_max_h: ['Solar envelope height limit', 'm', 'Maximum height over the footprint that preserves neighbours’ solar access']
 };
 
 function infoFor(name) {

@@ -1,6 +1,10 @@
 // @ts-check
-// Small canvas charts: terrain profile, wind rose, monthly climate bars and
-// a Pareto scatter. Drawn at device resolution; colours follow the CSS theme.
+// Small canvas charts: terrain profile, wind rose, monthly climate bars,
+// Pareto scatter, diurnal microclimate and polar sun-path diagrams.
+// Drawn at device resolution; colours follow the CSS theme.
+
+import { solarPosition as defSolarPos } from '../core/solar.js';
+import { typicalDoy as defTypicalDoy } from '../core/weather.js';
 
 function setup(canvas, height) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -196,4 +200,229 @@ export function drawScatter(canvas, points, { xLabel = '', yLabel = '', selected
     }
     return best;
   };
+}
+
+/**
+ * 24-hour diurnal microclimate and thermal comfort profile (Ta, Ts, UTCI, PET).
+ * @param {HTMLCanvasElement} canvas
+ * @param {Array<{ hour: number, airTemp: number, surfaceTemp: number, mrt?: number, utci: number, pet: number, sunlit: number }>} profile
+ * @param {number} [height]
+ */
+export function drawDiurnalChart(canvas, profile, height = 165) {
+  const { ctx, w, h } = setup(canvas, height);
+  if (!profile?.length) return;
+  const pad = { l: 36, r: 16, t: 26, b: 20 };
+
+  let tMin = Infinity;
+  let tMax = -Infinity;
+  for (const p of profile) {
+    for (const k of ['airTemp', 'surfaceTemp', 'utci', 'pet']) {
+      const v = p[k];
+      if (Number.isFinite(v)) {
+        tMin = Math.min(tMin, v);
+        tMax = Math.max(tMax, v);
+      }
+    }
+  }
+  if (!Number.isFinite(tMin) || !Number.isFinite(tMax)) return;
+  tMin = Math.floor(tMin - 2);
+  tMax = Math.ceil(tMax + 2);
+  const span = Math.max(8, tMax - tMin);
+
+  const X = (hour) => pad.l + ((w - pad.l - pad.r) * hour) / 23;
+  const Y = (temp) => h - pad.b - ((h - pad.t - pad.b) * (temp - tMin)) / span;
+
+  // Daytime shading (sunlit > 0)
+  ctx.fillStyle = 'rgba(255, 211, 107, 0.14)';
+  for (let i = 0; i < profile.length; i++) {
+    if (profile[i].sunlit > 0) {
+      const x0 = i === 0 ? pad.l : (X(i - 1) + X(i)) / 2;
+      const x1 = i === profile.length - 1 ? (w - pad.r) : (X(i) + X(i + 1)) / 2;
+      ctx.fillRect(x0, pad.t, Math.max(1, x1 - x0), h - pad.t - pad.b);
+    }
+  }
+
+  // Horizontal grid lines and °C labels
+  const ts = niceStep(span, 4);
+  ctx.strokeStyle = 'rgba(120, 130, 140, 0.2)';
+  ctx.fillStyle = '#6b7380';
+  for (let t = Math.ceil(tMin / ts) * ts; t <= tMax; t += ts) {
+    const y = Y(t);
+    if (y < pad.t - 2 || y > h - pad.b + 2) continue;
+    ctx.beginPath();
+    ctx.moveTo(pad.l, y);
+    ctx.lineTo(w - pad.r, y);
+    ctx.stroke();
+    ctx.fillText(`${Math.round(t)}°`, 4, y + 4);
+  }
+
+  // Hour labels: 00, 06, 12, 18, 23
+  ctx.fillStyle = '#6b7380';
+  for (const hr of [0, 6, 12, 18, 23]) {
+    const label = String(hr).padStart(2, '0');
+    ctx.fillText(label, X(hr) - 6, h - 6);
+  }
+
+  // Smooth line series
+  const drawSeries = (key, color, dashed = false, lineWidth = 1.4) => {
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    if (dashed) ctx.setLineDash([3, 2]); else ctx.setLineDash([]);
+    let started = false;
+    for (let i = 0; i < profile.length; i++) {
+      const v = profile[i][key];
+      if (!Number.isFinite(v)) continue;
+      const x = X(profile[i].hour);
+      const y = Y(v);
+      if (!started) {
+        ctx.moveTo(x, y);
+        started = true;
+      } else {
+        const prev = profile[i - 1];
+        const prevX = X(prev.hour);
+        const prevY = Y(prev[key]);
+        const midX = (prevX + x) / 2;
+        ctx.bezierCurveTo(midX, prevY, midX, y, x, y);
+      }
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  };
+
+  drawSeries('airTemp', '#4a5260', true, 1.4);
+  drawSeries('surfaceTemp', '#d6452e', false, 1.4);
+  drawSeries('pet', '#2e9e5b', false, 1.4);
+  drawSeries('utci', '#1f6feb', false, 1.8);
+
+  // Colour legend across the top
+  const legends = [
+    { label: 'Ta', color: '#4a5260', dashed: true },
+    { label: 'Ts', color: '#d6452e', dashed: false },
+    { label: 'UTCI', color: '#1f6feb', dashed: false },
+    { label: 'PET', color: '#2e9e5b', dashed: false }
+  ];
+  let legX = pad.l;
+  for (const leg of legends) {
+    ctx.strokeStyle = leg.color;
+    ctx.lineWidth = 1.8;
+    if (leg.dashed) ctx.setLineDash([3, 2]); else ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(legX, 12);
+    ctx.lineTo(legX + 14, 12);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#4a5260';
+    ctx.fillText(leg.label, legX + 18, 15);
+    legX += 50;
+  }
+}
+
+/**
+ * Polar stereographic sun-path diagram with altitude circles, cardinal ticks,
+ * seasonal paths, and current sun position.
+ * @param {HTMLCanvasElement} canvas
+ * @param {object} opts
+ * @param {number} opts.lat
+ * @param {number} opts.lon
+ * @param {number} [opts.utcOffset]
+ * @param {number} [opts.month]
+ * @param {number} [opts.day]
+ * @param {number} [opts.hour]
+ * @param {Function} [opts.solarPosition]
+ * @param {Function} [opts.typicalDoy]
+ * @param {number} [height]
+ */
+export function drawSunPathDiagram(canvas, { lat, lon, utcOffset = 0, month = 6, day = 21, hour = 12, solarPosition = null, typicalDoy = null } = {}, height = 185) {
+  const { ctx, w, h } = setup(canvas, height);
+  const cx = w / 2;
+  const cy = h / 2 + 2;
+  const R = Math.min(w, h) / 2 - 20;
+  if (R <= 0) return;
+
+  const solPos = solarPosition || defSolarPos;
+  const doyCalc = typicalDoy || defTypicalDoy;
+
+  // Concentric altitude circles (0° horizon, 30°, 60°)
+  ctx.strokeStyle = 'rgba(120, 130, 140, 0.25)';
+  ctx.lineWidth = 1;
+  for (const r of [R * (1 / 3), R * (2 / 3), R]) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#8c95a3';
+  ctx.fillText('60°', cx + 3, cy - R * (1 / 3) + 4);
+  ctx.fillText('30°', cx + 3, cy - R * (2 / 3) + 4);
+
+  // Cardinal ticks and labels
+  ctx.fillStyle = '#4a5260';
+  ctx.strokeStyle = 'rgba(120, 130, 140, 0.5)';
+  for (const [t, a] of [['N', 0], ['E', 90], ['S', 180], ['W', 270]]) {
+    const ang = (a * Math.PI) / 180;
+    const sin = Math.sin(ang);
+    const cos = Math.cos(ang);
+    ctx.beginPath();
+    ctx.moveTo(cx + sin * (R - 3), cy - cos * (R - 3));
+    ctx.lineTo(cx + sin * (R + 3), cy - cos * (R + 3));
+    ctx.stroke();
+    ctx.fillText(t, cx + sin * (R + 12) - 4, cy - cos * (R + 12) + 4);
+  }
+
+  // Polar projection: elevation > 0 (radians), azimuth (radians)
+  const polarProject = (elevation, azimuth) => {
+    if (elevation <= 0) return null;
+    const r = R * (1 - elevation / (Math.PI / 2));
+    return {
+      x: cx + r * Math.sin(azimuth),
+      y: cy - r * Math.cos(azimuth)
+    };
+  };
+
+  const drawDayPath = (m, d, color, width = 1.3, dashed = false) => {
+    const doy = doyCalc(m, d);
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    if (dashed) ctx.setLineDash([3, 2]); else ctx.setLineDash([]);
+    let drawing = false;
+    for (let step = 0; step <= 24 * 12; step++) {
+      const t = step / 12;
+      const p = solPos(doy, t, lat, lon, utcOffset);
+      const pt = polarProject(p.elevation, p.azimuth);
+      if (pt) {
+        if (!drawing) { ctx.moveTo(pt.x, pt.y); drawing = true; }
+        else { ctx.lineTo(pt.x, pt.y); }
+      } else {
+        drawing = false;
+      }
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  };
+
+  // Seasonal paths
+  drawDayPath(6, 21, '#e08b2c', 1.4);   // Summer solstice
+  drawDayPath(3, 21, '#4a9e5c', 1.4);   // Equinox
+  drawDayPath(12, 21, '#3182bd', 1.4);  // Winter solstice
+
+  // Current date path
+  const isSolsticeOrEquinox = (month === 6 && day === 21) || (month === 3 && day === 21) || (month === 12 && day === 21);
+  if (!isSolsticeOrEquinox) {
+    drawDayPath(month, day, '#1f6feb', 1.8, true);
+  }
+
+  // Sun dot at current hour
+  const curDoy = doyCalc(month, day);
+  const curPos = solPos(curDoy, hour, lat, lon, utcOffset);
+  const sunPt = polarProject(curPos.elevation, curPos.azimuth);
+  if (sunPt) {
+    ctx.beginPath();
+    ctx.arc(sunPt.x, sunPt.y, 4.5, 0, 2 * Math.PI);
+    ctx.fillStyle = '#ff4f2e';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
 }
