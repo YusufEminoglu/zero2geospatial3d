@@ -64,13 +64,17 @@ function prepareDaylight(app, targets, o, topsNow) {
       for (const ring of outerRings(layer.features[f].geometry)) candidates.push({ ring, windowZ, box: ringsBox([ring]) });
     }
   }
-  const lowest = candidates.length ? Math.min(...candidates.map((n) => n.windowZ)) : 0;
-  const reach = reach25(tallest - lowest) + 1;
-  const neighbours = candidates
-    .filter((n) => n.box.maxX >= box.minX - reach && n.box.minX <= box.maxX + reach
-      && n.box.maxY >= box.minY - reach && n.box.minY <= box.maxY + reach)
-    .map(({ ring, windowZ }) => ({ ring, windowZ }));
-  return prepareRule(neighbours, tg, topsNow, { maxDist: reach });
+  // Each window has its own reach: the rise from it to the tallest roof.
+  const neighbours = [];
+  let maxDist = 1;
+  for (const n of candidates) {
+    const reach = reach25(tallest - n.windowZ) + 1;
+    if (n.box.maxX < box.minX - reach || n.box.minX > box.maxX + reach
+      || n.box.maxY < box.minY - reach || n.box.minY > box.maxY + reach) continue;
+    neighbours.push({ ring: n.ring, windowZ: n.windowZ });
+    if (reach > maxDist) maxDist = reach;
+  }
+  return prepareRule(neighbours, tg, topsNow, { maxDist });
 }
 
 /**
