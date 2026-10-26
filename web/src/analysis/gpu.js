@@ -321,6 +321,7 @@ export class GpuEngine {
     }
     u.uPerspective.value = eye ? 1 : 0;
     u.uMaxDistance.value = eye ? maxDistance : 1e9;
+    let batch = 3, inBatch = 0, batchStart = performance.now();
     for (let i = 0; i < views.length; i++) {
       const view = views[i];
       let cam = view.camera;
@@ -347,10 +348,16 @@ export class GpuEngine {
       r.render(this.quadScene, this.quadCamera);
       r.setRenderTarget(before);
       r.autoClear = autoClear;
-      if (i % 6 === 5 || i === views.length - 1) {
+      if (++inBatch >= batch || i === views.length - 1) {
         // Let the GPU finish this batch while the page stays responsive;
         // otherwise every view queues up and the readback blocks for all.
+        // Batches shrink to one view when views are slow (large grids, weak
+        // GPUs) and grow to twelve when they are fast.
         await this._gpuDone();
+        const took = performance.now() - batchStart;
+        batch = took > 200 ? 1 : Math.min(12, batch * 2);
+        inBatch = 0;
+        batchStart = performance.now();
         onProgress?.((i + 1) / views.length);
       }
     }
