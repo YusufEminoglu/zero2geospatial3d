@@ -273,3 +273,14 @@ test('planning check verdicts: min and max criteria, missing values', async () =
   assert.equal(judge(byId.wind, 5.1), false);
   assert.equal(judge(byId.heat, NaN), null);
 });
+
+test('windRatio: a lookup past the east edge does not wrap into the next row', async () => {
+  const cols = 10, rows = 10, cell = 2;
+  const run = async (farWest) => {
+    const h = new Float32Array(cols * rows);
+    h[3 * cols + 8] = 20;
+    if (farWest) h[6 * cols] = 20; // west edge, one row down: no influence on the east edge
+    return (await windRatio({ heights: h, cols, rows, cell, windFromDeg: 45 }))[4 * cols + 9];
+  };
+  assert.equal(await run(true), await run(false));
+});

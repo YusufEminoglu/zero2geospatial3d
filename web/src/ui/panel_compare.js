@@ -9,6 +9,7 @@ import { drawScatter } from './charts.js';
 import { sendFields } from './qgis_link.js';
 import { gridStats } from '../core/terrain_math.js';
 import { MONTH_NAMES } from '../core/weather.js';
+import { solarOptions, comfortConditions } from './panel_analyze.js';
 
 export function buildComparePanel(app, root) {
   clear(root);
@@ -44,10 +45,10 @@ function scenarioCard(app) {
       sun: (prog) => app.analyst.sunHours({ area: app.area(), cell: app.cell(), date: { month: p.sun.month, day: p.sun.day },
         startHour: p.sun.start, endHour: p.sun.end, stepMinutes: p.sun.step, onProgress: prog }),
       svf: (prog) => app.analyst.skyView({ area: app.area(), cell: app.cell(), directions: p.svf.directions, onProgress: prog }),
-      solar: (prog) => app.analyst.solarRadiation({ area: app.area(), cell: app.cell(), tiltDeg: p.solar.tilt, azimuthDeg: p.solar.azimuth, onProgress: prog }),
+      solar: (prog) => app.analyst.solarRadiation({ ...solarOptions(app), onProgress: prog }),
       wind: (prog) => app.analyst.wind({ area: app.area(), cell: Math.max(2, app.cell(600)), windFromDeg: p.wind.from, speed10: p.wind.speed, onProgress: prog }),
       vsc: (prog) => app.analyst.daylightVsc({ area: app.area(), onProgress: prog }),
-      comfort: (prog) => app.analyst.comfort({ area: app.area(), cell: Math.max(1, app.cell(700)), month: p.comfort.month, day: p.comfort.day, hour: p.comfort.hour, conditions: app.analyst.conditionsFor(p.comfort.month, p.comfort.day, p.comfort.hour) || { airTemp: p.comfort.airTemp, rh: p.comfort.rh, windSpeed: p.comfort.windSpeed, windDir: p.comfort.windDir, ghi: 650, dni: 700, dhi: 120, ir: NaN }, material: p.comfort.material, lai: p.comfort.lai, onProgress: prog }),
+      comfort: (prog) => app.analyst.comfort({ area: app.area(), cell: Math.max(1, app.cell(700)), month: p.comfort.month, day: p.comfort.day, hour: p.comfort.hour, conditions: comfortConditions(app), material: p.comfort.material, lai: p.comfort.lai, onProgress: prog }),
       vent: (prog) => app.analyst.ventilation({ area: app.area(), cell: Math.max(2, app.cell(600)), windFromDeg: p.vent.from, speed10: p.vent.speed, emissionRateUgMS: p.vent.emission, backgroundUgM3: p.vent.background, treeDepositionFactor: p.vent.deposition, onProgress: prog }),
       noise: (prog) => app.analyst.noise({ area: app.area(), cell: Math.max(2, app.cell(600)), soundPowerDb: p.noise.power, receiverHeight: p.noise.receiverHeight, groundFactor: p.noise.ground, onProgress: prog }),
       gvi: (prog) => app.analyst.greenView({ area: app.area(), cell: Math.max(2, app.cell(600)), eyeHeight: p.form.eyeHeight, maxRadius: p.form.radius, onProgress: prog })
@@ -127,8 +128,12 @@ function pairOnWalls(app, ra, rb, kind) {
     if (fa.name === 'vsc_facade') fields.push({ layer: fa.layer, name: 'vsc_ratio_BA', values: ratio });
   }
   app.lastScenario = { kind, title: ra.title };
+  // Range of the per-building change, for legends and exports.
+  let m = 0;
+  for (const f of fields) if (f.name.startsWith('d_')) for (const v of f.values) if (Number.isFinite(v)) m = Math.max(m, Math.abs(v));
   return {
     kind: `diff_${kind}`, title: `B − A: ${ra.title}`, subtitle: 'Per building: value in A, in B and the change', unit: ra.unit, fields,
+    display: { min: -(m || 1), max: m || 1, ramp: 'rdbu' },
     stats: kind === 'vsc' ? [['Buildings compared', String(compared)], ['Losing more than a fifth of their VSC (BRE 209)', `${losing}`]] : [['Buildings compared', String(compared)]],
     notes: 'BRE 209: a window left with less than 0.8 times its former vertical sky component loses daylight noticeably. The planning check reads vsc_facade_A and vsc_facade_B for its "daylight kept after scenario B" test.'
   };

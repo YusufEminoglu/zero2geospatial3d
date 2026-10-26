@@ -230,6 +230,14 @@ export class WindStreamlines {
 
     const animateLoop = (time) => {
       if (!this.active) return;
+      // Paused while an analysis runs: every frame redraws the whole scene,
+      // which competes with the analysis for the GPU and the main thread
+      // (six times slower in a software-rendered test).
+      if (this.app?.busy) {
+        this._lastTime = time;
+        this._raf = getRaf()(animateLoop);
+        return;
+      }
 
       const dt = Math.min(0.05, (time - this._lastTime) * 0.001);
       this._lastTime = time;

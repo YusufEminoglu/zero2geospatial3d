@@ -24,8 +24,8 @@ export function defaultParams(app) {
     view: { height: 1.6, radius: 600 },
     wind: { from: rose ? rose.prevailingDirection : 270, speed: rose ? Math.max(1, rose.prevailingSpeed) : 4, cell: 0 },
     comfort: { month: 7, day: 21, hour: 15, manual: !app.weather?.dryBulb, airTemp: 32, rh: 45, windSpeed: 2.5, windDir: rose ? rose.prevailingDirection : 270, material: 'concrete', lai: 3.0, treeHeight: 10, treeRadius: 3.5 },
-    vent: { from: rose ? rose.prevailingDirection : 270, speed: rose ? Math.max(1, rose.prevailingSpeed) : 3.5, emission: 450, background: 18, deposition: 0.25 },
-    noise: { power: 78, receiverHeight: 1.5, ground: 0.5 },
+    vent: { from: rose ? rose.prevailingDirection : 270, speed: rose ? Math.max(1, rose.prevailingSpeed) : 3.5, emission: 60, background: 18, deposition: 0.25 },
+    noise: { power: 82, receiverHeight: 1.5, ground: 0.5 },
     form: { eyeHeight: 1.6, radius: 80, preset: '12-21', month: 12, day: 21, start: 9, end: 15, minHours: 2, maxH: 72, floorH: 3.2 },
     morph: { block: 100, from: rose ? rose.prevailingDirection : 270 },
     climate: { from: 7, to: 22, sectors: 8, ring: 15 },
@@ -202,9 +202,60 @@ function solarCard(app) {
     row('Suitable if ≥', number(p.minShare, { min: 0.3, max: 1, step: 0.05, onChange: (v) => { p.minShare = v; } }), 'Share of the unshaded potential a roof cell must keep'),
     row('Facades too', toggle(p.facades, (v) => { p.facades = v; })),
     h('div', { class: 'btn-row' }, runButton(app, 'Run solar & PV', () => app.run('Solar radiation', (prog) => app.analyst.solarRadiation({
-      area: app.area(), cell: app.cell(), months: PERIOD_MONTHS[p.period], tiltDeg: p.tilt, azimuthDeg: p.azimuth, efficiency: p.efficiency,
-      performanceRatio: p.pr, coverage: p.coverage, minShare: p.minShare, facades: p.facades, onProgress: prog })))));
+      ...solarOptions(app), facades: p.facades, onProgress: prog })))));
   return card('Solar radiation & PV', body);
+}
+
+/** The solar card's settings as runner options (also used by Compare). */
+export function solarOptions(app) {
+  const p = app.params.solar;
+  return { area: app.area(), cell: app.cell(), months: PERIOD_MONTHS[p.period], tiltDeg: p.tilt, azimuthDeg: p.azimuth,
+    efficiency: p.efficiency, performanceRatio: p.pr, coverage: p.coverage, minShare: p.minShare };
+}
+
+/**
+ * The comfort card's weather for its date and hour: the EPW hour, or the
+ * typed values with clear-sky radiation (also used by Compare).
+ */
+export function comfortConditions(app) {
+  const p = app.params.comfort;
+  if (!p.manual && app.weather?.dryBulb) return conditionsAt(app.weather, p.month, p.day, p.hour);
+  const s = app.site;
+  const sky = clearSkyYear(s.lat, s.lon, s.utcOffset);
+  const i = (typicalDoy(p.month, p.day) - 1) * 24 + (p.hour - 1);
+  return { airTemp: p.airTemp, rh: p.rh, windSpeed: p.windSpeed, windDir: p.windDir, ghi: sky.ghi[i], dni: sky.dni[i], dhi: sky.dhi[i], ir: NaN };
+}
+
+/**
+ * Points along the top edge of a building, 1 m outside the walls and just
+ * above the roof: a viewshed from them is where the building can be seen
+ * from (its own roof would hide almost everything from the roof's centre).
+ */
+function roofEdgePoints(app, layer, f, count = 8) {
+  const g = layer.features[f].geometry;
+  const polys = g?.type === 'Polygon' ? [g.coordinates] : g?.type === 'MultiPolygon' ? g.coordinates : [];
+  const ring = polys.map((pp) => pp[0]).filter(Boolean).sort((a, b) => b.length - a.length)[0] || [];
+  const top = app.terrain.toY(layer.baseZ[f]) + layer.heights[f] + 0.3;
+  const cx = layer.centroid[f * 2], cy = layer.centroid[f * 2 + 1];
+  const seg = [];
+  let total = 0;
+  for (let i = 0; i + 1 < ring.length; i++) {
+    const len = Math.hypot(ring[i + 1][0] - ring[i][0], ring[i + 1][1] - ring[i][1]);
+    seg.push([ring[i], ring[i + 1], total, len]);
+    total += len;
+  }
+  if (!total) return [{ x: cx, y: top + 1.3, z: -cy }];
+  const out = [];
+  for (let k = 0; k < count; k++) {
+    const d = (k + 0.5) * total / count;
+    const [a, b, s0, len] = seg.find(([, , s0, len]) => d <= s0 + len) || seg[seg.length - 1];
+    const t = len ? (d - s0) / len : 0;
+    let x = a[0] + t * (b[0] - a[0]), y = a[1] + t * (b[1] - a[1]);
+    const r = Math.hypot(x - cx, y - cy) || 1;
+    x += (x - cx) / r; y += (y - cy) / r; // 1 m outwards
+    out.push({ x, y: top, z: -y });
+  }
+  return out;
 }
 
 function viewCard(app) {
@@ -214,10 +265,8 @@ function viewCard(app) {
       if (!(layer instanceof ExtrudedLayer)) continue;
       const sel = app.selectedIndices(layer);
       if (!sel.length) continue;
-      const f = sel[0];
-      const c = layer.featureCentre(f);
-      c.y = app.terrain.toY(layer.baseZ[f]) + layer.heights[f];
-      return run({ x: c.x, y: c.y, z: c.z }, `from the top of the selected building`);
+      return app.run('Where the building is seen from', (prog) => app.analyst.viewshed({
+        area: app.area(), cell: app.cell(), eyes: roofEdgePoints(app, layer, sel[0]), radius: p.radius, onProgress: prog }));
     }
     toast('Select a building first (click it).');
     return null;
@@ -229,7 +278,7 @@ function viewCard(app) {
   const run = (eye, how) => app.run(`Viewshed ${how}`, (prog) => app.analyst.viewshed({
     area: app.area(), cell: app.cell(), eye, observerHeight: p.height, radius: p.radius, onProgress: prog }));
   const body = h('div', {},
-    h('p', { class: 'muted small', text: 'Which surfaces an observer can see. From a building top it approximates where the building can be seen from.' }),
+    h('p', { class: 'muted small', text: 'Which surfaces an observer can see. From the selected building: the ground and roofs that see its top edge, which is where the building can be seen from.' }),
     row('Eye height (m)', number(p.height, { min: 0, step: 0.1, onChange: (v) => { p.height = v; } })),
     row('Radius (m)', number(p.radius, { min: 50, step: 50, onChange: (v) => { p.radius = v; } })),
     h('div', { class: 'btn-row' }, runButton(app, 'Pick observer…', pick), runButton(app, 'From selected building', fromSelected)));
@@ -256,13 +305,7 @@ function windCard(app) {
 function comfortCard(app) {
   const p = app.params.comfort;
   const condBox = h('div', {});
-  const conditions = () => {
-    if (!p.manual && app.weather?.dryBulb) return conditionsAt(app.weather, p.month, p.day, p.hour);
-    const s = app.site;
-    const sky = clearSkyYear(s.lat, s.lon, s.utcOffset);
-    const i = (typicalDoy(p.month, p.day) - 1) * 24 + (p.hour - 1);
-    return { airTemp: p.airTemp, rh: p.rh, windSpeed: p.windSpeed, windDir: p.windDir, ghi: sky.ghi[i], dni: sky.dni[i], dhi: sky.dhi[i], ir: NaN };
-  };
+  const conditions = () => comfortConditions(app);
   const drawCond = () => {
     clear(condBox);
     const c = conditions();
@@ -340,7 +383,8 @@ function ventilationCard(app) {
     h('p', { class: 'muted small', text: 'Street canyon ventilation efficiency (VEI), local air age and line-source pollutant dispersion with vegetative canopy filtration.' }),
     row('Wind from (°)', number(p.from, { min: 0, max: 359, step: 5, onChange: (v) => { p.from = v; } })),
     row('Speed at 10 m (m/s)', number(p.speed, { min: 0.5, max: 25, step: 0.5, onChange: (v) => { p.speed = v; } })),
-    row('Traffic emission (µg/(m·s))', number(p.emission, { min: 10, max: 5000, step: 50, onChange: (v) => { p.emission = v; } })),
+    row('Traffic emission (µg/(m·s))', number(p.emission, { min: 1, max: 2000, step: 5, onChange: (v) => { p.emission = v; } }),
+      'NO2 per metre of a road with traffic 1: about 60 for a busy two-lane road (20,000 vehicles a day)'),
     row('Background (µg/m³)', number(p.background, { min: 0, max: 200, step: 1, onChange: (v) => { p.background = v; } })),
     row('Tree filtration share', number(p.deposition, { min: 0, max: 0.8, step: 0.05, onChange: (v) => { p.deposition = v; } })),
     roadsNote,
@@ -381,7 +425,8 @@ function noiseCard(app) {
   const roadsNote = roadSourcesNote(app);
   const body = h('div', {},
     h('p', { class: 'muted small', text: 'Environmental road traffic noise propagation, Maekawa building edge diffraction and facade quiet-side detection.' }),
-    row('Road sound power Lw (dB(A)/m)', number(p.power, { min: 50, max: 110, step: 1, onChange: (v) => { p.power = v; } })),
+    row('Road sound power Lw (dB(A)/m)', number(p.power, { min: 50, max: 110, step: 1, onChange: (v) => { p.power = v; } }),
+      'Lden per metre of a road with traffic 1: about 82 for a busy two-lane road at 50 km/h'),
     row('Receiver height (m)', number(p.receiverHeight, { min: 0.5, max: 10, step: 0.5, onChange: (v) => { p.receiverHeight = v; } })),
     row('Ground absorption', number(p.ground, { min: 0, max: 1, step: 0.1, onChange: (v) => { p.ground = v; } }), '0 = hard paved ground, 1 = soft grass / soil'),
     roadsNote,
@@ -536,7 +581,12 @@ function renderResults(app, box) {
       }, { kind: 'primary', title: 'GeoTIFF layer plus per-building fields in a results GeoPackage' }) : null,
       r.grid ? button('.asc', () => download(`${r.kind}.asc`, asciiGrid(app, r)), { title: 'ESRI ASCII grid in the scene CRS' }) : null,
       r.fields?.length ? button('CSV', () => download(`${r.kind}_buildings.csv`, fieldsCsv(r.fields), 'text/csv')) : null,
-      button('×', () => { app.results.splice(app.results.indexOf(r), 1); if (active) app.hideResult(); app.emit('results'); }, { title: 'Remove' }));
+      button('×', () => {
+        app.results.splice(app.results.indexOf(r), 1);
+        if (active) app.hideResult();
+        if (r._tex) { r._tex.dispose(); delete r._tex; } // its drape texture on the GPU
+        app.emit('results');
+      }, { title: 'Remove' }));
     let studyControls = null;
     if (r.kind === 'shadowstudy' || r.kind === 'diurnalstudy') {
       const label = (k) => { const hr = r.hours[k]; return `${String(Math.floor(hr)).padStart(2, '0')}:${String(Math.round((hr % 1) * 60)).padStart(2, '0')}`; };

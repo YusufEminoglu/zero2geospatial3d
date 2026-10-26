@@ -6,7 +6,12 @@ import os
 
 from qgis.PyQt.QtCore import Qt, QUrl
 from qgis.PyQt.QtGui import QDesktopServices, QIcon
-from qgis.PyQt.QtWidgets import QAction, QMessageBox, QToolBar
+from qgis.PyQt.QtWidgets import QMessageBox, QToolBar
+
+try:  # Qt6 (QGIS 4): QAction lives in QtGui
+    from qgis.PyQt.QtGui import QAction
+except ImportError:  # Qt5 (QGIS 3)
+    from qgis.PyQt.QtWidgets import QAction
 
 from . import PLUGIN_VERSION
 

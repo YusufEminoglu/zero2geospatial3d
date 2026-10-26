@@ -15,8 +15,18 @@ import { splitKey, ExtrudedLayer } from '../scene/objects.js';
 
 const DEG = Math.PI / 180;
 
-/** Meteorological seasons: winter Dec-Feb, spring Mar-May, summer Jun-Aug, autumn Sep-Nov. */
+/**
+ * Meteorological seasons as month groups (Dec-Feb, Mar-May, Jun-Aug,
+ * Sep-Nov). Field codes name the months; the season names follow the
+ * hemisphere: Dec-Feb is winter in the north and summer in the south.
+ */
 export const SEASONS = [['djf', 'Winter'], ['mam', 'Spring'], ['jja', 'Summer'], ['son', 'Autumn']];
+export function seasonNames(lat) {
+  return lat < 0 ? ['Summer', 'Autumn', 'Winter', 'Spring'] : SEASONS.map(([, name]) => name);
+}
+/** Month-group codes of summer and winter at a latitude. */
+export function summerCode(lat) { return lat < 0 ? 'djf' : 'jja'; }
+export function winterCode(lat) { return lat < 0 ? 'jja' : 'djf'; }
 export function seasonOf(month) {
   return month === 12 || month <= 2 ? 0 : month <= 5 ? 1 : month <= 8 ? 2 : 3;
 }
@@ -217,11 +227,13 @@ export async function climateAroundBuildings(analyst, { area, cell, sectors = 8,
       seasonComfortOfKey[s].set(key, rows[s].comfort);
       field(layer, `comfort_pct_${code}`)[f] = rows[s].comfort;
     });
-    if (rows[2]) field(layer, 'heat_stress_h_jja')[f] = rows[2].heat;
-    if (rows[0]) {
-      field(layer, 'cold_stress_h_djf')[f] = rows[0].cold;
-      field(layer, 'ped_wind_ms_djf')[f] = rows[0].wind;
-      field(layer, 'windy_pct_djf')[f] = rows[0].windy;
+    const summer = rows[SEASONS.findIndex(([code]) => code === summerCode(s.lat))];
+    const winter = rows[SEASONS.findIndex(([code]) => code === winterCode(s.lat))];
+    if (summer) field(layer, `heat_stress_h_${summerCode(s.lat)}`)[f] = summer.heat;
+    if (winter) {
+      field(layer, `cold_stress_h_${winterCode(s.lat)}`)[f] = winter.cold;
+      field(layer, `ped_wind_ms_${winterCode(s.lat)}`)[f] = winter.wind;
+      field(layer, `windy_pct_${winterCode(s.lat)}`)[f] = winter.windy;
     }
   }
   const fields = [];
@@ -237,10 +249,11 @@ export async function climateAroundBuildings(analyst, { area, cell, sectors = 8,
   const allComfort = [...comfortOfKey.values(), ...seasonComfortOfKey.flatMap((m) => [...m.values()])];
   // Per-building wind roses for the report.
   const freq = Array.from(sectorFreq, (x) => x / Math.max(1, windowHours));
-  const bySeason = SEASONS.map(([code, name], s) => ({ code, name,
-    freq: Array.from(seasonFreq[s], (x) => x / Math.max(1, seasonHours[s])),
-    speed: Array.from(seasonSpeed[s], (x, k) => (seasonFreq[s][k] ? x / seasonFreq[s][k] : 0)),
-    calm: seasonCalm[s] / Math.max(1, seasonHours[s]) }));
+  const names = seasonNames(s.lat);
+  const bySeason = SEASONS.map(([code], k) => ({ code, name: names[k],
+    freq: Array.from(seasonFreq[k], (x) => x / Math.max(1, seasonHours[k])),
+    speed: Array.from(seasonSpeed[k], (x, j) => (seasonFreq[k][j] ? x / seasonFreq[k][j] : 0)),
+    calm: seasonCalm[k] / Math.max(1, seasonHours[k]) }));
   app.climateRoses = { sectors, freq, speed: Array.from(sectorSpeed), calm: calmHours / Math.max(1, windowHours), ratios: ratioB,
     window: [hourFrom, hourTo], source: w.location.city || app.weatherSource, bySeason };
   app.climateSeasonal = seasonal;
@@ -255,7 +268,7 @@ export async function climateAroundBuildings(analyst, { area, cell, sectors = 8,
     seasonal: haloSeasons, season: 'year',
     stats: [['Buildings', String(cnt)], ['Mean comfortable share', `${cnt ? (sum / cnt).toFixed(0) : 0} %`],
       ['Hours evaluated per building', String(windowHours)], ['Sun positions', String(binList.length)]],
-    notes: 'Each building\'s surroundings: open ground within ' + ringMetres + ' m. Hourly UTCI from the EPW weather with the local sky view, sun and sheltered wind (screening model). Fields: comfort_pct, heat_stress_h, cold_stress_h, ped_wind_ms, windy_pct, svf_ground; per season comfort_pct_djf/mam/jja/son, heat_stress_h_jja, cold_stress_h_djf, ped_wind_ms_djf, windy_pct_djf.'
+    notes: 'Each building\'s surroundings: open ground within ' + ringMetres + ' m. Hourly UTCI from the EPW weather with the local sky view, sun and sheltered wind (screening model). Fields: comfort_pct, heat_stress_h, cold_stress_h, ped_wind_ms, windy_pct, svf_ground; per month group (djf = Dec–Feb …) comfort_pct_djf/mam/jja/son; summer heat_stress_h and winter cold_stress_h, ped_wind_ms and windy_pct of the hemisphere\'s summer and winter months.'
   }, {
     kind: 'windyear', title: 'Annual pedestrian wind', subtitle: `${windowLabel}, frequency-weighted over ${sectors} directions`,
     unit: 'm/s', grid, values: annualWind, ids: og.ids, display: { min: 0, max: Math.ceil(windMax), ramp: 'spectral-r' },

@@ -59,10 +59,14 @@ def utc_offset_guess(lon: float) -> float:
     return float(round(lon / 15.0))
 
 
-def choose_utc_offset(lon: float, machine_offset: float | None) -> float:
-    """Clock time zone for the sun: the computer's standard offset when it is
-    within 1.5 h of the longitude's nautical zone (the usual case: people
-    analyse places in their own country), else the nautical zone."""
+def choose_utc_offset(lon: float, machine_offset: float | None, station_offset: float | None = None) -> float:
+    """Clock time zone for the sun: the standard offset of the nearest
+    weather station when one is close (the civil zone where it differs from
+    the longitude, as in Turkey), else the computer's standard offset when it
+    is within 1.5 h of the longitude's nautical zone (people analyse places
+    in their own country), else the nautical zone."""
+    if station_offset is not None:
+        return float(station_offset)
     nautical = utc_offset_guess(lon)
     if machine_offset is not None and abs(machine_offset - lon / 15.0) <= 1.5:
         return float(machine_offset)

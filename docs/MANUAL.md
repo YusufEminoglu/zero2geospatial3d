@@ -1,6 +1,6 @@
 <!-- Generated from docs/index.html by tools/build_manual_md.py; edit the HTML, then rebuild. -->
 
-> **02 Geo3D Analyzer — Reference Manual** (v1.2.0). The styled online edition is at
+> **02 Geo3D Analyzer — Reference Manual** (v1.2.1). The styled online edition is at
 > [geophilo.com/zero2geospatial3d](https://geophilo.com/zero2geospatial3d/); this copy is the same manual
 > for reading on GitHub.
 
@@ -217,11 +217,11 @@ Summer (June–August): 23,976,032 kWh on 228,482 m²; horizontal unshaded 685 k
 
 ![Visibility card](guide_img/sa_vis_card.png)
 
-*Eye height* 1.6 m, *Radius* 600 m. *Pick observer…* lets you click a point; *From selected building* uses the roof of the selected building.
+*Eye height* 1.6 m, *Radius* 600 m. *Pick observer…* lets you click a point; *From selected building* maps where that building can be seen from: the ground and roofs that see any of eight points along its top edge.
 
 ![Viewshed from a selected building](guide_img/sa_viewshed.png)
 
-Viewshed from one selected building: yellow is visible, blue is hidden. The visible share of the surface is 1 % (15,608 m²). 1.3 s.
+Viewshed from one selected building, yellow visible and blue hidden, as version 1.2.0 computed it: from the centre of the roof, whose own edge hides most of the ground (1 %, 15,608 m²). From 1.2.1 the tool traces from the building's top edge instead, so the map shows where the building can be seen from; a 96 m tower in a test scene is seen from 48 % of the area.
 
 #### 3.7 Wind
 
@@ -1012,7 +1012,7 @@ VEI = 0.7\,\frac{U_{ped}}{U_{open}} + 0.3\,SVF, \qquad \tau^{*} = \frac{1}{\max(
 
 ### Traffic dispersion
 
-Roads are line sources, sampled every 2 m or one cell. Each sample spreads downwind as a Gaussian plume. The plume's widths $\sigma_y = 2.5 + 0.18\,x$ and $\sigma_z = 1.8 + 0.12\,x$ grow with the distance $x$ along the wind, and its local speed is scaled by the pedestrian wind ratio. This follows the idea behind OSPM (Berkowicz 2000). Close to a road (under 30 m) in an enclosed canyon, the increment rises by $1 + 1.4\,(1 - SVF)$ to represent the recirculating canyon vortex. Next to tree crowns it falls by the *tree filtration share*. The result is background plus the traffic increment, in µg/m³, for NO₂ or PM_(2.5) depending on the emission rate you enter.
+Roads are line sources, sampled every 2 m or one cell. Each sample spreads downwind as a Gaussian plume. The plume's widths $\sigma_y = 2.5 + 0.18\,x$ and $\sigma_z = 1.8 + 0.12\,x$ grow with the distance $x$ along the wind, and its local speed is scaled by the pedestrian wind ratio. This follows the idea behind OSPM (Berkowicz 2000). Close to a road (under 30 m) in an enclosed canyon, the increment rises by $1 + 1.4\,(1 - SVF)$ to represent the recirculating canyon vortex. Next to tree crowns it falls by the *tree filtration share*. The result is background plus the traffic increment, in µg/m³, for NO₂ or PM_(2.5) depending on the emission rate you enter. The default, 60 µg/(m·s) for a road with traffic 1, is NO₂ from a busy two-lane road: about 20,000 vehicles a day at a fleet average near 0.5 g of NO_(x) per vehicle-kilometre, of which roughly half is NO₂ by the time it reaches the pavement. For PM_(2.5) use a few µg/(m·s).
 
 **Where the roads come from.** The noise and air-quality maps use the same road sources: the lines drawn in the viewer with *Draw road source…*, and every visible layer given the **Roads** role in the QGIS dock. A Roads layer has a *Traffic* expression instead of a height. 1 is the level set in the viewer, 2 doubles the traffic (+3 dB, twice the pollution increment) and 0 leaves the road out. *Download OSM buildings, trees & roads* fills it from the road class: motorway 8, trunk 5, primary 3, secondary 2, tertiary 1.2, residential 0.4, and half of these for link roads. Tunnels are left out. With no roads at all, the plugin finds the street centrelines (the open ground farthest from the buildings on both sides) and treats every street as a residential street (traffic 0.4). The result's subtitle says which source was used.
 
@@ -1032,14 +1032,14 @@ L_{i} = L_{W}' + 10\log_{10}(\ell_{i}\,w_{i}) - A_{div} - A_{atm} - A_{gr} - A_{
 L = 10\log_{10}\sum_{i} 10^{L_{i}/10}, \qquad A_{div} = 20\log_{10} d + 8, \quad A_{atm} = 0.0019\,d
 ```
 
-$L_W'$ is the sound power per metre of road, $\ell_i$ the length a sample stands for, and $w_i$ the road's relative traffic. The terms then work as follows:
+$L_W'$ is the sound power per metre of road, $\ell_i$ the length a sample stands for, and $w_i$ the road's relative traffic. The default $L_W' = 82$ dB(A)/m is a road with traffic 1, a busy two-lane road at 50 km/h. In CNOSSOS-EU, a light vehicle at that speed has a sound power of about 97.5 dB(A); about 830 vehicles an hour then give about 80 dB(A)/m in the day, and the evening and night weighting of $L_{den}$ adds about 2 dB. Such a road reads about 68 dB at 10 m. The terms then work as follows:
 
 - **Ground** $A_{gr} = 1.5\,G\log_{10}(d/2)$, where $G$ runs from 0 (hard pavement) to 1 (grass and soil).
 - **Barriers:** a ray from each source to the receiver finds the highest blocking building. Its path difference $\delta$ gives the Maekawa attenuation $A_{bar} = 10\log_{10}(3 + 20N)$, with $N = 2\delta/\lambda$ at 500 Hz, capped at 20 dB as in ISO 9613-2 for single diffraction. Air absorption uses the ISO 9613-2 value at 500 Hz, 1.9 dB/km.
 - **Foliage:** 0.08 dB per metre of crown along the ray, up to 4 dB.
 - **Reflections:** receivers within 12 m of a facade gain 1.8 dB.
 
-Road samples closer than 64 m are traced one by one. Farther samples are grouped into clusters of about 8 m, and each cluster is traced as one source at its centre. On a test grid of city blocks this stays within 0.5 dB of tracing every sample and runs four times faster. The page stays responsive and shows progress while the map is computed.
+Road samples closer than 64 m are traced one by one. Farther samples are grouped into clusters, about 8 m wide up to 160 m and about 32 m wide beyond, and each cluster is traced as one source at its centre, with about 24 ray samples. On a test grid of city blocks with a dense road network this stays within 0.5 dB of tracing every sample and runs eleven times faster. The page stays responsive and shows progress while the map is computed.
 
 | L_(den) dB(A) | Class      | Reference                                                                 |
 |---------------|------------|---------------------------------------------------------------------------|
@@ -1338,7 +1338,7 @@ Export
 | Sun hours & shadows              | Date, sampling step, surfaces                             | Hours of direct sun, shadow share, BRE 2 h proxy                                     |
 | Sky view factor                  | Sampling quality (64–256 rays)                            | Cosine-weighted SVF on ground, roofs and walls                                       |
 | Solar radiation & PV             | EPW or clear sky, period, efficiency, PR                  | Irradiation (kWh/m²), roof and facade yield, suitable area                           |
-| Visibility                       | Viewer point or top of a building                         | Binary viewshed and visible area                                                     |
+| Visibility                       | A picked observer, or the top edge of a selected building | Binary viewshed and visible area; for a building, where it can be seen from          |
 | Wind & streamlines               | Weather file, sector, pedestrian height                   | Wind ratio and speed, sheltered share, animated 3D streamlines, rose                 |
 | Thermal comfort (UTCI & PET)     | EPW or custom weather, date, hour, materials, LAI         | UTCI, PET (MEMI energy balance), surface temperature, canopy cooling (ΔTa)           |
 | Canyon ventilation & air quality | Wind direction, speed, road emissions, background, trees  | Ventilation Efficiency Index (VEI), normalized air age, traffic NO2/PM2.5 dispersion |
@@ -1423,7 +1423,7 @@ The plugin is deliberately explicit about its methods. Every result carries a no
 |--------------|---------------------------------------------------------------------------------------------------|
 | Plugin       | 02 Geo3D Analyzer                                                                                 |
 | Package      | `zero2geospatial3d`                                                                               |
-| Version      | 1.2.0                                                                                             |
+| Version      | 1.2.1                                                                                             |
 | QGIS         | 3.28 or newer; QGIS 4 supported                                                                   |
 | Runtime      | WebGL 2 browser, local loopback bridge                                                            |
 | Dependencies | None beyond QGIS and the bundled viewer                                                           |
@@ -1437,4 +1437,4 @@ The plugin is deliberately explicit about its methods. Every result carries a no
 
 ### Scope of this manual
 
-This document describes the plugin as shipped in version 1.2.0. Analyses are screening tools for design and planning; they are not a substitute for a formal daylight assessment, a wind-tunnel study, a structural calculation or a statutory compliance report. The note attached to each result names the method and the main limitation.
+This document describes the plugin as shipped in version 1.2.1. Analyses are screening tools for design and planning; they are not a substitute for a formal daylight assessment, a wind-tunnel study, a structural calculation or a statutory compliance report. The note attached to each result names the method and the main limitation.

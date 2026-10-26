@@ -45,8 +45,9 @@ export function bakeScene(app, { area = null } = {}) {
       tPos[k * 3] = g.minX + cs[i] * g.cell;
       tPos[k * 3 + 1] = t.toY(g.values[rs[j] * g.cols + cs[i]]);
       tPos[k * 3 + 2] = -(g.maxY - rs[j] * g.cell);
-      tUv[k * 2] = (cs[i] - c0) / Math.max(1, c1 - c0);
-      tUv[k * 2 + 1] = 1 - (rs[j] - r0) / Math.max(1, r1 - r0); // image row 0 = north
+      // Vertices sit at cell centres; the texture spans whole cells c0..c1.
+      tUv[k * 2] = (cs[i] - c0 + 0.5) / (c1 - c0 + 1);
+      tUv[k * 2 + 1] = 1 - (rs[j] - r0 + 0.5) / (r1 - r0 + 1); // image row 0 = north
     }
   }
   const tIdx = new Uint32Array((nc - 1) * (nr - 1) * 6);

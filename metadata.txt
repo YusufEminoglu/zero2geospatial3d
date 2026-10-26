@@ -3,7 +3,7 @@ name=02 Geo3D Analyzer
 qgisMinimumVersion=3.28
 qgisMaximumVersion=4.99
 description=3D viewer and analyzer for terrain and buildings: ENVI-met style microclimate (UTCI, PET, surface temperature, canopy cooling), street-canyon ventilation and pollutant dispersion, 3D acoustics, Green View Index, solar envelope, sun and shadow, sky view and facade daylight (VSC), solar PV, visibility, terrain analyses, BRE 209 planning checks and NSGA-II height optimisation, with every result returned to QGIS.
-version=1.2.0
+version=1.2.1
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 about=
@@ -35,6 +35,15 @@ hasProcessingProvider=no
 plugin_dependencies=
 license=MIT
 changelog=
+    1.2.1 - Audit of every tool: fixes and a responsive page during analyses.
+        - Fixed: results on the wrong buildings after a re-export; A vs B for facade daylight; scenes with 16+ layers.
+        - Fixed: optimiser daylight constraint reach; southern-hemisphere seasons; A vs B solar and comfort settings.
+        - Fixed: Green View field of view, cut and fill Balance on small polygons, profile DXF, large terrain maps to QGIS.
+        - Fixed: visibility from a selected building now maps where the building can be seen from (its top edge).
+        - Fixed: the sun's time zone without a weather file comes from the nearest weather station (Turkey: UTC+3).
+        - Realistic defaults: NO2 emission 60 ug/(m s) and road sound power 82 dB(A)/m for a busy two-lane road.
+        - Noise map up to 11 times and traffic dispersion 3 times faster; the page stays responsive during analyses.
+        - QGIS 4: QAction imported from QtGui (Qt6).
     1.2.0 - Roads for the noise and air-quality maps, faster noise map, and fixes.
         - Roads layer role with a per-road Traffic expression; OpenStreetMap roads with traffic by road class.
         - Fixed: QGIS line layers never reached the noise and dispersion maps from the Analyze cards.

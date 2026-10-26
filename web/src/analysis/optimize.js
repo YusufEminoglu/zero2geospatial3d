@@ -39,25 +39,42 @@ function outerRings(geometry) {
   return polys.map((p) => p[0]).filter((r) => r && r.length >= 3);
 }
 
+/** Bounding box of rings of [x, y] points. */
+function ringsBox(rings) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const ring of rings) for (const [x, y] of ring) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+  return { minX, maxX, minY, maxY };
+}
+
 /** The 25° test prepared for the targets and the other buildings around them. */
-function prepareDaylight(app, targets, area, o, topsNow) {
+function prepareDaylight(app, targets, o, topsNow) {
   const targetSet = new Set(targets.map(({ layer, f }) => `${layer.index}:${f}`));
   const tallest = Math.max(...targets.map(({ layer, f }) => layer.baseZ[f])) + o.maxFloors * o.floorHeight;
-  // Windows farther than a 25° reach of the tallest allowed roof pass on the 25° test alone.
-  const neighbours = [];
+  const tg = targets.map(({ layer, f }) => ({ rings: outerRings(layer.features[f].geometry) }));
+  const box = ringsBox(tg.flatMap((t) => t.rings));
+  // Every other building, then only those whose footprint comes within the
+  // 25° reach of the tallest allowed roof (measured from the target walls,
+  // not from the scored area): windows farther away pass the 25° test alone.
+  const candidates = [];
   for (const layer of app.layers) {
     if (!(layer instanceof ExtrudedLayer) || layer.isWall || !layer.visible) continue;
     for (let f = 0; f < layer.count; f++) {
       if (targetSet.has(`${layer.index}:${f}`)) continue;
-      const x = layer.centroid[f * 2], y = layer.centroid[f * 2 + 1];
-      if (x < area.minX || x > area.maxX || y < area.minY || y > area.maxY) continue;
       const windowZ = layer.baseZ[f] + layer.minH[f] + WINDOW_HEIGHT;
-      for (const ring of outerRings(layer.features[f].geometry)) neighbours.push({ ring, windowZ });
+      for (const ring of outerRings(layer.features[f].geometry)) candidates.push({ ring, windowZ, box: ringsBox([ring]) });
     }
   }
-  const lowest = neighbours.length ? Math.min(...neighbours.map((n) => n.windowZ)) : 0;
-  const tg = targets.map(({ layer, f }) => ({ rings: outerRings(layer.features[f].geometry) }));
-  return prepareRule(neighbours, tg, topsNow, { maxDist: reach25(tallest - lowest) + 1 });
+  // Each window has its own reach: the rise from it to the tallest roof.
+  const neighbours = [];
+  let maxDist = 1;
+  for (const n of candidates) {
+    const reach = reach25(tallest - n.windowZ) + 1;
+    if (n.box.maxX < box.minX - reach || n.box.minX > box.maxX + reach
+      || n.box.maxY < box.minY - reach || n.box.minY > box.maxY + reach) continue;
+    neighbours.push({ ring: n.ring, windowZ: n.windowZ });
+    if (reach > maxDist) maxDist = reach;
+  }
+  return prepareRule(neighbours, tg, topsNow, { maxDist });
 }
 
 /**
@@ -113,7 +130,7 @@ export async function optimiseHeights(app, o) {
 
   const current = targets.map(({ layer, f }) => Math.max(o.minFloors, Math.min(o.maxFloors, Math.round(layer.heights[f] / o.floorHeight) || o.minFloors)));
   const amenity = cons.amenity?.on ? { share: cons.amenity.share, radius: cons.amenity.radius ?? 15 } : null;
-  const daylight = cons.daylight?.on ? prepareDaylight(app, targets, area, o, roofs(current)) : null;
+  const daylight = cons.daylight?.on ? prepareDaylight(app, targets, o, roofs(current)) : null;
   const keyIndex = new Map(targets.map(({ layer, f }, i) => [featureKey(layer.index, f + 1), i]));
   // Footprints do not change between designs: building ids are drawn once,
   // and the open ground is shared out among the targets once.

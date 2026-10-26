@@ -8,6 +8,7 @@ import { fmt } from '../core/classify.js';
 import { renderImage } from '../export/exporters.js';
 import { PdfPage, wrap } from '../export/pdf.js';
 import { featureKey } from '../scene/objects.js';
+import { seasonNames } from '../analysis/climate.js';
 import { rampStops, rampColor } from '../core/classify.js';
 import { OPEN_PEDESTRIAN_FACTOR } from '../core/wind.js';
 
@@ -58,7 +59,8 @@ function infoFor(name) {
   if (FIELD_INFO[name]) return FIELD_INFO[name];
   const sm = name.match(/^(.+)_(djf|mam|jja|son)$/);
   if (sm && FIELD_INFO[sm[1]]) {
-    const season = { djf: 'winter', mam: 'spring', jja: 'summer', son: 'autumn' }[sm[2]];
+    // By months: the season of Dec–Feb depends on the hemisphere.
+    const season = { djf: 'Dec–Feb', mam: 'Mar–May', jja: 'Jun–Aug', son: 'Sep–Nov' }[sm[2]];
     const [label, unit, help] = FIELD_INFO[sm[1]];
     return [`${label}, ${season}`, unit, `${help} (${season} only)`];
   }
@@ -161,7 +163,7 @@ export function reportBlock(app, layer, f) {
   if (seasons) {
     wrapEl.appendChild(h('div', { class: 'insp-sub', text: 'Seasons around it' }));
     wrapEl.appendChild(h('table', { class: 'stats seasons' },
-      h('tr', {}, h('td', { text: '' }), ...SEASON_NAMES.map((s) => h('td', { text: s }))),
+      h('tr', {}, h('td', { text: '' }), ...seasonNames(app.site.lat).map((s) => h('td', { text: s }))),
       h('tr', {}, h('td', { text: 'Comfortable' }), ...seasons.map((x) => h('td', { text: x ? `${x.comfort.toFixed(0)} %` : '–' }))),
       h('tr', {}, h('td', { text: 'Heat stress' }), ...seasons.map((x) => h('td', { text: x ? `${x.heat} h` : '–' }))),
       h('tr', {}, h('td', { text: 'Cold stress' }), ...seasons.map((x) => h('td', { text: x ? `${x.cold} h` : '–' }))),
@@ -180,7 +182,7 @@ export function reportBlock(app, layer, f) {
       note.textContent = `Petal length: how often the wind blows from there; colour: the sheltered pedestrian speed beside this building (blue calm, red strong). Calm ${(r2.calm * 100).toFixed(0)} %.`;
       chips.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', (i === 0 && season === null) || i - 1 === season));
     };
-    const chips = h('div', { class: 'btn-row chips' }, button('Year', () => show(null)), ...SEASON_NAMES.map((s, i) => button(s, () => show(i))));
+    const chips = h('div', { class: 'btn-row chips' }, button('Year', () => show(null)), ...seasonNames(app.site.lat).map((s, i) => button(s, () => show(i))));
     wrapEl.appendChild(h('div', { class: 'rose-wrap' }, app.climateRoses?.bySeason ? chips : null, cv, note));
     show(null);
   }
@@ -325,7 +327,7 @@ export async function buildingPdf(app, layer, f) {
     page.text(x, y, 'Seasons around it', { size: 10, bold: true, color: ink });
     y += 14;
     const colW = (side - 70) / 4;
-    SEASON_NAMES.forEach((s, i) => page.text(x + 70 + colW * i, y, s, { size: 7.5, color: muted }));
+    seasonNames(app.site.lat).forEach((s, i) => page.text(x + 70 + colW * i, y, s, { size: 7.5, color: muted }));
     const rows2 = [['Comfortable', (v) => `${v.comfort.toFixed(0)} %`], ['Heat stress', (v) => `${v.heat} h`],
       ['Cold stress', (v) => `${v.cold} h`], ['Wind', (v) => `${v.wind.toFixed(1)} m/s`]];
     for (const [label2, fmt2] of rows2) {
@@ -365,7 +367,6 @@ export function buildingSeasons(app, layer, f) {
   return app.climateSeasonal?.get(featureKey(layer.index, f + 1)) || null;
 }
 
-const SEASON_NAMES = ['Winter', 'Spring', 'Summer', 'Autumn'];
 
 const ROSE_MAX_SPEED = 8;
 function roseColor(speed) {

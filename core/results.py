@@ -7,8 +7,9 @@ Two payload types arrive from the viewer (see ``web/src/ui/qgis_link.js``):
               written as a GeoTIFF and added with a pseudocolour ramp, or
               a palette for class rasters;
 ``features``  per-feature values for one exported layer, written as fields
-              of ``results/<layer>_results.gpkg`` (a copy of the exported
-              features that keeps every source attribute).
+              of ``results/<layer>_results_<export>.gpkg`` (a copy of the
+              exported features that keeps every source attribute; one
+              file per set of exported features, see ``_result_layer``).
 
 ``style`` carries the viewer's own colours so QGIS draws what the viewer
 drew: ``stops`` (hex colours of the ramp, already reversed where the viewer
@@ -20,6 +21,8 @@ Everything here runs on the QGIS main thread.
 from __future__ import annotations
 
 import base64
+import contextlib
+import hashlib
 import json
 import math
 import os
@@ -208,21 +211,26 @@ class ResultWriter:
             raise ResultError("no result fields")
         target = self._result_layer(entry)
         provider = target.dataProvider()
-        existing = {f.name() for f in target.fields()}
+        # GeoPackage column names are case-insensitive: match them that way.
+        existing = {f.name().lower(): f.name() for f in target.fields()}
         used = set(existing)
         new_fields, names = [], {}
         for raw_name in fields_in:
             key = _key(raw_name)
             if key in existing:
-                names[raw_name] = key
+                names[raw_name] = existing[key]
                 continue
             name = geo.field_name(key, used)
             names[raw_name] = name
             new_fields.append(make_field(name, "double"))
         if new_fields:
-            provider.addAttributes(new_fields)
+            if not provider.addAttributes(new_fields):
+                raise ResultError(f"cannot add the fields {', '.join(f.name() for f in new_fields)} to '{target.name()}'")
             target.updateFields()
         index = {name: target.fields().indexOf(name) for name in names.values()}
+        missing = [name for name, i in index.items() if i < 0]
+        if missing:
+            raise ResultError(f"'{target.name()}' has no field {', '.join(missing)}")
         # The join key is the last g3d_id* column: a re-exported results layer
         # already carries an older g3d_id, and ours was appended after it.
         id_candidates = [i for i, f in enumerate(target.fields()) if f.name().startswith("g3d_id")]
@@ -231,7 +239,10 @@ class ResultWriter:
         id_field = id_candidates[-1]
         by_viewer_id = {}
         for feature in target.getFeatures(QgsFeatureRequest().setSubsetOfAttributes([id_field])):
-            by_viewer_id[int(feature[id_field])] = feature.id()
+            try:
+                by_viewer_id[int(feature[id_field])] = feature.id()
+            except (TypeError, ValueError):
+                continue  # a feature added by hand has no viewer id
         changes: dict = {}
         updated = 0
         for raw_name, spec in fields_in.items():
@@ -262,12 +273,31 @@ class ResultWriter:
     def _result_layer(self, entry: dict) -> QgsVectorLayer:
         os.makedirs(self.results_dir, exist_ok=True)
         stem = geo.safe_name(entry["name"], entry["id"])
-        path = os.path.join(self.results_dir, f"{entry['id']}_{stem}_results.gpkg")
+        # The g3d_id of a results file belongs to the export that created it:
+        # after a re-export with other features (a smaller area, an edited
+        # layer) the same ids name other buildings. The file name carries the
+        # export's stamp, so such a re-export starts a new file and the same
+        # features keep theirs. Nothing is deleted or renamed.
+        prefix = f"{entry['id']}_{stem}_results"
+        path = os.path.join(self.results_dir, f"{prefix}_{self._export_token(entry)[:10]}.gpkg")
         layer_name = f"{entry['name']} (3D results)"
-        for layer in QgsProject.instance().mapLayers().values():
-            if isinstance(layer, QgsVectorLayer) and layer.source().split("|", 1)[0].replace("\\", "/") == \
-                    path.replace("\\", "/"):
+        norm = path.replace("\\", "/")
+        older = []
+        for layer in list(QgsProject.instance().mapLayers().values()):
+            if not isinstance(layer, QgsVectorLayer):
+                continue
+            src = layer.source().split("|", 1)[0].replace("\\", "/")
+            if src == norm:
                 return layer
+            if os.path.dirname(src) == os.path.dirname(norm) and os.path.basename(src).startswith(prefix):
+                older.append(layer)
+        # Results of an earlier export of this layer stay on disk; their
+        # layers leave the project so the names do not mix up.
+        for layer in older:
+            QgsProject.instance().removeMapLayer(layer.id())
+        if older:
+            self._log(f"Results of an earlier export of '{entry['name']}' stay in their file; "
+                      f"new results go to '{os.path.basename(path)}'.")
         if not os.path.isfile(path):
             self._create_result_gpkg(entry, path)
         layer = QgsVectorLayer(path, layer_name, "ogr")
@@ -275,6 +305,15 @@ class ResultWriter:
             raise ResultError(f"cannot open {path}")
         self._add_to_group(layer)
         return layer
+
+    def _export_token(self, entry: dict) -> str:
+        """What the viewer ids of a layer stand for: its source layer and the
+        source feature ids in viewer-id order (the layer's ids.json)."""
+        ids_path = os.path.join(self.scene_dir, f"{entry['id']}.ids.json")
+        digest = hashlib.sha256(str(entry.get("sourceLayerId", "")).encode("utf-8"))
+        with contextlib.suppress(OSError), open(ids_path, "rb") as handle:
+            digest.update(handle.read())
+        return digest.hexdigest()
 
     def _create_result_gpkg(self, entry: dict, path: str) -> None:
         source = QgsProject.instance().mapLayer(entry.get("sourceLayerId", ""))

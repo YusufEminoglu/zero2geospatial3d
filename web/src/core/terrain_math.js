@@ -241,10 +241,22 @@ export function cutFill(g, ring, designLevel) {
   return { cut, fill, net: fill - cut, area: n * cell * cell, delta };
 }
 
-/** Design level that balances cut and fill inside the polygon (bisection). */
+/**
+ * Design level that balances cut and fill inside the polygon (bisection
+ * between the lowest and highest ground inside it). A polygon smaller than
+ * a cell holds no cell centre: the ground at its centre is the balance.
+ */
 export function balancedLevel(g, ring) {
   let lo = Infinity, hi = -Infinity;
-  for (const v of g.values) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  const { delta } = cutFill(g, ring, 0); // -ground inside, NaN outside
+  for (const d of delta) { if (Number.isFinite(d)) { if (-d < lo) lo = -d; if (-d > hi) hi = -d; } }
+  if (!(lo <= hi)) {
+    let x = 0, y = 0;
+    for (const p of ring) { x += p[0]; y += p[1]; }
+    const c = Math.max(0, Math.min(g.cols - 1, Math.round((x / ring.length - g.minX) / g.cell)));
+    const r = Math.max(0, Math.min(g.rows - 1, Math.round((g.maxY - y / ring.length) / g.cell)));
+    return g.values[r * g.cols + c];
+  }
   for (let i = 0; i < 40; i++) {
     const mid = (lo + hi) / 2;
     const { net } = cutFill(g, ring, mid);

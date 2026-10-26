@@ -770,7 +770,12 @@ class Geo3DDock(QDockWidget):
                 self.message(f"Could not add the result: {exc}", error=True)
                 QgsApplication.messageLog().logMessage(traceback.format_exc(), "02 Geo3D Analyzer")
         for payload in self.server.bridge.pop_picks():
-            text = select_in_qgis(self.writer.manifest, self.scene_dir, payload)
+            try:
+                text = select_in_qgis(self.writer.manifest, self.scene_dir, payload)
+            except Exception as exc:  # noqa: BLE001 - e.g. a viewer tab from an earlier export
+                self.message(f"Could not select the picked features: {exc}", error=True)
+                QgsApplication.messageLog().logMessage(traceback.format_exc(), "02 Geo3D Analyzer")
+                continue
             if text:
                 self.iface.statusBarIface().showMessage(text, 4000)
 

@@ -653,6 +653,55 @@ def test_epw_and_osm(folder):
           osm_tags.building_height({"building": "warehouse"})[2] == "default")
 
 
+def test_results_after_reexport(folder):
+    """A results GeoPackage belongs to its export: after a re-export with
+    other features, values still land on the right buildings. A hand-added
+    feature (NULL g3d_id) and a field that differs only in case do not
+    break the next send."""
+    from zero2geospatial3d.core import scene_export as sx
+    from zero2geospatial3d.core.results import ResultWriter
+
+    src = QgsVectorLayer(f"Polygon?crs={CRS}&field=name:string(10)&field=Flood_Depth_M:double", "Reexport blocks", "memory")
+    feats = []
+    for k, name in enumerate(("b0", "b1", "b2")):
+        f = QgsFeature(src.fields())
+        f.setGeometry(square(X0 + 50 + 100 * k, Y0 - 50, 10))
+        f.setAttributes([name, None])
+        feats.append(f)
+    src.dataProvider().addFeatures(feats)
+    QgsProject.instance().addMapLayer(src)
+    out = os.path.join(folder, "reexport_scene")
+
+    def export(xmin):
+        spec = sx.ExportSpec(out_dir=out, extent=QgsRectangle(xmin, Y0 - 100, X0 + 300, Y0), extent_crs=src.crs(),
+                             layers=[sx.LayerSpec(src, sx.ROLE_BUILDINGS, "9")])
+        sx.SceneExporter(spec).run()
+        return ResultWriter(out)
+
+    def values_by_name(field):
+        lyr = next(lyr for lyr in QgsProject.instance().mapLayers().values() if lyr.name() == "Reexport blocks (3D results)")
+        return {f["name"]: f[field] for f in lyr.getFeatures()}, lyr
+
+    writer = export(X0)
+    writer.handle({"type": "features", "layer": "L1", "fields": {"sun_h": {"values": {"1": 1.0, "2": 2.0, "3": 3.0}}}})
+    writer = export(X0 + 100)          # b0 is outside now: viewer ids 1, 2 are b1, b2
+    order = [src.getFeature(fid)["name"] for fid in json.loads(Path(out, "L1.ids.json").read_text())]
+    writer.handle({"type": "features", "layer": "L1", "fields": {"sun_h": {"values": {"1": 10.0, "2": 20.0}}}})
+    got, lyr = values_by_name("sun_h")
+    check("re-export: values land on the buildings the viewer ids now stand for",
+          order == ["b1", "b2"] and got.get("b1") == 10.0 and got.get("b2") == 20.0 and "b0" not in got, f"{order} {got}")
+    extra = QgsFeature(lyr.fields())
+    extra.setGeometry(square(X0 + 250, Y0 - 80, 5))
+    lyr.dataProvider().addFeatures([extra])
+    msg = ""
+    try:
+        msg = writer.handle({"type": "features", "layer": "L1", "fields": {"flood_depth_m": {"values": {"1": 0.7}}}})
+        ok = values_by_name("Flood_Depth_M")[0].get("b1") == 0.7
+    except Exception as exc:  # noqa: BLE001
+        ok, msg = False, repr(exc)
+    check("results: a feature without g3d_id is skipped; a field differing in case is reused", ok, msg)
+
+
 def test_roads(folder):
     """A road layer: Roads role by name, a Traffic expression from lanes, the
     guess follows a role change, and the export carries the traffic."""
@@ -714,6 +763,7 @@ def main():
         test_quick_3d(folder, iface)
         test_building_parts(folder)
         test_roads(folder)
+        test_results_after_reexport(folder)
         test_detail_limit(folder)
         test_epw_and_osm(folder)
     except Exception as exc:  # noqa: BLE001 - a crash is a failure with a trace

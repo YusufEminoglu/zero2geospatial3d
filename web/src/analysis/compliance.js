@@ -8,7 +8,7 @@
 // factor stands in for it.
 import { sunPath } from '../core/solar.js';
 import { typicalDoy } from '../core/weather.js';
-import { surroundings } from './climate.js';
+import { surroundings, summerCode } from './climate.js';
 import { featureKey, splitKey, ExtrudedLayer } from '../scene/objects.js';
 
 export const CRITERIA = [
@@ -29,7 +29,7 @@ export const CRITERIA = [
     help: 'Summer hours with UTCI of 32 °C or more on the surrounding ground (needs the climate year and an EPW). The limit is a project choice.' },
   { id: 'facade_noise', label: 'Max facade noise level (Lden)', short: 'Facade noise',
     unit: 'dB(A)', test: 'max', threshold: 65,
-    help: 'Highest road/environmental noise level at the building perimeter (WHO / EU environmental noise threshold).' },
+    help: 'Highest road traffic noise level at the building perimeter. 65 dB Lden is a common noise action-plan level; the WHO 2018 guideline for road traffic is 53 dB.' },
   { id: 'green_view', label: 'Green View Index around it (GVI)', short: 'Green view',
     unit: '%', test: 'min', threshold: 15,
     help: 'Mean pedestrian-level Green View Index on the surrounding open ground.' }
@@ -184,7 +184,7 @@ export async function planningCheck(app, { scope, criteria, thresholds, profile 
     for (const t of targets) {
       const k = keyOf(t);
       if (values.has('wind')) values.get('wind').set(k, t.layer.extraFields.get('windy_pct')?.[t.f]);
-      if (values.has('heat')) values.get('heat').set(k, t.layer.extraFields.get('heat_stress_h_jja')?.[t.f]);
+      if (values.has('heat')) values.get('heat').set(k, t.layer.extraFields.get(`heat_stress_h_${summerCode(app.site.lat)}`)?.[t.f]);
     }
   }
   // 6. Facade noise level (Lden).

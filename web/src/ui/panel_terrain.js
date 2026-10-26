@@ -152,6 +152,8 @@ function profileDxf(data) {
       if (!run) run = { d0: p.d, z0: p.z, top: p.top };
     } else if (run) flush(p);
   }
+  // A building still open where the section line ends.
+  if (data.points.length) flush(data.points[data.points.length - 1]);
   out.push('0', 'ENDSEC', '0', 'EOF');
   return out.join('\n');
 }

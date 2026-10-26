@@ -498,18 +498,35 @@ export class Analyst {
   }
 
   // ------------------------------------------------------------ visibility
-  async viewshed({ area, cell, eye, observerHeight = 1.6, radius = 600, onProgress }) {
-    const terrain = this.app.terrain;
-    const e = new THREE.Vector3(eye.x, eye.y + observerHeight, eye.z);
+  /**
+   * Viewshed from one observer (eye + observerHeight), or, with `eyes`, the
+   * ground that sees any of several points (the top edge of a building:
+   * visibility is mutual, so this is where that building can be seen from).
+   */
+  async viewshed({ area, cell, eye, eyes = null, observerHeight = 1.6, radius = 600, onProgress }) {
+    const points = eyes ? eyes.map((p) => new THREE.Vector3(p.x, p.y, p.z)) : [new THREE.Vector3(eye.x, eye.y + observerHeight, eye.z)];
+    let cx = 0, cz = 0;
+    for (const p of points) { cx += p.x / points.length; cz += p.z / points.length; }
+    const e = new THREE.Vector3(cx, Math.max(...points.map((p) => p.y)), cz);
     const sub = clipArea({ minX: e.x - radius, maxX: e.x + radius, minY: -e.z - radius, maxY: -e.z + radius }, area);
-    const run = await this.gridRun({ area: sub, cell, eye: e, maxDistance: radius, lift: 0.3, withIds: true, onProgress });
-    const vis = run.values.map((v, i) => (Number.isFinite(v) && run.potential[i] > 0 ? (v > 0 ? 1 : 0) : NaN));
+    let run = null;
+    let vis = null;
+    for (let k = 0; k < points.length; k++) {
+      const one = await this.gridRun({ area: sub, cell, eye: points[k], maxDistance: radius, lift: 0.3, withIds: true,
+        onProgress: (f) => onProgress?.((k + f) / points.length) });
+      const v1 = one.values.map((v, i) => (Number.isFinite(v) && one.potential[i] > 0 ? (v > 0 ? 1 : 0) : NaN));
+      if (!vis) { run = one; vis = v1; continue; }
+      for (let i = 0; i < vis.length; i++) {
+        if (v1[i] === 1) vis[i] = 1;
+        else if (!Number.isFinite(vis[i]) && Number.isFinite(v1[i])) vis[i] = v1[i];
+      }
+    }
     let seen = 0, total = 0;
     vis.forEach((v) => { if (Number.isFinite(v)) { total++; if (v > 0) seen++; } });
     const visibleRoofs = this.aggregateGrid(run.ids, vis, cell * cell);
-    void terrain;
     return [{
-      kind: 'viewshed', title: 'Viewshed', subtitle: `Observer ${observerHeight} m above the surface, radius ${radius} m`,
+      kind: 'viewshed', title: eyes ? 'Where the building is seen from' : 'Viewshed',
+      subtitle: eyes ? `Ground that sees its top edge (${points.length} points), radius ${radius} m` : `Observer ${observerHeight} m above the surface, radius ${radius} m`,
       unit: '', grid: run.grid, values: vis, ids: run.ids, display: { min: 0, max: 1, categorical: { 0: '#3b4a6b', 1: '#f6c945' } },
       fields: this.toFields(visibleRoofs, 'visible_roof_pct', (a) => a.mean * 100),
       stats: [['Visible share of the surface', `${total ? ((100 * seen) / total).toFixed(0) : 0} %`], ['Visible area', `${fmtBig(seen * cell * cell)} m²`]],
@@ -718,7 +735,13 @@ export class Analyst {
     const petGrid = new Float32Array(n).fill(NaN);
     const tsurf = new Float32Array(n).fill(NaN);
 
+    let lastYield = performance.now();
     for (let i = 0; i < n; i++) {
+      // PET is solved iteratively per cell: keep the page responsive.
+      if ((i & 4095) === 0 && performance.now() - lastYield > 50) {
+        await new Promise((res) => setTimeout(res, 0));
+        lastYield = performance.now();
+      }
       if (svfRun.ids[i] !== 0 || !Number.isFinite(svfRun.values[i])) continue; // open ground only
 
       const localTa = conditions.airTemp + (Number.isFinite(dTa[i]) ? dTa[i] : 0);
@@ -1017,7 +1040,12 @@ export class Analyst {
       const tSky = skyTemperature(cond.airTemp, cond.ir);
       const frame = new Float32Array(n).fill(NaN);
 
+      let lastYield = performance.now();
       for (let i = 0; i < n; i++) {
+        if ((i & 4095) === 0 && performance.now() - lastYield > 50) {
+          await new Promise((res) => setTimeout(res, 0));
+          lastYield = performance.now();
+        }
         if (svfRun.ids[i] !== 0 || !Number.isFinite(svfRun.values[i])) continue;
 
         const localTa = cond.airTemp + (Number.isFinite(dTa[i]) ? dTa[i] : 0);
@@ -1095,7 +1123,7 @@ export class Analyst {
     return [result];
   }
 
-  async ventilation({ area, cell, windFromDeg = 270, speed10 = 4, emissionRateUgMS = 450, backgroundUgM3 = 18, treeDepositionFactor = 0.25, roads = null, roadWeights = null, onProgress }) {
+  async ventilation({ area, cell, windFromDeg = 270, speed10 = 4, emissionRateUgMS = 60, backgroundUgM3 = 18, treeDepositionFactor = 0.25, roads = null, roadWeights = null, onProgress }) {
     const og = await this.obstacleGrid({ area, cell, onProgress: (f) => onProgress?.(0.25 * f) });
     const { grid } = og;
     const ratio = await windRatio({ heights: og.heights, porosity: og.porosity, cols: grid.cols, rows: grid.rows, cell,
@@ -1117,7 +1145,7 @@ export class Analyst {
     });
 
     const src = roads ? { lines: roads, weights: roadWeights } : this.roadLines();
-    const conc = pollutantDispersion({
+    const conc = await pollutantDispersion({
       heights: og.heights,
       porosity: og.porosity,
       windRatioGrid: ratio,
@@ -1133,7 +1161,8 @@ export class Analyst {
       roadWeights: src.weights,
       emissionRateUgMS,
       backgroundUgM3,
-      treeDepositionFactor
+      treeDepositionFactor,
+      onProgress: (f) => onProgress?.(0.7 + 0.3 * f)
     });
 
     const ventFields = this.surroundingFields(og.ids, og.heights, grid.cols, grid.rows, cell, vei, 'vent_index');
@@ -1212,7 +1241,7 @@ export class Analyst {
     ];
   }
 
-  async noise({ area, cell, soundPowerDb = 78, receiverHeight = 1.5, groundFactor = 0.5, roads = null, roadWeights = null, onProgress }) {
+  async noise({ area, cell, soundPowerDb = 82, receiverHeight = 1.5, groundFactor = 0.5, roads = null, roadWeights = null, onProgress }) {
     const og = await this.obstacleGrid({ area, cell, onProgress: (f) => onProgress?.(0.4 * f) });
     const { grid } = og;
     const src = roads ? { lines: roads, weights: roadWeights } : this.roadLines();
@@ -1277,7 +1306,7 @@ export class Analyst {
     const treeObs = this.treeObstacles();
     const green = this.greenMask(grid);
 
-    const gvi = greenViewIndex({
+    const gvi = await greenViewIndex({
       buildingHeights,
       treeObstacles: treeObs,
       greenMask: green,
@@ -1287,7 +1316,8 @@ export class Analyst {
       minX: grid.minX - 0.5 * cell,
       maxY: grid.maxY + 0.5 * cell,
       eyeHeight,
-      maxRadius
+      maxRadius,
+      onProgress: (f) => onProgress?.(0.3 + 0.7 * f)
     });
 
     const fields = this.surroundingFields(og.ids, og.heights, grid.cols, grid.rows, cell, gvi, 'gvi_pct');

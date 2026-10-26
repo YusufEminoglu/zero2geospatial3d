@@ -548,7 +548,7 @@
         <span>Reference Manual</span>
       </div>
     </div>
-    <div class="version-pill">v1.2.0 · QGIS 3.28+ | 4</div>
+    <div class="version-pill">v1.2.1 · QGIS 3.28+ | 4</div>
   </div>
 
   <div class="search-wrap">
@@ -772,8 +772,8 @@
       <figure class="hero-figure"><img src="guide_img/sa_solar_summer.png" alt="Summer solar result" loading="lazy"><figcaption>Summer (June–August): 23,976,032 kWh on 228,482 m²; horizontal unshaded 685 kWh/m². 13 s.</figcaption></figure>
 
       <h4>3.6 Visibility</h4>
-      <figure class="hero-figure"><img src="guide_img/sa_vis_card.png" alt="Visibility card" loading="lazy"><figcaption><em>Eye height</em> 1.6 m, <em>Radius</em> 600 m. <em>Pick observer…</em> lets you click a point; <em>From selected building</em> uses the roof of the selected building.</figcaption></figure>
-      <figure class="hero-figure"><img src="guide_img/sa_viewshed.png" alt="Viewshed from a selected building" loading="lazy"><figcaption>Viewshed from one selected building: yellow is visible, blue is hidden. The visible share of the surface is 1 % (15,608 m²). 1.3 s.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_vis_card.png" alt="Visibility card" loading="lazy"><figcaption><em>Eye height</em> 1.6 m, <em>Radius</em> 600 m. <em>Pick observer…</em> lets you click a point; <em>From selected building</em> maps where that building can be seen from: the ground and roofs that see any of eight points along its top edge.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_viewshed.png" alt="Viewshed from a selected building" loading="lazy"><figcaption>Viewshed from one selected building, yellow visible and blue hidden, as version 1.2.0 computed it: from the centre of the roof, whose own edge hides most of the ground (1 %, 15,608 m²). From 1.2.1 the tool traces from the building's top edge instead, so the map shows where the building can be seen from; a 96 m tower in a test scene is seen from 48 % of the area.</figcaption></figure>
 
       <h4>3.7 Wind</h4>
       <figure class="hero-figure"><img src="guide_img/sa_wind_card.png" alt="Wind card" loading="lazy"><figcaption><em>Prevailing</em> and <em>95th percentile</em> fill the direction and speed fields from the wind rose of the EPW file (prevailing speed or the 95th percentile speed); you can also type your own. <em>Run wind</em> computes.</figcaption></figure>
@@ -1424,7 +1424,7 @@ bottom = "min_height"</code></pre>
       </div>
 
       <h3>Traffic dispersion</h3>
-      <p>Roads are line sources, sampled every 2 m or one cell. Each sample spreads downwind as a Gaussian plume. The plume's widths \(\sigma_y = 2.5 + 0.18\,x\) and \(\sigma_z = 1.8 + 0.12\,x\) grow with the distance \(x\) along the wind, and its local speed is scaled by the pedestrian wind ratio. This follows the idea behind OSPM (Berkowicz 2000). Close to a road (under 30 m) in an enclosed canyon, the increment rises by \(1 + 1.4\,(1 - SVF)\) to represent the recirculating canyon vortex. Next to tree crowns it falls by the <em>tree filtration share</em>. The result is background plus the traffic increment, in µg/m³, for NO<sub>2</sub> or PM<sub>2.5</sub> depending on the emission rate you enter.</p>
+      <p>Roads are line sources, sampled every 2 m or one cell. Each sample spreads downwind as a Gaussian plume. The plume's widths \(\sigma_y = 2.5 + 0.18\,x\) and \(\sigma_z = 1.8 + 0.12\,x\) grow with the distance \(x\) along the wind, and its local speed is scaled by the pedestrian wind ratio. This follows the idea behind OSPM (Berkowicz 2000). Close to a road (under 30 m) in an enclosed canyon, the increment rises by \(1 + 1.4\,(1 - SVF)\) to represent the recirculating canyon vortex. Next to tree crowns it falls by the <em>tree filtration share</em>. The result is background plus the traffic increment, in µg/m³, for NO<sub>2</sub> or PM<sub>2.5</sub> depending on the emission rate you enter. The default, 60 µg/(m·s) for a road with traffic 1, is NO<sub>2</sub> from a busy two-lane road: about 20,000 vehicles a day at a fleet average near 0.5 g of NO<sub>x</sub> per vehicle-kilometre, of which roughly half is NO<sub>2</sub> by the time it reaches the pavement. For PM<sub>2.5</sub> use a few µg/(m·s).</p>
 
       <div class="callout">
         <p><strong>Where the roads come from.</strong> The noise and air-quality maps use the same road sources: the lines drawn in the viewer with <em>Draw road source…</em>, and every visible layer given the <strong>Roads</strong> role in the QGIS dock. A Roads layer has a <em>Traffic</em> expression instead of a height. 1 is the level set in the viewer, 2 doubles the traffic (+3 dB, twice the pollution increment) and 0 leaves the road out. <em>Download OSM buildings, trees &amp; roads</em> fills it from the road class: motorway 8, trunk 5, primary 3, secondary 2, tertiary 1.2, residential 0.4, and half of these for link roads. Tunnels are left out. With no roads at all, the plugin finds the street centrelines (the open ground farthest from the buildings on both sides) and treats every street as a residential street (traffic 0.4). The result's subtitle says which source was used.</p>
@@ -1444,14 +1444,14 @@ bottom = "min_height"</code></pre>
         $$L = 10\log_{10}\sum_{i} 10^{L_{i}/10}, \qquad A_{div} = 20\log_{10} d + 8, \quad A_{atm} = 0.0019\,d$$
       </div>
 
-      <p>\(L_W'\) is the sound power per metre of road, \(\ell_i\) the length a sample stands for, and \(w_i\) the road's relative traffic. The terms then work as follows:</p>
+      <p>\(L_W'\) is the sound power per metre of road, \(\ell_i\) the length a sample stands for, and \(w_i\) the road's relative traffic. The default \(L_W' = 82\) dB(A)/m is a road with traffic 1, a busy two-lane road at 50 km/h. In CNOSSOS-EU, a light vehicle at that speed has a sound power of about 97.5 dB(A); about 830 vehicles an hour then give about 80 dB(A)/m in the day, and the evening and night weighting of \(L_{den}\) adds about 2 dB. Such a road reads about 68 dB at 10 m. The terms then work as follows:</p>
       <ul>
         <li><strong>Ground</strong> \(A_{gr} = 1.5\,G\log_{10}(d/2)\), where \(G\) runs from 0 (hard pavement) to 1 (grass and soil).</li>
         <li><strong>Barriers:</strong> a ray from each source to the receiver finds the highest blocking building. Its path difference \(\delta\) gives the Maekawa attenuation \(A_{bar} = 10\log_{10}(3 + 20N)\), with \(N = 2\delta/\lambda\) at 500 Hz, capped at 20 dB as in ISO 9613-2 for single diffraction. Air absorption uses the ISO 9613-2 value at 500 Hz, 1.9 dB/km.</li>
         <li><strong>Foliage:</strong> 0.08 dB per metre of crown along the ray, up to 4 dB.</li>
         <li><strong>Reflections:</strong> receivers within 12 m of a facade gain 1.8 dB.</li>
       </ul>
-      <p>Road samples closer than 64 m are traced one by one. Farther samples are grouped into clusters of about 8 m, and each cluster is traced as one source at its centre. On a test grid of city blocks this stays within 0.5 dB of tracing every sample and runs four times faster. The page stays responsive and shows progress while the map is computed.</p>
+      <p>Road samples closer than 64 m are traced one by one. Farther samples are grouped into clusters, about 8 m wide up to 160 m and about 32 m wide beyond, and each cluster is traced as one source at its centre, with about 24 ray samples. On a test grid of city blocks with a dense road network this stays within 0.5 dB of tracing every sample and runs eleven times faster. The page stays responsive and shows progress while the map is computed.</p>
 
       <div class="table-wrap">
         <table>
@@ -1767,7 +1767,7 @@ Surfaces       ground + roofs + facades</code></pre>
               <tr><td>Sun hours &amp; shadows</td><td>Date, sampling step, surfaces</td><td>Hours of direct sun, shadow share, BRE 2 h proxy</td></tr>
               <tr><td>Sky view factor</td><td>Sampling quality (64–256 rays)</td><td>Cosine-weighted SVF on ground, roofs and walls</td></tr>
               <tr><td>Solar radiation &amp; PV</td><td>EPW or clear sky, period, efficiency, PR</td><td>Irradiation (kWh/m²), roof and facade yield, suitable area</td></tr>
-              <tr><td>Visibility</td><td>Viewer point or top of a building</td><td>Binary viewshed and visible area</td></tr>
+              <tr><td>Visibility</td><td>A picked observer, or the top edge of a selected building</td><td>Binary viewshed and visible area; for a building, where it can be seen from</td></tr>
               <tr><td>Wind &amp; streamlines</td><td>Weather file, sector, pedestrian height</td><td>Wind ratio and speed, sheltered share, animated 3D streamlines, rose</td></tr>
               <tr><td>Thermal comfort (UTCI &amp; PET)</td><td>EPW or custom weather, date, hour, materials, LAI</td><td>UTCI, PET (MEMI energy balance), surface temperature, canopy cooling (ΔTa)</td></tr>
               <tr><td>Canyon ventilation &amp; air quality</td><td>Wind direction, speed, road emissions, background, trees</td><td>Ventilation Efficiency Index (VEI), normalized air age, traffic NO2/PM2.5 dispersion</td></tr>
@@ -1884,7 +1884,7 @@ Surfaces       ground + roofs + facades</code></pre>
           <tbody>
             <tr><td>Plugin</td><td>02 Geo3D Analyzer</td></tr>
             <tr><td>Package</td><td><code>zero2geospatial3d</code></td></tr>
-            <tr><td>Version</td><td>1.2.0</td></tr>
+            <tr><td>Version</td><td>1.2.1</td></tr>
             <tr><td>QGIS</td><td>3.28 or newer; QGIS 4 supported</td></tr>
             <tr><td>Runtime</td><td>WebGL 2 browser, local loopback bridge</td></tr>
             <tr><td>Dependencies</td><td>None beyond QGIS and the bundled viewer</td></tr>
@@ -1900,7 +1900,7 @@ Surfaces       ground + roofs + facades</code></pre>
       </div>
 
       <h3>Scope of this manual</h3>
-      <p>This document describes the plugin as shipped in version 1.2.0. Analyses are screening tools for design and planning; they are not a substitute for a formal daylight assessment, a wind-tunnel study, a structural calculation or a statutory compliance report. The note attached to each result names the method and the main limitation.</p>
+      <p>This document describes the plugin as shipped in version 1.2.1. Analyses are screening tools for design and planning; they are not a substitute for a formal daylight assessment, a wind-tunnel study, a structural calculation or a statutory compliance report. The note attached to each result names the method and the main limitation.</p>
     </div>
   </section>
 

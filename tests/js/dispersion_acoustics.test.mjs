@@ -53,14 +53,14 @@ test('ventilationEfficiency: open high-SVF high-wind cells have higher vei and l
   assert.equal(ventilationClass(NaN), null);
 });
 
-test('pollutantDispersion: downwind of road line has higher concentration than upwind; low SVF increases concentration; trees reduce concentration', () => {
+test('pollutantDispersion: downwind of road line has higher concentration than upwind; low SVF increases concentration; trees reduce concentration', async () => {
   const cols = 20, rows = 20, cell = 2;
   const heights = new Float32Array(cols * rows);
   const roadX = 20; // x = 20m in a 40m x 40m grid
   const roads = [[[roadX, 0], [roadX, 40]]];
 
   // Wind blows towards East (from 270 deg)
-  const baseConc = pollutantDispersion({
+  const baseConc = await pollutantDispersion({
     heights,
     cols,
     rows,
@@ -86,7 +86,7 @@ test('pollutantDispersion: downwind of road line has higher concentration than u
   const svfHigh = new Float32Array(cols * rows).fill(0.9);
   const svfLow = new Float32Array(cols * rows).fill(0.25);
 
-  const concHigh = pollutantDispersion({
+  const concHigh = await pollutantDispersion({
     heights,
     svf: svfHigh,
     cols,
@@ -97,7 +97,7 @@ test('pollutantDispersion: downwind of road line has higher concentration than u
     backgroundUgM3: 18
   });
 
-  const concLow = pollutantDispersion({
+  const concLow = await pollutantDispersion({
     heights,
     svf: svfLow,
     cols,
@@ -119,7 +119,7 @@ test('pollutantDispersion: downwind of road line has higher concentration than u
   const porosity = new Float32Array(cols * rows);
   porosity[idxNearDown] = 0.5;
 
-  const concTree = pollutantDispersion({
+  const concTree = await pollutantDispersion({
     heights,
     porosity,
     cols,
@@ -131,7 +131,7 @@ test('pollutantDispersion: downwind of road line has higher concentration than u
     treeDepositionFactor: 0.3
   });
 
-  const concNoTree = pollutantDispersion({
+  const concNoTree = await pollutantDispersion({
     heights,
     cols,
     rows,
@@ -261,12 +261,12 @@ test('road traffic weights: doubling the traffic adds 3 dB and doubles the traff
   assert.equal(n0[i], 35);
 
   const wind = { windFromDeg: 270, windSpeed10: 3, backgroundUgM3: 18 };
-  const c1 = pollutantDispersion({ ...base, ...wind, roadWeights: [1] });
-  const c2 = pollutantDispersion({ ...base, ...wind, roadWeights: [2] });
+  const c1 = await pollutantDispersion({ ...base, ...wind, roadWeights: [1] });
+  const c2 = await pollutantDispersion({ ...base, ...wind, roadWeights: [2] });
   const inc1 = c1[i] - 18, inc2 = c2[i] - 18;
   assert.ok(inc1 > 0, 'downwind cell sees traffic');
   assert.ok(Math.abs(inc2 / inc1 - 2) < 0.01, `traffic increment x${(inc2 / inc1).toFixed(3)}, expected x2`);
-  const c0 = pollutantDispersion({ ...base, ...wind, roadWeights: [0] });
+  const c0 = await pollutantDispersion({ ...base, ...wind, roadWeights: [0] });
   assert.equal(c0[i], 18);
 });
 
