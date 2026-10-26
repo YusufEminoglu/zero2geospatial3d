@@ -217,11 +217,11 @@ Summer (June–August): 23,976,032 kWh on 228,482 m²; horizontal unshaded 685 k
 
 ![Visibility card](guide_img/sa_vis_card.png)
 
-*Eye height* 1.6 m, *Radius* 600 m. *Pick observer…* lets you click a point; *From selected building* uses the roof of the selected building.
+*Eye height* 1.6 m, *Radius* 600 m. *Pick observer…* lets you click a point; *From selected building* maps where that building can be seen from: the ground and roofs that see any of eight points along its top edge.
 
 ![Viewshed from a selected building](guide_img/sa_viewshed.png)
 
-Viewshed from one selected building: yellow is visible, blue is hidden. The visible share of the surface is 1 % (15,608 m²). 1.3 s.
+Viewshed from one selected building, yellow visible and blue hidden, as version 1.2.0 computed it: from the centre of the roof, whose own edge hides most of the ground (1 %, 15,608 m²). From 1.2.1 the tool traces from the building's top edge instead, so the map shows where the building can be seen from; a 96 m tower in a test scene is seen from 48 % of the area.
 
 #### 3.7 Wind
 
@@ -1338,7 +1338,7 @@ Export
 | Sun hours & shadows              | Date, sampling step, surfaces                             | Hours of direct sun, shadow share, BRE 2 h proxy                                     |
 | Sky view factor                  | Sampling quality (64–256 rays)                            | Cosine-weighted SVF on ground, roofs and walls                                       |
 | Solar radiation & PV             | EPW or clear sky, period, efficiency, PR                  | Irradiation (kWh/m²), roof and facade yield, suitable area                           |
-| Visibility                       | Viewer point or top of a building                         | Binary viewshed and visible area                                                     |
+| Visibility                       | A picked observer, or the top edge of a selected building | Binary viewshed and visible area; for a building, where it can be seen from          |
 | Wind & streamlines               | Weather file, sector, pedestrian height                   | Wind ratio and speed, sheltered share, animated 3D streamlines, rose                 |
 | Thermal comfort (UTCI & PET)     | EPW or custom weather, date, hour, materials, LAI         | UTCI, PET (MEMI energy balance), surface temperature, canopy cooling (ΔTa)           |
 | Canyon ventilation & air quality | Wind direction, speed, road emissions, background, trees  | Ventilation Efficiency Index (VEI), normalized air age, traffic NO2/PM2.5 dispersion |

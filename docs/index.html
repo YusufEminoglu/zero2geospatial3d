@@ -772,8 +772,8 @@
       <figure class="hero-figure"><img src="guide_img/sa_solar_summer.png" alt="Summer solar result" loading="lazy"><figcaption>Summer (June–August): 23,976,032 kWh on 228,482 m²; horizontal unshaded 685 kWh/m². 13 s.</figcaption></figure>
 
       <h4>3.6 Visibility</h4>
-      <figure class="hero-figure"><img src="guide_img/sa_vis_card.png" alt="Visibility card" loading="lazy"><figcaption><em>Eye height</em> 1.6 m, <em>Radius</em> 600 m. <em>Pick observer…</em> lets you click a point; <em>From selected building</em> uses the roof of the selected building.</figcaption></figure>
-      <figure class="hero-figure"><img src="guide_img/sa_viewshed.png" alt="Viewshed from a selected building" loading="lazy"><figcaption>Viewshed from one selected building: yellow is visible, blue is hidden. The visible share of the surface is 1 % (15,608 m²). 1.3 s.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_vis_card.png" alt="Visibility card" loading="lazy"><figcaption><em>Eye height</em> 1.6 m, <em>Radius</em> 600 m. <em>Pick observer…</em> lets you click a point; <em>From selected building</em> maps where that building can be seen from: the ground and roofs that see any of eight points along its top edge.</figcaption></figure>
+      <figure class="hero-figure"><img src="guide_img/sa_viewshed.png" alt="Viewshed from a selected building" loading="lazy"><figcaption>Viewshed from one selected building, yellow visible and blue hidden, as version 1.2.0 computed it: from the centre of the roof, whose own edge hides most of the ground (1 %, 15,608 m²). From 1.2.1 the tool traces from the building's top edge instead, so the map shows where the building can be seen from; a 96 m tower in a test scene is seen from 48 % of the area.</figcaption></figure>
 
       <h4>3.7 Wind</h4>
       <figure class="hero-figure"><img src="guide_img/sa_wind_card.png" alt="Wind card" loading="lazy"><figcaption><em>Prevailing</em> and <em>95th percentile</em> fill the direction and speed fields from the wind rose of the EPW file (prevailing speed or the 95th percentile speed); you can also type your own. <em>Run wind</em> computes.</figcaption></figure>
@@ -1767,7 +1767,7 @@ Surfaces       ground + roofs + facades</code></pre>
               <tr><td>Sun hours &amp; shadows</td><td>Date, sampling step, surfaces</td><td>Hours of direct sun, shadow share, BRE 2 h proxy</td></tr>
               <tr><td>Sky view factor</td><td>Sampling quality (64–256 rays)</td><td>Cosine-weighted SVF on ground, roofs and walls</td></tr>
               <tr><td>Solar radiation &amp; PV</td><td>EPW or clear sky, period, efficiency, PR</td><td>Irradiation (kWh/m²), roof and facade yield, suitable area</td></tr>
-              <tr><td>Visibility</td><td>Viewer point or top of a building</td><td>Binary viewshed and visible area</td></tr>
+              <tr><td>Visibility</td><td>A picked observer, or the top edge of a selected building</td><td>Binary viewshed and visible area; for a building, where it can be seen from</td></tr>
               <tr><td>Wind &amp; streamlines</td><td>Weather file, sector, pedestrian height</td><td>Wind ratio and speed, sheltered share, animated 3D streamlines, rose</td></tr>
               <tr><td>Thermal comfort (UTCI &amp; PET)</td><td>EPW or custom weather, date, hour, materials, LAI</td><td>UTCI, PET (MEMI energy balance), surface temperature, canopy cooling (ΔTa)</td></tr>
               <tr><td>Canyon ventilation &amp; air quality</td><td>Wind direction, speed, road emissions, background, trees</td><td>Ventilation Efficiency Index (VEI), normalized air age, traffic NO2/PM2.5 dispersion</td></tr>
