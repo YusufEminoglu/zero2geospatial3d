@@ -196,3 +196,17 @@ test('seasons follow the hemisphere: Dec–Feb is summer in the south', async ()
   assert.equal(summerCode(-33.9), 'djf');
   assert.equal(winterCode(-33.9), 'jja');
 });
+
+test('sendGrid posts the georeference only, not the grid values a second time', async () => {
+  const { sendGrid } = await import('../../web/src/ui/qgis_link.js');
+  const cols = 300, rows = 200;
+  const values = new Float32Array(cols * rows).fill(1.5);
+  const result = { title: 'Slope', unit: '°', values, display: { min: 0, max: 30, ramp: 'viridis' },
+    grid: { cols, rows, cell: 2, minX: 1, maxY: 399, values } }; // terrain grids carry their own values
+  let body = null;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, opts) => { body = JSON.parse(opts.body); return { ok: true, json: async () => ({ ok: true }) }; };
+  try { await sendGrid(result, 'slope'); } finally { globalThis.fetch = realFetch; }
+  assert.deepEqual(Object.keys(body.grid).sort(), ['cell', 'cols', 'maxY', 'minX', 'rows']);
+  assert.equal(body.data.length, Math.ceil((cols * rows * 4) / 3) * 4); // base64 of the float32 values, once
+});
