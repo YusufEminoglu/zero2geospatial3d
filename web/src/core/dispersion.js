@@ -125,7 +125,7 @@ export async function pollutantDispersion({
   windSpeed10 = 3,
   roads = [],
   roadWeights = null,
-  emissionRateUgMS = 450,
+  emissionRateUgMS = 60,
   backgroundUgM3 = 18,
   treeDepositionFactor = 0.25,
   onProgress = null

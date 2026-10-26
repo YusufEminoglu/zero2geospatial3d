@@ -1123,7 +1123,7 @@ export class Analyst {
     return [result];
   }
 
-  async ventilation({ area, cell, windFromDeg = 270, speed10 = 4, emissionRateUgMS = 450, backgroundUgM3 = 18, treeDepositionFactor = 0.25, roads = null, roadWeights = null, onProgress }) {
+  async ventilation({ area, cell, windFromDeg = 270, speed10 = 4, emissionRateUgMS = 60, backgroundUgM3 = 18, treeDepositionFactor = 0.25, roads = null, roadWeights = null, onProgress }) {
     const og = await this.obstacleGrid({ area, cell, onProgress: (f) => onProgress?.(0.25 * f) });
     const { grid } = og;
     const ratio = await windRatio({ heights: og.heights, porosity: og.porosity, cols: grid.cols, rows: grid.rows, cell,

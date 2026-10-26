@@ -24,6 +24,7 @@ An audit of every tool: each analysis, terrain tool, comparison and export run e
 - Without a weather file, the sun's clock time zone came from the computer or the longitude: a scene in Turkey analysed on a computer set to UTC used UTC+2. The nearest weather station of the bundled index now sets it (UTC+3).
 
 ### Changed
+- Traffic dispersion: the default emission is 60 µg/(m·s) of NO2 per metre of a road with traffic 1 (a busy two-lane road), down from 450, which put the mean NO2 of a real city centre at 86 µg/m³ and many streets at the 400 µg/m³ cap.
 - The page stays responsive during analyses: GPU work waits on a fence between adaptive batches of sky and sun directions, and the comfort, diurnal, Green View and dispersion loops yield with progress. Freezes of 13–40 s in a software-rendered test dropped to about 2–3 s.
 - Traffic dispersion visits only the road sources within the 250 m plume reach (25 m bins, distant bins as one source): three times faster on a block grid, within 5 % of the full sum.
 - Noise map: a second cluster level (32 m beyond 160 m) and distance-scaled ray steps for distant clusters: 2.4 times faster again, eleven times faster than tracing every road sample, within 0.5 dB of it.
