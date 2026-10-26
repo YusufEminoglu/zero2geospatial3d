@@ -1288,7 +1288,7 @@ export class Analyst {
     const treeObs = this.treeObstacles();
     const green = this.greenMask(grid);
 
-    const gvi = greenViewIndex({
+    const gvi = await greenViewIndex({
       buildingHeights,
       treeObstacles: treeObs,
       greenMask: green,
@@ -1298,7 +1298,8 @@ export class Analyst {
       minX: grid.minX - 0.5 * cell,
       maxY: grid.maxY + 0.5 * cell,
       eyeHeight,
-      maxRadius
+      maxRadius,
+      onProgress: (f) => onProgress?.(0.3 + 0.7 * f)
     });
 
     const fields = this.surroundingFields(og.ids, og.heights, grid.cols, grid.rows, cell, gvi, 'gvi_pct');

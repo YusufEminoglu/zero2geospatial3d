@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import { greenViewIndex, solarEnvelope, GVI_CLASSES, gviClass } from '../../web/src/core/urban_form.js';
 import { WindStreamlines } from '../../web/src/scene/wind_streamlines.js';
 
-test('greenViewIndex: returns 0 on a treeless, non-vegetated grid', () => {
+test('greenViewIndex: returns 0 on a treeless, non-vegetated grid', async () => {
   const cols = 15, rows = 15, cell = 2;
   const buildingHeights = new Float32Array(cols * rows);
-  const gvi = greenViewIndex({ buildingHeights, treeObstacles: [], greenMask: null, cols, rows, cell });
+  const gvi = await greenViewIndex({ buildingHeights, treeObstacles: [], greenMask: null, cols, rows, cell });
   for (let i = 0; i < gvi.length; i++) {
     assert.equal(gvi[i], 0);
   }
 });
 
-test('greenViewIndex: returns significantly higher GVI (> 20 %) near trees and over greenMask cells', () => {
+test('greenViewIndex: returns significantly higher GVI (> 20 %) near trees and over greenMask cells', async () => {
   const cols = 25, rows = 25, cell = 2, minX = 0, maxY = 50;
   const buildingHeights = new Float32Array(cols * rows);
   // Prominent canopy tree at center (x = 25, y = 25), height = 14m, radius = 6m
@@ -24,13 +24,13 @@ test('greenViewIndex: returns significantly higher GVI (> 20 %) near trees and o
     }
   }
 
-  const gvi = greenViewIndex({ buildingHeights, treeObstacles, greenMask, cols, rows, cell, minX, maxY });
+  const gvi = await greenViewIndex({ buildingHeights, treeObstacles, greenMask, cols, rows, cell, minX, maxY });
   // Sample cell (12, 12), right under/near the tree canopy inside the park
   const gviCenter = gvi[12 * cols + 12];
   assert.ok(gviCenter > 20, `GVI near trees and greenMask should be > 20 %, got ${gviCenter}`);
 });
 
-test('greenViewIndex: solid buildings occlude trees behind them', () => {
+test('greenViewIndex: solid buildings occlude trees behind them', async () => {
   const cols = 30, rows = 15, cell = 2, minX = 0, maxY = 30;
   const buildingHeights = new Float32Array(cols * rows);
   // Tree at col 15, row 7 (x = 31, y = 15), height = 12m, radius = 3m
@@ -41,7 +41,7 @@ test('greenViewIndex: solid buildings occlude trees behind them', () => {
     buildingHeights[r * cols + 10] = 30;
   }
 
-  const gvi = greenViewIndex({ buildingHeights, treeObstacles, greenMask: null, cols, rows, cell, minX, maxY });
+  const gvi = await greenViewIndex({ buildingHeights, treeObstacles, greenMask: null, cols, rows, cell, minX, maxY });
 
   // Cell A: col 18, row 7 (east of tree, unobstructed view of tree)
   const gviUnobstructed = gvi[7 * cols + 18];
@@ -52,17 +52,17 @@ test('greenViewIndex: solid buildings occlude trees behind them', () => {
   assert.ok(gviUnobstructed > gviOccluded, `Unobstructed cell (${gviUnobstructed}) should see more tree than occluded cell (${gviOccluded})`);
 });
 
-test('greenViewIndex: returns NaN inside building footprints', () => {
+test('greenViewIndex: returns NaN inside building footprints', async () => {
   const cols = 10, rows = 10, cell = 2;
   const buildingHeights = new Float32Array(cols * rows);
   buildingHeights[5 * cols + 5] = 18;
 
-  const gvi = greenViewIndex({ buildingHeights, treeObstacles: [], greenMask: null, cols, rows, cell });
+  const gvi = await greenViewIndex({ buildingHeights, treeObstacles: [], greenMask: null, cols, rows, cell });
   assert.ok(Number.isNaN(gvi[5 * cols + 5]), 'GVI inside building must be NaN');
   assert.equal(gvi[0], 0, 'Open cell should have numeric 0 GVI');
 });
 
-test('greenViewIndex: classification categories and helper', () => {
+test('greenViewIndex: classification categories and helper', async () => {
   assert.equal(gviClass(4)?.key, 'bare');
   assert.equal(gviClass(14)?.key, 'moderate');
   assert.equal(gviClass(28)?.key, 'street');
@@ -208,12 +208,12 @@ test('solarEnvelope: a building is not limited by its own shadow; its sunny side
   assert.equal(maxHeight[10 * cols + 20], 80);
 });
 
-test('greenViewIndex: only the ±45° field of view counts (tall crowns all around give at most the upper half)', () => {
+test('greenViewIndex: only the ±45° field of view counts (tall crowns all around give at most the upper half)', async () => {
   const cols = 21, rows = 21, cell = 2;
   const buildingHeights = new Float32Array(cols * rows);
   const trees = [];
   for (let y = 1; y < 42; y += 4) for (let x = 1; x < 42; x += 4) if (Math.hypot(x - 21, y - 21) > 3) trees.push([x, y, 2.5, 30]);
-  const gvi = greenViewIndex({ buildingHeights, treeObstacles: trees, cols, rows, cell, minX: 0, maxY: 42 });
+  const gvi = await greenViewIndex({ buildingHeights, treeObstacles: trees, cols, rows, cell, minX: 0, maxY: 42 });
   const centre = gvi[10 * cols + 10];
   assert.ok(centre > 20 && centre <= 50 + 1e-6, `upper half at most, got ${centre}`);
 });

@@ -74,9 +74,10 @@ function addInterval(intervals, start, end) {
  * @param {number} [params.eyeHeight] Pedestrian eye level in metres (default 1.6 m)
  * @param {number} [params.maxRadius] Maximum sight distance in metres (default 80 m)
  * @param {number} [params.azimuthSteps] Number of horizontal ray azimuths sampled across 360 degrees (default 24)
- * @returns {Float32Array} Green View Index in percent (0..100 %), NaN inside solid buildings
+ * @param {((f: number) => void)|null} [params.onProgress] progress 0..1; the page stays responsive
+ * @returns {Promise<Float32Array>} Green View Index in percent (0..100 %), NaN inside solid buildings
  */
-export function greenViewIndex({
+export async function greenViewIndex({
   buildingHeights,
   treeObstacles = [],
   greenMask = null,
@@ -87,7 +88,8 @@ export function greenViewIndex({
   maxY = 0,
   eyeHeight = 1.6,
   maxRadius = 80,
-  azimuthSteps = 24
+  azimuthSteps = 24,
+  onProgress = null
 }) {
   const out = new Float32Array(cols * rows);
   const bHeights = buildingHeights || new Float32Array(cols * rows);
@@ -127,6 +129,7 @@ export function greenViewIndex({
   // Total vertical field of view of standard horizontal panoramic eye view ([-45 deg, +45 deg] = pi / 2 rad)
   const TOTAL_VFOV = Math.PI / 2;
   const HALF_VFOV = TOTAL_VFOV / 2;
+  let lastYield = Date.now();
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -202,6 +205,11 @@ export function greenViewIndex({
       }
 
       out[originIdx] = totalRayPct / azimuthSteps;
+    }
+    if (onProgress && Date.now() - lastYield > 50) {
+      onProgress((r + 1) / rows);
+      await new Promise((res) => setTimeout(res, 0));
+      lastYield = Date.now();
     }
   }
 
