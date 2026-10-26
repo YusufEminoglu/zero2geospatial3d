@@ -579,7 +579,12 @@ function renderResults(app, box) {
       }, { kind: 'primary', title: 'GeoTIFF layer plus per-building fields in a results GeoPackage' }) : null,
       r.grid ? button('.asc', () => download(`${r.kind}.asc`, asciiGrid(app, r)), { title: 'ESRI ASCII grid in the scene CRS' }) : null,
       r.fields?.length ? button('CSV', () => download(`${r.kind}_buildings.csv`, fieldsCsv(r.fields), 'text/csv')) : null,
-      button('×', () => { app.results.splice(app.results.indexOf(r), 1); if (active) app.hideResult(); app.emit('results'); }, { title: 'Remove' }));
+      button('×', () => {
+        app.results.splice(app.results.indexOf(r), 1);
+        if (active) app.hideResult();
+        if (r._tex) { r._tex.dispose(); delete r._tex; } // its drape texture on the GPU
+        app.emit('results');
+      }, { title: 'Remove' }));
     let studyControls = null;
     if (r.kind === 'shadowstudy' || r.kind === 'diurnalstudy') {
       const label = (k) => { const hr = r.hours[k]; return `${String(Math.floor(hr)).padStart(2, '0')}:${String(Math.round((hr % 1) * 60)).padStart(2, '0')}`; };
