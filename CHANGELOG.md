@@ -24,7 +24,8 @@ An audit of every tool: each analysis, terrain tool, comparison and export run e
 - Without a weather file, the sun's clock time zone came from the computer or the longitude: a scene in Turkey analysed on a computer set to UTC used UTC+2. The nearest weather station of the bundled index now sets it (UTC+3).
 
 ### Changed
-- The page stays responsive during analyses: GPU work waits on a fence between batches of sky and sun directions, and the comfort, diurnal and Green View loops yield. Freezes of 13–38 s in a software-rendered test dropped to about 2 s.
+- The page stays responsive during analyses: GPU work waits on a fence between adaptive batches of sky and sun directions, and the comfort, diurnal, Green View and dispersion loops yield with progress. Freezes of 13–40 s in a software-rendered test dropped to about 2–3 s.
+- Traffic dispersion visits only the road sources within the 250 m plume reach (25 m bins, distant bins as one source): three times faster on a block grid, within 5 % of the full sum.
 
 ## [1.2.0] - 2026-10-26
 

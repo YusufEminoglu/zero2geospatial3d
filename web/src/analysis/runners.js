@@ -1145,7 +1145,7 @@ export class Analyst {
     });
 
     const src = roads ? { lines: roads, weights: roadWeights } : this.roadLines();
-    const conc = pollutantDispersion({
+    const conc = await pollutantDispersion({
       heights: og.heights,
       porosity: og.porosity,
       windRatioGrid: ratio,
@@ -1161,7 +1161,8 @@ export class Analyst {
       roadWeights: src.weights,
       emissionRateUgMS,
       backgroundUgM3,
-      treeDepositionFactor
+      treeDepositionFactor,
+      onProgress: (f) => onProgress?.(0.7 + 0.3 * f)
     });
 
     const ventFields = this.surroundingFields(og.ids, og.heights, grid.cols, grid.rows, cell, vei, 'vent_index');

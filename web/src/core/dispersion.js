@@ -108,9 +108,10 @@ function emissionSources(roads, weights, cols, rows, cell, heights, porosity, mi
  * @param {number} [p.emissionRateUgMS] line source emission rate (ug / (m * s))
  * @param {number} [p.backgroundUgM3] ambient background concentration (ug / m3)
  * @param {number} [p.treeDepositionFactor] fraction of pollutant filtered by trees (0..1)
- * @returns {Float32Array} concentration in ug/m3, NaN inside solid buildings
+ * @param {((f: number) => void)|null} [p.onProgress] progress 0..1; the page stays responsive
+ * @returns {Promise<Float32Array>} concentration in ug/m3, NaN inside solid buildings
  */
-export function pollutantDispersion({
+export async function pollutantDispersion({
   heights,
   porosity = null,
   windRatioGrid = null,
@@ -126,9 +127,33 @@ export function pollutantDispersion({
   roadWeights = null,
   emissionRateUgMS = 450,
   backgroundUgM3 = 18,
-  treeDepositionFactor = 0.25
+  treeDepositionFactor = 0.25,
+  onProgress = null
 }) {
   const sources = emissionSources(roads, roadWeights, cols, rows, cell, heights, porosity, minX, maxY);
+  // Sources in 25 m bins: a cell visits only the bins within the 250 m
+  // plume reach (and within 30 m, for the canyon trap), not every source.
+  const BIN = 25, REACH = 250, NEAR = 30;
+  /** @type {Map<number, Array<{ x: number, y: number, length: number }>>} */
+  const bins = new Map();
+  const binKey = (bx, by) => (bx + 32768) * 65536 + (by + 32768);
+  for (const src of sources) {
+    const k = binKey(Math.floor(src.x / BIN), Math.floor(src.y / BIN));
+    let b = bins.get(k);
+    if (!b) { b = []; bins.set(k, b); }
+    b.push(src);
+  }
+  const span = Math.ceil(REACH / BIN) + 1;
+  // Beyond FAR the plume (sigma_y >= 13 m) is wider than half a bin: a bin
+  // counts as one source at its length-weighted centre.
+  const FAR = 60;
+  /** @type {Map<number, Array<{ x: number, y: number, length: number }>>} */
+  const merged = new Map();
+  for (const [k, members] of bins) {
+    let x = 0, y = 0, length = 0;
+    for (const m of members) { x += m.x * m.length; y += m.y * m.length; length += m.length; }
+    merged.set(k, length > 0 ? [{ x: x / length, y: y / length, length }] : []);
+  }
 
   // Wind vector blows towards (windFromDeg + 180) degrees
   const toRad = (((windFromDeg + 180) % 360) * Math.PI) / 180;
@@ -136,6 +161,7 @@ export function pollutantDispersion({
   const wy = Math.cos(toRad);
 
   const out = new Float32Array(cols * rows);
+  let lastYield = Date.now();
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -155,29 +181,46 @@ export function pollutantDispersion({
       let directPlume = 0;
       let minRoadDist = Infinity;
 
-      for (let s = 0; s < sources.length; s++) {
-        const src = sources[s];
-        const dx = rx - src.x;
-        const dy = ry - src.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist < minRoadDist) minRoadDist = dist;
+      const bx0 = Math.floor(rx / BIN), by0 = Math.floor(ry / BIN);
+      for (let gy = by0 - span; gy <= by0 + span; gy++) {
+        for (let gx = bx0 - span; gx <= bx0 + span; gx++) {
+          const key = binKey(gx, gy);
+          if (!bins.has(key)) continue;
+          // Nearest edge of the bin: farther than the reach, nothing to add.
+          const ex = Math.max(gx * BIN - rx, 0, rx - (gx + 1) * BIN);
+          const ey = Math.max(gy * BIN - ry, 0, ry - (gy + 1) * BIN);
+          const edge = Math.hypot(ex, ey);
+          if (edge > REACH) continue;
+          const members = edge > FAR ? merged.get(key) : bins.get(key);
+          // A bin wholly upwind adds no plume; it still counts for the canyon trap when near.
+          const cxb = (gx + 0.5) * BIN - rx, cyb = (gy + 0.5) * BIN - ry;
+          const upwind = -(cxb * wx + cyb * wy) < -BIN * Math.SQRT1_2;
+          if (upwind && edge > NEAR) continue;
+          for (let s = 0; s < members.length; s++) {
+            const src = members[s];
+            const dx = rx - src.x;
+            const dy = ry - src.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < minRoadDist) minRoadDist = dist;
 
-        if (dist > 250) continue;
+            if (dist > REACH || upwind) continue;
 
-        // Along-wind and cross-wind distance
-        const dAlong = dx * wx + dy * wy;
-        if (dAlong <= 0) continue; // Upwind of this source
+            // Along-wind and cross-wind distance
+            const dAlong = dx * wx + dy * wy;
+            if (dAlong <= 0) continue; // Upwind of this source
 
-        const dCross = Math.abs(dx * wy - dy * wx);
-        const sigmaY = 2.5 + 0.18 * dAlong;
-        const sigmaZ = 1.8 + 0.12 * dAlong;
+            const dCross = Math.abs(dx * wy - dy * wx);
+            const sigmaY = 2.5 + 0.18 * dAlong;
+            const sigmaZ = 1.8 + 0.12 * dAlong;
 
-        if (dCross > 4 * sigmaY) continue;
+            if (dCross > 4 * sigmaY) continue;
 
-        const expY = Math.exp(-0.5 * (dCross * dCross) / (sigmaY * sigmaY));
-        const expZ = Math.exp(-0.5 * (1.5 * 1.5) / (sigmaZ * sigmaZ));
-        const kernel = (src.length * (emissionRateUgMS / u) / (Math.PI * sigmaY * sigmaZ)) * expY * expZ;
-        directPlume += kernel;
+            const expY = Math.exp(-0.5 * (dCross * dCross) / (sigmaY * sigmaY));
+            const expZ = Math.exp(-0.5 * (1.5 * 1.5) / (sigmaZ * sigmaZ));
+            const kernel = (src.length * (emissionRateUgMS / u) / (Math.PI * sigmaY * sigmaZ)) * expY * expZ;
+            directPlume += kernel;
+          }
+        }
       }
 
       let trafficIncrement = directPlume;
@@ -209,6 +252,11 @@ export function pollutantDispersion({
 
       const totalConc = backgroundUgM3 + trafficIncrement;
       out[i] = Math.max(backgroundUgM3, Math.min(400, totalConc));
+    }
+    if (onProgress && Date.now() - lastYield > 50) {
+      onProgress((r + 1) / rows);
+      await new Promise((res) => setTimeout(res, 0));
+      lastYield = Date.now();
     }
   }
 
