@@ -3,6 +3,25 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.0] - 2026-10-26
+
+### Added
+- *Roads* layer role for QGIS line layers: the noise and air-quality maps use every visible Roads layer, with a per-road *Traffic* expression (1 = the level set in the viewer, 2 doubles the traffic, 0 leaves the road out; guessed from a `lanes` field).
+- OpenStreetMap roads: *Download OSM buildings, trees & roads* also adds `osm_roads` with `traffic_weight` by `highway` class (motorway 8 … residential 0.4, links half, tunnels left out).
+- Result subtitles name the road sources of a noise or dispersion run.
+- Reference manual chapters for microclimate and PET, ventilation and air quality, environmental noise, and green view and the solar envelope; a GitHub-readable copy, `docs/MANUAL.md`, built from `docs/index.html` by `tools/build_manual_md.py`.
+
+### Fixed
+- The Analyze cards always passed the (usually empty) list of drawn roads, so QGIS line layers never reached the noise and dispersion maps, and the same buildings got other values in the planning check. Section lines are no longer used as roads.
+- Noise map: three to ten times faster, with distant road samples grouped in 8 m clusters (within 0.5 dB of the full sum on a block grid), and computed with progress instead of freezing the page.
+- Without roads, sources now follow the street centrelines between buildings as residential streets. Before, a band of parallel sources across every street saturated the pollution map at its 400 µg/m³ cap.
+- Solar envelope: a building no longer limits itself through its own shadow, and sun that existing buildings already block sets no limit. An isolated block used to get an envelope of about 1 m.
+- Surface temperature: the Bowen ratio now scales only the turbulent exchange, not the radiative one. Vegetated surfaces had been about 25 % too cool.
+- Noise: air absorption at 500 Hz (1.9 dB/km, ISO 9613-2) to match the barrier frequency, and a 20 dB cap for single diffraction.
+- Wind streamlines no longer draw a stray segment where a trace leaves the grid.
+- The 24 h diurnal study uses the comfort card's manually entered temperature, humidity and wind, with clear-sky radiation, instead of fixed values.
+- `PLUGIN_VERSION`, which is sent as the OSM user agent, was still 1.0.3.
+
 ## [1.1.0] - 2026-10-24
 
 ### Added

@@ -548,7 +548,7 @@
         <span>Reference Manual</span>
       </div>
     </div>
-    <div class="version-pill">v1.1.0 · QGIS 3.28+ | 4</div>
+    <div class="version-pill">v1.2.0 · QGIS 3.28+ | 4</div>
   </div>
 
   <div class="search-wrap">
@@ -589,23 +589,30 @@
       <a class="nav-link" href="#uhi"><span class="n">10</span>Heat island &amp; LCZ</a>
     </div>
     <div class="nav-group">
+      <div class="nav-group-title">Microclimate &amp; environment</div>
+      <a class="nav-link" href="#microclimate"><span class="n">11</span>Microclimate &amp; PET</a>
+      <a class="nav-link" href="#ventilation"><span class="n">12</span>Ventilation &amp; air quality</a>
+      <a class="nav-link" href="#noise"><span class="n">13</span>Environmental noise</a>
+      <a class="nav-link" href="#greenview"><span class="n">14</span>Green view &amp; solar envelope</a>
+    </div>
+    <div class="nav-group">
       <div class="nav-group-title">Terrain &amp; earthwork</div>
-      <a class="nav-link" href="#sections"><span class="n">11</span>Sections &amp; profiles</a>
-      <a class="nav-link" href="#flooding"><span class="n">12</span>Water level &amp; flooding</a>
-      <a class="nav-link" href="#earthwork"><span class="n">13</span>Cut &amp; fill</a>
+      <a class="nav-link" href="#sections"><span class="n">15</span>Sections &amp; profiles</a>
+      <a class="nav-link" href="#flooding"><span class="n">16</span>Water level &amp; flooding</a>
+      <a class="nav-link" href="#earthwork"><span class="n">17</span>Cut &amp; fill</a>
     </div>
     <div class="nav-group">
       <div class="nav-group-title">Design &amp; optimisation</div>
-      <a class="nav-link" href="#compare"><span class="n">14</span>Scenario comparison</a>
-      <a class="nav-link" href="#optimize"><span class="n">15</span>NSGA-II optimisation</a>
+      <a class="nav-link" href="#compare"><span class="n">18</span>Scenario comparison</a>
+      <a class="nav-link" href="#optimize"><span class="n">19</span>NSGA-II optimisation</a>
     </div>
     <div class="nav-group">
       <div class="nav-group-title">QGIS &amp; reference</div>
-      <a class="nav-link" href="#qgis"><span class="n">16</span>Return to QGIS</a>
-      <a class="nav-link" href="#tutorial"><span class="n">17</span>Practical tutorial</a>
-      <a class="nav-link" href="#tools"><span class="n">18</span>Tool reference</a>
-      <a class="nav-link" href="#theory"><span class="n">19</span>Theory &amp; sources</a>
-      <a class="nav-link" href="#meta"><span class="n">20</span>Metadata</a>
+      <a class="nav-link" href="#qgis"><span class="n">20</span>Return to QGIS</a>
+      <a class="nav-link" href="#tutorial"><span class="n">21</span>Practical tutorial</a>
+      <a class="nav-link" href="#tools"><span class="n">22</span>Tool reference</a>
+      <a class="nav-link" href="#theory"><span class="n">23</span>Theory &amp; sources</a>
+      <a class="nav-link" href="#meta"><span class="n">24</span>Metadata</a>
     </div>
   </nav>
 
@@ -674,7 +681,7 @@
       <div class="grid-3">
         <a class="card" href="#g-dock"><h4>1 · QGIS dock</h4><p>Terrain, objects, climate, open in 3D.</p></a>
         <a class="card" href="#g-viewer"><h4>2 · The viewer</h4><p>Layout, tabs, navigation, layer card.</p></a>
-        <a class="card" href="#g-analyze"><h4>3 · Analyze tab</h4><p>Eleven tools, from sun hours to planning check.</p></a>
+        <a class="card" href="#g-analyze"><h4>3 · Analyze tab</h4><p>Thirteen tools, from sun hours to planning check.</p></a>
         <a class="card" href="#g-terrain"><h4>4 · Terrain tab</h4><p>Display, eight terrain maps, section, flood, cut and fill.</p></a>
         <a class="card" href="#g-compare"><h4>5 · Compare tab</h4><p>Scenarios and the height optimiser.</p></a>
         <a class="card" href="#g-export"><h4>6 · Exports and QGIS</h4><p>Image, PDF, HTML, GLB, DXF, round trip.</p></a>
@@ -697,7 +704,7 @@
           <ul>
             <li>Add each vector layer as a row. For each row choose a <strong>Role</strong> (buildings, trees and so on), a <strong>Height expression</strong> and a <strong>Bottom</strong> value.</li>
             <li><strong>Colour</strong>: take the QGIS style or a single colour. <strong>Existing / Scenario A / Scenario B</strong> marks which state of the design a layer belongs to.</li>
-            <li><strong>Download OSM buildings and trees</strong> fills the area when you have no data.</li>
+            <li><strong>Download OSM buildings, trees &amp; roads</strong> fills the area when you have no data. The roads carry a traffic weight by road class for the noise and air-quality maps.</li>
             <li>The <strong>Climate data</strong> fold takes extra rasters and a <strong>Weather EPW</strong> file; <em>Nearest station…</em> finds one for you.</li>
             <li>Height guess order: height fields first, then floors × 3 m. Anything else gets the default.</li>
           </ul></div>
@@ -894,7 +901,7 @@
             <li>Three-step dock: terrain, objects, open in 3D.</li>
             <li>Reads DEM tiles and extrudes features from any layer, field or expression.</li>
             <li>Carries layer colours, height rules, bottom heights and filters into the scene.</li>
-            <li>Downloads OSM buildings and trees for the scene area.</li>
+            <li>Downloads OSM buildings, trees and roads for the scene area.</li>
             <li>Receives results, writes GeoTIFFs and a results GeoPackage, applies 3D styling.</li>
             <li>Shares the QGIS selection with the viewer in both directions.</li>
           </ul>
@@ -959,7 +966,7 @@
         <div class="flow-step">
           <div class="num">2</div>
           <h4>Objects &amp; heights</h4>
-          <p>Tick the layers to show. For each layer choose the role (building, wall, tree, pole, ground), the height source and the colour rule. Download OSM buildings and trees when the project has none.</p>
+          <p>Tick the layers to show. For each layer choose the role (building, wall, road, tree, pole, ground), the height source (for roads, the relative traffic) and the colour rule. Download OSM buildings, trees and roads when the project has none.</p>
         </div>
         <div class="flow-step">
           <div class="num">3</div>
@@ -1316,10 +1323,190 @@ bottom = "min_height"</code></pre>
     </div>
   </section>
 
+  <!-- ======================================================= MICROCLIMATE -->
+  <section id="microclimate">
+    <div class="wrap">
+      <div class="eyebrow">11 · Microclimate &amp; PET</div>
+      <h2>Surfaces, trees and the air in between</h2>
+      <p>The thermal comfort card runs a small surface energy balance in the style of ENVI-met. It is not a full CFD and soil model. It gives the three quantities that make most of the difference at street level: how hot the ground gets, how much shade and evaporative cooling trees bring, and how a person feels in that radiant field. The card computes UTCI and the Physiological Equivalent Temperature (PET) on the same grid.</p>
+
+      <h3>Surface temperature</h3>
+      <p>Every open cell gets a steady-state surface temperature from absorbed short-wave radiation, the long-wave deficit to the sky, and convective and radiative exchange with the air. Evaporation takes part of the net radiation before it can warm the surface. The material's Bowen ratio \(\beta = H/LE\) sets how much: asphalt loses little to evaporation, grass and water lose most. A surface that is losing heat at night does not evaporate.</p>
+
+      <div class="formula" data-label="Surface energy balance (linearised)">
+        $$Q^{*} = (1-\alpha)\left(S_{dir}\,f_{sun}\,\tau_{c} + SVF\,D\right) + \varepsilon\,SVF\,\sigma\left(T_{sky}^{4} - T_{a}^{4}\right)$$
+        $$Q^{*} = H + LE + h_{r}\,\Delta T, \quad H = h_{c}\,\Delta T, \quad LE = H/\beta \;\Rightarrow\; T_{s} = T_{a} + \frac{Q^{*}}{h_{c}\,(1+\beta)/\beta + h_{r}}$$
+        $$h_{c} = 5.8 + 4.1\,v, \qquad h_{r} = 4\,\varepsilon\,\sigma\,T_{a}^{3}$$
+      </div>
+
+      <p>\(\alpha\) is the albedo, \(\varepsilon\) the emissivity, \(S_{dir}\) the direct beam on the horizontal, \(D\) the diffuse irradiance and \(f_{sun}\) the sunlit share from the GPU shadow pass. Tree canopies pass a fraction \(\tau_c = e^{-k\,LAI}\) of the beam (Beer–Lambert, \(k = 0.6\)). The rise above air temperature is clamped between −12 °C and +35 °C.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Material</th><th>Albedo</th><th>Emissivity</th><th>Bowen ratio</th></tr></thead>
+          <tbody>
+            <tr><td>Asphalt / dark pavement</td><td>0.12</td><td>0.95</td><td>8.0</td></tr>
+            <tr><td>Concrete / stone</td><td>0.28</td><td>0.92</td><td>5.0</td></tr>
+            <tr><td>Brick / pavers</td><td>0.25</td><td>0.93</td><td>4.0</td></tr>
+            <tr><td>Bare soil / gravel</td><td>0.22</td><td>0.94</td><td>2.0</td></tr>
+            <tr><td>Grass / vegetated ground</td><td>0.22</td><td>0.97</td><td>0.5</td></tr>
+            <tr><td>Cool pavement</td><td>0.55</td><td>0.95</td><td>5.0</td></tr>
+            <tr><td>Green / cool roof</td><td>0.45</td><td>0.96</td><td>0.6</td></tr>
+            <tr><td>Water</td><td>0.08</td><td>0.98</td><td>0.25</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Canopy cooling</h3>
+      <p>Tree cells cool the air by up to 2.5 °C and vegetated ground by up to 1 °C. The effect scales with the vapour pressure deficit (dry, warm air evaporates more) and with leaf area. The cooling is then carried downwind with an exponential decay length of 25–60 m, which grows with wind speed, and is blocked by solid buildings. In deep canyons (SVF below 0.5) the result adds up to +1.5 °C of trapped heat. The map shows \(\Delta T_a\): negative values are cooler than the open air.</p>
+
+      <h3>PET</h3>
+      <p>PET is the air temperature of a standard indoor room at which a person would have the same heat balance as outdoors (Höppe 1999). The plugin solves the MEMI two-node balance for a standard person (80 W metabolic rate, 0.9 clo) with the same air temperature, mean radiant temperature, wind and humidity that go into UTCI. Use UTCI to compare climates; use PET when a local guideline is written in PET classes.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>PET (°C)</th><th>Thermal perception</th><th>Physiological stress</th></tr></thead>
+          <tbody>
+            <tr><td>&lt; 4</td><td>Very cold</td><td>Extreme cold stress</td></tr>
+            <tr><td>4 – 8</td><td>Cold</td><td>Strong cold stress</td></tr>
+            <tr><td>8 – 13</td><td>Cool</td><td>Moderate cold stress</td></tr>
+            <tr><td>13 – 18</td><td>Slightly cool</td><td>Slight cold stress</td></tr>
+            <tr><td>18 – 23</td><td>Comfortable</td><td>No thermal stress</td></tr>
+            <tr><td>23 – 29</td><td>Slightly warm</td><td>Slight heat stress</td></tr>
+            <tr><td>29 – 35</td><td>Warm</td><td>Moderate heat stress</td></tr>
+            <tr><td>35 – 41</td><td>Hot</td><td>Strong heat stress</td></tr>
+            <tr><td>&gt; 41</td><td>Very hot</td><td>Extreme heat stress</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid grid-3">
+        <div class="card">
+          <span class="kicker">24 h</span>
+          <h4>Diurnal study</h4>
+          <p><em>24 h diurnal study</em> computes UTCI for every hour of the chosen day and plays the day on the sun clock. Click the ground to see the hourly curves of air, surface and radiant temperature, UTCI and PET, with a sun-path diagram.</p>
+        </div>
+        <div class="card emerald">
+          <span class="kicker">What-if</span>
+          <h4>Plant trees</h4>
+          <p><em>Plant tree…</em> places a tree with the card's height and crown radius. Planted trees cast shadows, cool the air downwind and count in the Green View Index. Run the analysis again to compare before and after.</p>
+        </div>
+        <div class="card amber">
+          <span class="kicker">Inputs</span>
+          <h4>Weather</h4>
+          <p>With an EPW file, the hour's air temperature, humidity, wind and radiation come from the file. Without one, or with <em>Enter manually</em>, you type the conditions in and a clear-sky model provides the radiation.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================================================= VENTILATION -->
+  <section id="ventilation">
+    <div class="wrap">
+      <div class="eyebrow">12 · Ventilation &amp; air quality</div>
+      <h2>How well a street flushes its air</h2>
+      <p>The ventilation card combines the pedestrian wind screening of section 08 with the sky view factor of section 06. From the two it estimates how well each open cell exchanges air with the flow above roofs, and how traffic pollution spreads from the roads.</p>
+
+      <div class="formula" data-label="Ventilation efficiency and normalised air age">
+        $$VEI = 0.7\,\frac{U_{ped}}{U_{open}} + 0.3\,SVF, \qquad \tau^{*} = \frac{1}{\max(VEI,\,0.08)}$$
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>VEI</th><th>Class</th><th>Reading</th></tr></thead>
+          <tbody>
+            <tr><td>≥ 0.8</td><td>Well ventilated</td><td>Open to the flow; pollution and heat are carried away.</td></tr>
+            <tr><td>0.5 – 0.8</td><td>Moderate exchange</td><td>Typical urban street.</td></tr>
+            <tr><td>0.3 – 0.5</td><td>Low ventilation</td><td>Sheltered; good in winter wind, poor for summer heat and pollution.</td></tr>
+            <tr><td>&lt; 0.3</td><td>Stagnation risk</td><td>Enclosed courtyards and deep canyons across the wind.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Traffic dispersion</h3>
+      <p>Roads are line sources, sampled every 2 m or one cell. Each sample spreads downwind as a Gaussian plume. The plume's widths \(\sigma_y = 2.5 + 0.18\,x\) and \(\sigma_z = 1.8 + 0.12\,x\) grow with the distance \(x\) along the wind, and its local speed is scaled by the pedestrian wind ratio. This follows the idea behind OSPM (Berkowicz 2000). Close to a road (under 30 m) in an enclosed canyon, the increment rises by \(1 + 1.4\,(1 - SVF)\) to represent the recirculating canyon vortex. Next to tree crowns it falls by the <em>tree filtration share</em>. The result is background plus the traffic increment, in µg/m³, for NO<sub>2</sub> or PM<sub>2.5</sub> depending on the emission rate you enter.</p>
+
+      <div class="callout">
+        <p><strong>Where the roads come from.</strong> The noise and air-quality maps use the same road sources: the lines drawn in the viewer with <em>Draw road source…</em>, and every visible layer given the <strong>Roads</strong> role in the QGIS dock. A Roads layer has a <em>Traffic</em> expression instead of a height. 1 is the level set in the viewer, 2 doubles the traffic (+3 dB, twice the pollution increment) and 0 leaves the road out. <em>Download OSM buildings, trees &amp; roads</em> fills it from the road class: motorway 8, trunk 5, primary 3, secondary 2, tertiary 1.2, residential 0.4, and half of these for link roads. Tunnels are left out. With no roads at all, the plugin finds the street centrelines (the open ground farthest from the buildings on both sides) and treats every street as a residential street (traffic 0.4). The result's subtitle says which source was used.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ NOISE -->
+  <section id="noise">
+    <div class="wrap">
+      <div class="eyebrow">13 · Environmental noise</div>
+      <h2>Road noise in three dimensions</h2>
+      <p>The noise card maps road traffic noise at a receiver height (1.5 m by default, 4 m for the END reporting height). It follows the structure of ISO 9613-2 and CNOSSOS-EU but simplifies each term, so read the result as a screening map, not as a strategic noise map.</p>
+
+      <div class="formula" data-label="Level at a receiver, summed over road samples">
+        $$L_{i} = L_{W}' + 10\log_{10}(\ell_{i}\,w_{i}) - A_{div} - A_{atm} - A_{gr} - A_{bar} - A_{foliage} + \Delta L_{refl}$$
+        $$L = 10\log_{10}\sum_{i} 10^{L_{i}/10}, \qquad A_{div} = 20\log_{10} d + 8, \quad A_{atm} = 0.0019\,d$$
+      </div>
+
+      <p>\(L_W'\) is the sound power per metre of road, \(\ell_i\) the length a sample stands for, and \(w_i\) the road's relative traffic. The terms then work as follows:</p>
+      <ul>
+        <li><strong>Ground</strong> \(A_{gr} = 1.5\,G\log_{10}(d/2)\), where \(G\) runs from 0 (hard pavement) to 1 (grass and soil).</li>
+        <li><strong>Barriers:</strong> a ray from each source to the receiver finds the highest blocking building. Its path difference \(\delta\) gives the Maekawa attenuation \(A_{bar} = 10\log_{10}(3 + 20N)\), with \(N = 2\delta/\lambda\) at 500 Hz, capped at 20 dB as in ISO 9613-2 for single diffraction. Air absorption uses the ISO 9613-2 value at 500 Hz, 1.9 dB/km.</li>
+        <li><strong>Foliage:</strong> 0.08 dB per metre of crown along the ray, up to 4 dB.</li>
+        <li><strong>Reflections:</strong> receivers within 12 m of a facade gain 1.8 dB.</li>
+      </ul>
+      <p>Road samples closer than 64 m are traced one by one. Farther samples are grouped into clusters of about 8 m, and each cluster is traced as one source at its centre. On a test grid of city blocks this stays within 0.5 dB of tracing every sample and runs four times faster. The page stays responsive and shows progress while the map is computed.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>L<sub>den</sub> dB(A)</th><th>Class</th><th>Reference</th></tr></thead>
+          <tbody>
+            <tr><td>&lt; 55</td><td>Quiet</td><td>Below the WHO 2018 guideline for road traffic (53 dB L<sub>den</sub>) plus margin</td></tr>
+            <tr><td>55 – 65</td><td>Moderate</td><td>END reporting band; annoyance rises</td></tr>
+            <tr><td>65 – 70</td><td>Loud</td><td>Common action-plan threshold</td></tr>
+            <tr><td>≥ 70</td><td>High noise</td><td>Priority for mitigation</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Each building gets <code>noise_dba_max</code> and <code>noise_dba_mean</code> on its perimeter, and <code>quiet_facade</code> when one side is at least 10 dB quieter than the loudest. The planning check uses the maximum facade level as its <em>Facade noise</em> criterion.</p>
+    </div>
+  </section>
+
+  <!-- ======================================================= URBAN FORM -->
+  <section id="greenview">
+    <div class="wrap">
+      <div class="eyebrow">14 · Green view &amp; solar envelope</div>
+      <h2>What people see, and what can still be built</h2>
+
+      <h3>Green View Index</h3>
+      <p>The Green View Index (GVI) is the share of a pedestrian's view that is vegetation (Yang et al. 2009; Li et al. 2015, Treepedia). The plugin does not use street-view photos. It traces 24 horizontal rays from eye height (1.6 m) out to the sight radius (80 m). Along each ray it adds up the vertical angle covered by tree crowns that are not hidden behind buildings, and the downward angle of vegetated ground within 30 m. The visible green angle, divided by a 90° vertical field of view and averaged over the rays, is the GVI in percent.</p>
+
+      <div class="formula" data-label="Green View Index">
+        $$GVI = \frac{1}{N_\theta}\sum_{\theta}\frac{\Phi_{tree}(\theta) + \Phi_{ground}(\theta)}{\pi/2}\times 100\,\%$$
+      </div>
+
+      <div class="grid grid-3">
+        <div class="card"><span class="kicker">&lt; 10 %</span><h4>Bare</h4><p>Little or no visible green.</p></div>
+        <div class="card amber"><span class="kicker">10 – 20 %</span><h4>Moderate</h4><p>Typical of many city streets.</p></div>
+        <div class="card emerald"><span class="kicker">≥ 20 %</span><h4>Green street</h4><p>Green streets; above 35 % reads as a full canopy.</p></div>
+      </div>
+
+      <h3>3D solar envelope</h3>
+      <p>The solar envelope is the largest volume that can be built on a site without taking the protected sun from its neighbours (Knowles 1981). The plugin protects the facades and the open ground at the base of every existing building. For the chosen day and sun window it keeps the highest sun positions until they add up to the required sun hours (2 h by default). From every protected point it then casts a plane towards each of those sun positions. The envelope height of a cell is the lowest of these planes above it, capped by the maximum height. That height divided by the floor height gives the floor capacity.</p>
+
+      <div class="formula" data-label="Envelope height of a cell">
+        $$H_{max}(c) = \min\left(H_{cap},\ \min_{r,\,s}\ d(r,c)\,\tan\gamma_{s}\right)$$
+      </div>
+
+      <p>\(d(r,c)\) is the horizontal distance from a protected point \(r\) to the cell \(c\), measured along the sun's azimuth, and \(\gamma_s\) is the elevation of sun position \(s\). The results are <code>solarenvelope</code> (metres) and <code>solarfloors</code> (whole floors). Both go to QGIS as GeoTIFFs and can be compared with the existing heights in the Compare tab.</p>
+
+      <div class="callout warn">
+        <p><strong>Screening, not a rights-to-light report.</strong> Receptors stand at ground level, and the grid resolution limits how close to a facade the envelope is exact. Treat the envelope as a design starting point and confirm critical windows with the facade daylight (VSC) analysis and the planning check.</p>
+      </div>
+    </div>
+  </section>
+
   <!-- ============================================================ SECTIONS -->
   <section id="sections">
     <div class="wrap">
-      <div class="eyebrow">11 · Terrain sections</div>
+      <div class="eyebrow">15 · Terrain sections</div>
       <h2>Draw a line, get a section with buildings</h2>
       <p>The section tool samples the terrain along a line and adds the building silhouettes that intersect it. The result is the drawing that a planner or an architect would otherwise construct by hand: ground profile, vertical exaggeration, storey lines and a scale bar.</p>
 
@@ -1348,7 +1535,7 @@ bottom = "min_height"</code></pre>
   <!-- ============================================================ FLOODING -->
   <section id="flooding">
     <div class="wrap">
-      <div class="eyebrow">12 · Water level &amp; flooding</div>
+      <div class="eyebrow">16 · Water level &amp; flooding</div>
       <h2>Bathtub and connected inundation</h2>
       <p>The flooding tool fills the terrain from a chosen water level and reports depth, affected buildings and the flooded area. Two modes are available because they answer different questions.</p>
 
@@ -1377,7 +1564,7 @@ bottom = "min_height"</code></pre>
   <!-- =========================================================== EARTHWORK -->
   <section id="earthwork">
     <div class="wrap">
-      <div class="eyebrow">13 · Cut &amp; fill</div>
+      <div class="eyebrow">17 · Cut &amp; fill</div>
       <h2>Balancing the earthwork</h2>
       <p>Cut and fill compares the existing terrain with a design level. The volume above the design level is cut; the volume below is filled. The balancing level is the elevation at which the two volumes are equal, which is the first number a grading study needs.</p>
 
@@ -1400,7 +1587,7 @@ bottom = "min_height"</code></pre>
   <!-- ============================================================ COMPARE -->
   <section id="compare">
     <div class="wrap">
-      <div class="eyebrow">14 · Scenario comparison</div>
+      <div class="eyebrow">18 · Scenario comparison</div>
       <h2>B minus A, on the same grid</h2>
       <p>Two scenes can be compared cell by cell. Scenario A is the baseline; scenario B is the proposal. The difference map shows where sun, sky view, irradiation or wind improves or worsens, and the summary reports the area that gains and the area that loses.</p>
 
@@ -1418,7 +1605,7 @@ bottom = "min_height"</code></pre>
   <!-- =========================================================== OPTIMIZE -->
   <section id="optimize">
     <div class="wrap">
-      <div class="eyebrow">15 · Multi-objective optimisation</div>
+      <div class="eyebrow">19 · Multi-objective optimisation</div>
       <h2>Floor area versus sun on the ground</h2>
       <p>The optimiser searches over the floor counts of selected buildings. More floors add floor area but cast longer shadows, so the two objectives conflict. NSGA-II is used because it returns a set of non-dominated designs rather than a single weighted compromise.</p>
 
@@ -1449,7 +1636,7 @@ bottom = "min_height"</code></pre>
   <!-- =============================================================== QGIS -->
   <section id="qgis">
     <div class="wrap">
-      <div class="eyebrow">16 · Bidirectional integration</div>
+      <div class="eyebrow">20 · Bidirectional integration</div>
       <h2>Results become project layers</h2>
       <p>An analysis that stays in a browser is a screenshot. The round trip is the point of the plugin: every grid result can be written as a GeoTIFF in the project CRS, and every per-building result can be written as fields in a results GeoPackage.</p>
 
@@ -1487,7 +1674,7 @@ bottom = "min_height"</code></pre>
   <!-- ============================================================ TUTORIAL -->
   <section id="tutorial">
     <div class="wrap">
-      <div class="eyebrow">17 · Practical tutorial</div>
+      <div class="eyebrow">21 · Practical tutorial</div>
       <h2>A complete solar study, start to finish</h2>
       <p>The walkthrough below uses only QGIS and the plugin. It takes a project with no data and ends with a solar-potential GeoTIFF and a set of building fields.</p>
 
@@ -1512,7 +1699,7 @@ bottom = "min_height"</code></pre>
 
         <div class="tstep">
           <h4>Get buildings and trees</h4>
-          <p>If the project has no building layer, press <em>Download OSM buildings &amp; trees</em>. The plugin queries OpenStreetMap for the scene area, derives heights from <code>height</code> and <code>building:levels</code> tags, and falls back to a height by building type.</p>
+          <p>If the project has no building layer, press <em>Download OSM buildings, trees &amp; roads</em>. The plugin queries OpenStreetMap for the scene area, derives heights from <code>height</code> and <code>building:levels</code> tags, and falls back to a height by building type. Roads get a <code>traffic_weight</code> from their <code>highway</code> class.</p>
           <pre><code>-- check the downloaded heights in the attribute table
 "height"          -- explicit metres, when tagged
 "building:levels" -- storeys, converted with 3.0 m per storey
@@ -1561,7 +1748,7 @@ Surfaces       ground + roofs + facades</code></pre>
   <!-- =============================================================== TOOLS -->
   <section id="tools">
     <div class="wrap">
-      <div class="eyebrow">18 · Tool reference</div>
+      <div class="eyebrow">22 · Tool reference</div>
       <h2>Every analysis in one table</h2>
       <p>The viewer groups tools by task. The tabs below summarise what each one needs and what it returns.</p>
 
@@ -1648,7 +1835,7 @@ Surfaces       ground + roofs + facades</code></pre>
   <!-- ============================================================== THEORY -->
   <section id="theory">
     <div class="wrap">
-      <div class="eyebrow">19 · Theory &amp; sources</div>
+      <div class="eyebrow">23 · Theory &amp; sources</div>
       <h2>What the models assume</h2>
       <p>The plugin is deliberately explicit about its methods. Every result carries a note naming the model and its limits, and the sources below are the ones implemented in the viewer.</p>
 
@@ -1689,7 +1876,7 @@ Surfaces       ground + roofs + facades</code></pre>
   <!-- ================================================================ META -->
   <section id="meta">
     <div class="wrap">
-      <div class="eyebrow">20 · Metadata</div>
+      <div class="eyebrow">24 · Metadata</div>
       <h2>Document and software record</h2>
 
       <div class="table-wrap">
@@ -1697,7 +1884,7 @@ Surfaces       ground + roofs + facades</code></pre>
           <tbody>
             <tr><td>Plugin</td><td>02 Geo3D Analyzer</td></tr>
             <tr><td>Package</td><td><code>zero2geospatial3d</code></td></tr>
-            <tr><td>Version</td><td>1.1.0</td></tr>
+            <tr><td>Version</td><td>1.2.0</td></tr>
             <tr><td>QGIS</td><td>3.28 or newer; QGIS 4 supported</td></tr>
             <tr><td>Runtime</td><td>WebGL 2 browser, local loopback bridge</td></tr>
             <tr><td>Dependencies</td><td>None beyond QGIS and the bundled viewer</td></tr>
@@ -1713,7 +1900,7 @@ Surfaces       ground + roofs + facades</code></pre>
       </div>
 
       <h3>Scope of this manual</h3>
-      <p>This document describes the plugin as shipped in version 1.1.0. Analyses are screening tools for design and planning; they are not a substitute for a formal daylight assessment, a wind-tunnel study, a structural calculation or a statutory compliance report. The note attached to each result names the method and the main limitation.</p>
+      <p>This document describes the plugin as shipped in version 1.2.0. Analyses are screening tools for design and planning; they are not a substitute for a formal daylight assessment, a wind-tunnel study, a structural calculation or a statutory compliance report. The note attached to each result names the method and the main limitation.</p>
     </div>
   </section>
 

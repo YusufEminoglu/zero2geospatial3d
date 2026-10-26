@@ -7,8 +7,8 @@
 **3D viewer and analyzer for terrain and extruded layers: sun hours, sky view factor, shadows, solar PV, visibility, wind and thermal-comfort screening, terrain sections, flooding and cut/fill, with results returned to QGIS.**
 
 [![QGIS](https://img.shields.io/badge/QGIS-3.28%2B%20%7C%204-93b023?logo=qgis&logoColor=white)](https://plugins.qgis.org/plugins/zero2geospatial3d/)
-[![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com/YusufEminoglu/zero2geospatial3d/releases)
-[![Manual](https://img.shields.io/badge/manual-reference%20guide-teal?logo=read-the-docs&logoColor=white)](https://github.com/YusufEminoglu/zero2geospatial3d/blob/main/docs/index.html)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue)](https://github.com/YusufEminoglu/zero2geospatial3d/releases)
+[![Manual](https://img.shields.io/badge/manual-reference%20guide-teal?logo=read-the-docs&logoColor=white)](docs/MANUAL.md)
 [![License](https://img.shields.io/badge/license-MIT-orange)](LICENSE)
 [![QGIS Plugin Hub](https://img.shields.io/badge/QGIS%20Hub-install-589632?logo=qgis&logoColor=white)](https://plugins.qgis.org/plugins/zero2geospatial3d/)
 
@@ -18,7 +18,7 @@
 
 ---
 
-> 📖 **Illustrated Reference Manual & Visual Guide:** [Reference Manual (docs/index.html)](https://github.com/YusufEminoglu/zero2geospatial3d/blob/main/docs/index.html) — step-by-step walkthrough, visual diagrams, mathematical formulations, and standards.
+> 📖 **Illustrated Reference Manual & Visual Guide:** [read it on GitHub (docs/MANUAL.md)](docs/MANUAL.md) or [online at geophilo.com](https://geophilo.com/zero2geospatial3d/) — step-by-step walkthrough, visual diagrams, mathematical formulations, and standards. The plugin's *Manual* buttons open the online edition. Its source is [`docs/index.html`](docs/index.html); `python tools/build_manual_md.py` rebuilds the Markdown copy from it.
 
 ## Why 02 Geo3D Analyzer?
 
@@ -36,7 +36,7 @@ answer ends up in your project, not in a screenshot.
 - **Sun and sky** — sun hours and shadow share for any day, sky view factor, annual irradiation with rooftop and facade PV yield; ground, roofs and facades are all analysed.
 - **Microclimate & Comfort** — Surface energy balance with Bowen ratio partitioning, Physiological Equivalent Temperature (PET, MEMI energy balance) alongside UTCI, surface-aware Mean Radiant Temperature, ground surface temperature, and canopy evapotranspiration cooling (ΔTa); continuous 24-hour animated diurnal comfort studies (`diurnalStudy`) and interactive What-If 3D tree planting with live shading and cooling advection.
 - **Ventilation & Air Quality** — Street-canyon ventilation efficiency (VEI), normalized air age (τ), and OSPM-inspired traffic pollutant dispersion (NO2 and PM2.5) with canyon vortex trapping and tree canopy filtration; animated 3D wind streamlines in the viewport.
-- **Acoustic Screening & Noise** — 3D environmental noise propagation (ISO 9613-2 / CNOSSOS-EU proxy) with Maekawa barrier diffraction, road sound power emission, and quiet-facade detection for buildings.
+- **Acoustic Screening & Noise** — 3D environmental noise propagation (ISO 9613-2 / CNOSSOS-EU proxy) with Maekawa barrier diffraction, road sound power emission, and quiet-facade detection for buildings. Roads come from any QGIS line layer with the *Roads* role (a *Traffic* expression per road, e.g. `"lanes"`), from OpenStreetMap with traffic by road class, or from lines drawn in the viewer.
 - **Green View & Solar Envelope** — Panoramic eye-level Green View Index (GVI) evaluating visible green canopy and surface vegetation; Knowles / BRE 3D Solar Envelope maximum buildable height limits and floor capacity preserving neighbours' solar access.
 - **Climate & Weather** — EnergyPlus weather files (or the nearest TMYx station, downloaded in one click), pedestrian wind screening, heat-island morphology and approximate Local Climate Zones; climate rasters draped on the ground and averaged per building.
 - **Terrain** — shading by slope, aspect or elevation, contours, vertical exaggeration, sections with building silhouettes (PNG, CSV, DXF), water-level flooding, cut and fill with a balancing level; terrain maps (elevation, slope, aspect, hillshade, curvature, topographic position, ruggedness, wetness index) that open side by side in up to 8 panels and go to QGIS as GeoTIFFs.
@@ -59,7 +59,7 @@ Requires QGIS 3.28 or newer (QGIS 4 included) and a browser with WebGL 2. No ext
 
 1. Click the **02 Geo3D Analyzer** toolbar icon.
 2. **Terrain:** choose your DEM (or leave it empty for flat ground) and the scene area.
-3. **Objects:** tick the layers to show; check each layer's role and height (e.g. `"floors" * 3.2`). No buildings? Use *Download OSM buildings & trees*.
+3. **Objects:** tick the layers to show; check each layer's role and height (e.g. `"floors" * 3.2`). No buildings? Use *Download OSM buildings, trees & roads*. Give road layers the *Roads* role to feed the noise and air-quality maps.
 4. Optionally add climate rasters and a weather file (*Nearest station…*).
 5. **Open in 3D.** In the browser, open **Analyze**, pick a card and press *Run*; press **To QGIS** on a result to add it to your project.
 
