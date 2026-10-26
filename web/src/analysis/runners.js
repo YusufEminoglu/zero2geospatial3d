@@ -565,25 +565,29 @@ export class Analyst {
     return mask;
   }
 
+  /**
+   * Road sources for noise and dispersion: lines drawn in the viewer, then
+   * every visible layer with the Roads role. weights holds each line's
+   * relative traffic (the layer's "Traffic" expression, 1 when drawn).
+   * @returns {{ lines: Array<Array<[number, number]>>, weights: number[] }}
+   */
   roadLines() {
-    const out = [];
+    const lines = [], weights = [];
     if (Array.isArray(this.app.drawnRoads)) {
       for (const line of this.app.drawnRoads) {
-        if (Array.isArray(line) && line.length >= 2) out.push(line);
+        if (Array.isArray(line) && line.length >= 2) { lines.push(line); weights.push(1); }
       }
     }
     for (const layer of this.app.layers) {
-      if (layer instanceof LineLayer && layer.visible && Array.isArray(layer.lines)) {
-        for (const parts of layer.lines) {
-          if (Array.isArray(parts)) {
-            for (const line of parts) {
-              if (Array.isArray(line) && line.length >= 2) out.push(line);
-            }
-          }
+      if (!(layer instanceof LineLayer) || layer.entry.role !== 'roads' || !layer.visible) continue;
+      layer.lines.forEach((parts, f) => {
+        const w = layer.heights[f];
+        for (const line of parts) {
+          if (Array.isArray(line) && line.length >= 2) { lines.push(line); weights.push(Number.isFinite(w) ? w : 1); }
         }
-      }
+      });
     }
-    return out;
+    return { lines, weights };
   }
 
   surroundingFields(ids, heights, cols, rows, cell, values, fieldName, ringMetres = 15) {
@@ -801,7 +805,7 @@ export class Analyst {
           ['Range', `${st.min.toFixed(1)} – ${st.max.toFixed(1)} °C`],
           ...[...counts].map(([k, v]) => [k, `${((100 * v) / Math.max(1, total)).toFixed(0)} %`])
         ],
-        notes: 'UTCI (Bröde et al. 2012) from air temperature, humidity, sheltered wind and a SolarCal mean radiant temperature; surfaces are taken at air temperature.'
+        notes: 'UTCI (Bröde et al. 2012) from air temperature, humidity, sheltered wind and a SolarCal mean radiant temperature; the ground at its modelled surface temperature, walls at the local air temperature.'
       },
       {
         kind: 'pet',
@@ -934,9 +938,17 @@ export class Analyst {
     return null;
   }
 
-  async diurnalStudy({ area, cell, date, material = 'concrete', lai = 3.0, startHour = 6, endHour = 21, onProgress }) {
+  /**
+   * manual: { airTemp, rh, windSpeed, windDir, hour } typed on the comfort
+   * card; it replaces the weather file, and the air temperature follows a
+   * day curve (amplitude 5 °C, warmest mid-afternoon) through the typed
+   * value at its hour. Radiation then comes from a clear sky.
+   */
+  async diurnalStudy({ area, cell, date, material = 'concrete', lai = 3.0, startHour = 6, endHour = 21, manual = null, onProgress }) {
     const s = this.site();
     const doy = typicalDoy(date.month, date.day);
+    const dayCurve = (hh) => 5 * Math.sin(((hh - 9) / 24) * 2 * Math.PI);
+    let clearSky = null;
     const svfKey = cacheKey('svf', area, cell);
     let svfRun = this.cache.get(svfKey);
     if (!svfRun) {
@@ -960,18 +972,18 @@ export class Analyst {
       const p = solarPosition(doy, hh - 0.5, s.lat, s.lon, s.utcOffset);
       const elevDeg = p.elevation / DEG;
 
-      let cond = this.conditionsFor(date.month, date.day, hh);
+      let cond = manual ? null : this.conditionsFor(date.month, date.day, hh);
       if (!cond) {
-        const airTemp = 26 + 5 * Math.sin(((hh - 9) / 24) * 2 * Math.PI);
-        const sunElevFrac = Math.max(0, Math.sin(p.elevation));
+        clearSky ??= clearSkyYear(s.lat, s.lon, s.utcOffset);
+        const k = (doy - 1) * 24 + Math.max(0, Math.min(23, Math.round(hh) - 1));
         cond = {
-          airTemp,
-          rh: 50,
-          windSpeed: 2.5,
-          windDir: 270,
-          dni: 800 * sunElevFrac,
-          dhi: 150 * sunElevFrac,
-          ghi: (800 * sunElevFrac + 150) * sunElevFrac,
+          airTemp: manual ? manual.airTemp + dayCurve(hh) - dayCurve(manual.hour ?? 15) : 26 + dayCurve(hh),
+          rh: manual?.rh ?? 50,
+          windSpeed: manual?.windSpeed ?? 2.5,
+          windDir: manual?.windDir ?? 270,
+          dni: clearSky.dni[k],
+          dhi: clearSky.dhi[k],
+          ghi: clearSky.ghi[k],
           ir: null
         };
       }
@@ -1083,7 +1095,7 @@ export class Analyst {
     return [result];
   }
 
-  async ventilation({ area, cell, windFromDeg = 270, speed10 = 4, emissionRateUgMS = 450, backgroundUgM3 = 18, treeDepositionFactor = 0.25, roads = null, onProgress }) {
+  async ventilation({ area, cell, windFromDeg = 270, speed10 = 4, emissionRateUgMS = 450, backgroundUgM3 = 18, treeDepositionFactor = 0.25, roads = null, roadWeights = null, onProgress }) {
     const og = await this.obstacleGrid({ area, cell, onProgress: (f) => onProgress?.(0.25 * f) });
     const { grid } = og;
     const ratio = await windRatio({ heights: og.heights, porosity: og.porosity, cols: grid.cols, rows: grid.rows, cell,
@@ -1104,7 +1116,7 @@ export class Analyst {
       cell
     });
 
-    const activeRoads = roads || this.roadLines();
+    const src = roads ? { lines: roads, weights: roadWeights } : this.roadLines();
     const conc = pollutantDispersion({
       heights: og.heights,
       porosity: og.porosity,
@@ -1117,7 +1129,8 @@ export class Analyst {
       maxY: grid.maxY,
       windFromDeg,
       windSpeed10: speed10,
-      roads: activeRoads,
+      roads: src.lines,
+      roadWeights: src.weights,
       emissionRateUgMS,
       backgroundUgM3,
       treeDepositionFactor
@@ -1182,7 +1195,7 @@ export class Analyst {
       {
         kind: 'dispersion',
         title: `Traffic pollutant concentration (NO2), from ${windFromDeg}°`,
-        subtitle: `Emission ${emissionRateUgMS} µg/(m·s), background ${backgroundUgM3} µg/m³`,
+        subtitle: `Emission ${emissionRateUgMS} µg/(m·s), background ${backgroundUgM3} µg/m³; ${roadSourceText(src.lines)}`,
         unit: 'µg/m³',
         grid,
         values: conc,
@@ -1199,12 +1212,12 @@ export class Analyst {
     ];
   }
 
-  async noise({ area, cell, soundPowerDb = 78, receiverHeight = 1.5, groundFactor = 0.5, roads = null, onProgress }) {
+  async noise({ area, cell, soundPowerDb = 78, receiverHeight = 1.5, groundFactor = 0.5, roads = null, roadWeights = null, onProgress }) {
     const og = await this.obstacleGrid({ area, cell, onProgress: (f) => onProgress?.(0.4 * f) });
     const { grid } = og;
-    const activeRoads = roads || this.roadLines();
+    const src = roads ? { lines: roads, weights: roadWeights } : this.roadLines();
 
-    const noiseGrid = noisePropagation({
+    const noiseGrid = await noisePropagation({
       heights: og.heights,
       porosity: og.porosity,
       cols: grid.cols,
@@ -1212,10 +1225,12 @@ export class Analyst {
       cell,
       minX: grid.minX,
       maxY: grid.maxY,
-      roads: activeRoads,
+      roads: src.lines,
+      roadWeights: src.weights,
       soundPowerDb,
       receiverHeight,
-      groundFactor
+      groundFactor,
+      onProgress: (f) => onProgress?.(0.4 + 0.6 * f)
     });
 
     const facadeMap = buildingFacadeNoise(noiseGrid, og.ids, grid.cols, grid.rows);
@@ -1238,7 +1253,7 @@ export class Analyst {
     return [{
       kind: 'noise',
       title: 'Environmental noise (Lden)',
-      subtitle: `Sound power ${soundPowerDb} dB(A)/m, receiver at ${receiverHeight.toFixed(1)} m`,
+      subtitle: `Sound power ${soundPowerDb} dB(A)/m, receiver at ${receiverHeight.toFixed(1)} m; ${roadSourceText(src.lines)}`,
       unit: 'dB(A)',
       grid,
       values: noiseGrid,
@@ -1366,6 +1381,11 @@ export class Analyst {
 }
 
 // ---------------------------------------------------------------- helpers
+/** Where the road sources of a noise or dispersion run came from. */
+function roadSourceText(lines) {
+  return lines.length ? `${lines.length} road line${lines.length === 1 ? '' : 's'}` : 'no roads given: the streets between buildings, as residential streets';
+}
+
 function cacheKey(kind, a, cell) {
   return `${kind}:${a.minX.toFixed(1)},${a.maxX.toFixed(1)},${a.minY.toFixed(1)},${a.maxY.toFixed(1)}@${cell}`;
 }

@@ -8,7 +8,7 @@ import { drawMonthly, drawWindRose } from './charts.js';
 import { ExtrudedLayer, PointLayer, SurfaceLayer } from '../scene/objects.js';
 import * as THREE from 'three';
 
-const ROLE_NAMES = { buildings: 'Buildings', walls: 'Walls', trees: 'Trees', poles: 'Poles', surfaces: 'Surfaces', platforms: 'Platforms', sections: 'Sections' };
+const ROLE_NAMES = { buildings: 'Buildings', walls: 'Walls', trees: 'Trees', poles: 'Poles', surfaces: 'Surfaces', platforms: 'Platforms', sections: 'Sections', roads: 'Roads' };
 const RAMP_OPTIONS = Object.entries(RAMP_LABELS).flatMap(([k, v]) => [[k, v], [`${k}-r`, `${v} (reversed)`]]);
 
 export function buildLayersPanel(app, root) {
@@ -111,7 +111,7 @@ function layerCard(app, layer, rerender) {
         h('span', { class: 'muted small', text: `range ${round(lo)} – ${round(hi)}` })));
     }
   };
-  if (!(layer.entry.role === 'platforms' || layer.entry.role === 'sections')) {
+  if (!(layer.entry.role === 'platforms' || layer.entry.role === 'sections' || layer.entry.role === 'roads')) {
     body.appendChild(row('Colour by', select([['source', 'QGIS style'], ['single', 'Single colour'], ['graduated', 'Graduated (numbers)'], ['categorized', 'Categories']],
       c.mode, (v) => { c.mode = v; refresh(); })));
     body.appendChild(colorRows);

@@ -188,3 +188,22 @@ test('WindStreamlines: can initialize, show, and hide cleanly without throwing',
   assert.equal(ws.active, false);
   assert.equal(ws.group.children.length, 0);
 });
+
+test('solarEnvelope: a building is not limited by its own shadow; its sunny side still is', () => {
+  const cols = 40, rows = 40, cell = 2;
+  const buildingHeights = new Float32Array(cols * rows);
+  const ids = new Int32Array(cols * rows);
+  // A 20 m x 20 m block, 20 m tall, in the middle.
+  for (let r = 15; r < 25; r++) for (let c = 15; c < 25; c++) { buildingHeights[r * cols + c] = 20; ids[r * cols + c] = 7; }
+  const sunVectors = [{ dir: [0, Math.SQRT1_2, Math.SQRT1_2], weight: 2 }]; // noon sun from the south, 45°
+  const { maxHeight } = solarEnvelope({ buildingHeights, ids, cols, rows, cell, sunVectors, minSunHours: 2, maxBuildableHeight: 80 });
+
+  let sum = 0;
+  for (let r = 15; r < 25; r++) for (let c = 15; c < 25; c++) sum += maxHeight[r * cols + c];
+  assert.equal(sum / 100, 80, 'every cell of the block keeps the height cap');
+  // Two cells south of the protected ground at the south facade: the 45° plane allows 4 m.
+  const south = maxHeight[27 * cols + 20];
+  assert.ok(Math.abs(south - 4) < 1e-6, `4 m from the protected ground allows 4 m, got ${south}`);
+  // North of the block the ground is already in its shadow at noon: no limit from those receptors.
+  assert.equal(maxHeight[10 * cols + 20], 80);
+});

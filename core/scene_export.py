@@ -52,10 +52,11 @@ ROLE_WALLS = "walls"
 ROLE_SURFACES = "surfaces"
 ROLE_SECTIONS = "sections"
 ROLE_PLATFORMS = "platforms"
+ROLE_ROADS = "roads"
 
 ROLES_BY_KIND = {
     "polygon": [ROLE_BUILDINGS, ROLE_SURFACES, ROLE_PLATFORMS],
-    "line": [ROLE_WALLS, ROLE_SECTIONS],
+    "line": [ROLE_WALLS, ROLE_ROADS, ROLE_SECTIONS],
     "point": [ROLE_TREES, ROLE_POLES],
 }
 ROLE_LABELS = {
@@ -63,6 +64,7 @@ ROLE_LABELS = {
     ROLE_SURFACES: "Ground surfaces (drape)",
     ROLE_PLATFORMS: "Platforms (cut/fill)",
     ROLE_WALLS: "Walls / fences (extrude)",
+    ROLE_ROADS: "Roads (noise and traffic sources)",
     ROLE_SECTIONS: "Section lines",
     ROLE_TREES: "Trees",
     ROLE_POLES: "Poles / columns",
@@ -72,6 +74,7 @@ DEFAULT_HEIGHT = {
     ROLE_SURFACES: "0",
     ROLE_PLATFORMS: "0",
     ROLE_WALLS: "2",
+    ROLE_ROADS: "1",
     ROLE_SECTIONS: "0",
     ROLE_TREES: "8",
     ROLE_POLES: "6",
@@ -81,6 +84,7 @@ DEFAULT_COLOR = {
     ROLE_SURFACES: "#9cc58a",
     ROLE_PLATFORMS: "#c9a46b",
     ROLE_WALLS: "#a39e96",
+    ROLE_ROADS: "#ff4f2e",
     ROLE_SECTIONS: "#e4572e",
     ROLE_TREES: "#4f8a3c",
     ROLE_POLES: "#8d8d8d",

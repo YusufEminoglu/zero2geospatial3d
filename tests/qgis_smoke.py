@@ -205,6 +205,10 @@ def test_metadata():
           f"missing={missing} version={meta.get('version')}")
     check("icon exists", (PLUGIN_DIR / meta.get("icon", "")).is_file())
     check("experimental is False", meta.get("experimental", "").strip() == "False")
+    from zero2geospatial3d import PLUGIN_VERSION
+
+    check("PLUGIN_VERSION matches metadata.txt", PLUGIN_VERSION == meta.get("version"),
+          f"{PLUGIN_VERSION} vs {meta.get('version')}")
 
 
 def test_lifecycle(iface):
@@ -532,6 +536,13 @@ def test_building_parts(folder):
          "geometry": ring(27.0003, 38.0003, 0.0002)},
         {"type": "way", "id": 4, "tags": {"building": "house"}, "geometry": ring(27.003, 38.003, 0.0002)},
         {"type": "node", "id": 9, "lon": 27.002, "lat": 38.002, "tags": {"natural": "tree", "height": "11"}},
+        # A primary road running out of the area, a footway and a motorway tunnel: one traffic source.
+        {"type": "way", "id": 20, "tags": {"highway": "primary", "name": "Main"},
+         "geometry": [{"lon": 27.000, "lat": 38.005}, {"lon": 27.050, "lat": 38.005}]},
+        {"type": "way", "id": 21, "tags": {"highway": "footway"},
+         "geometry": [{"lon": 27.000, "lat": 38.006}, {"lon": 27.005, "lat": 38.006}]},
+        {"type": "way", "id": 22, "tags": {"highway": "motorway", "tunnel": "yes"},
+         "geometry": [{"lon": 27.000, "lat": 38.007}, {"lon": 27.005, "lat": 38.007}]},
     ]}
     wgs = QgsCoordinateReferenceSystem("EPSG:4326")
     xform = QgsCoordinateTransform(wgs, QgsCoordinateReferenceSystem("EPSG:32635"), QgsProject.instance())
@@ -546,6 +557,11 @@ def test_building_parts(folder):
     check("tower part: top 120 m, bottom 12 m, grouped with the podium, name inherited", ok,
           f"tower={tower and (tower['height_m'], tower['min_height_m'], tower['bldg_group'], tower['name'])}")
     check("trees parsed", t.featureCount() == 1 and list(t.getFeatures())[0]["height_m"] == 11)
+    roads = osm.payload_to_roads(payload, clip, xform, 32635)
+    road = next(roads.getFeatures(), None)
+    check("OSM roads: one traffic source, clipped to the area, weighted by class",
+          roads.featureCount() == 1 and road["traffic_weight"] == 3.0 and road["highway"] == "primary"
+          and road.geometry().length() < 1000, f"{roads.featureCount()} roads")
     QgsProject.instance().addMapLayer(b)
     out = os.path.join(folder, "parts_scene")
     spec = sx.ExportSpec(out_dir=out, extent=b.extent(), extent_crs=b.crs(),
@@ -637,6 +653,45 @@ def test_epw_and_osm(folder):
           osm_tags.building_height({"building": "warehouse"})[2] == "default")
 
 
+def test_roads(folder):
+    """A road layer: Roads role by name, a Traffic expression from lanes, the
+    guess follows a role change, and the export carries the traffic."""
+    from zero2geospatial3d.core import scene_export as sx
+    from zero2geospatial3d.ui.dock import LayerRow, guess_height_expression, guess_role
+
+    roads = QgsVectorLayer(f"LineString?crs={CRS}&field=lanes:integer&field=h:double", "Main roads", "memory")
+    feats = []
+    for y, lanes in ((Y0 - 120, 4), (Y0 - 320, 2)):
+        f = QgsFeature(roads.fields())
+        f.setGeometry(QgsGeometry.fromPolylineXY([QgsPointXY(X0 + 20, y), QgsPointXY(X0 + 480, y)]))
+        f.setAttributes([lanes, 3.0])
+        feats.append(f)
+    roads.dataProvider().addFeatures(feats)
+    role, checked = guess_role(roads)
+    check("role guess: a line layer named 'roads' is a noise and traffic source", role == sx.ROLE_ROADS and checked,
+          f"{role} {checked}")
+    check("traffic guess: lanes, not the height field", guess_height_expression(roads, role) == '"lanes"',
+          guess_height_expression(roads, role))
+    row = LayerRow(roads)
+    ok = row.height_label.text() == "Traffic" and row.height.expression() == '"lanes"'
+    row.role.setCurrentIndex(row.role.findData(sx.ROLE_WALLS))
+    ok_switch = row.height_label.text() == "Height" and row.height.expression() == '"h"'
+    check("panel row: Traffic for roads; an unedited guess follows the role", ok and ok_switch,
+          f"{row.height_label.text()} {row.height.expression()}")
+    row.deleteLater()
+    QgsProject.instance().addMapLayer(roads)
+    out = os.path.join(folder, "roads_scene")
+    spec = sx.ExportSpec(out_dir=out, extent=QgsRectangle(X0, Y0 - 500, X0 + 500, Y0), extent_crs=roads.crs(),
+                         layers=[sx.LayerSpec(roads, sx.ROLE_ROADS, '"lanes"')])
+    result = sx.SceneExporter(spec).run()
+    entry = result.manifest["layers"][0]
+    feats = json.loads(Path(out, entry["file"]).read_text(encoding="utf-8"))["features"]
+    check("export: roads keep their role and traffic per feature",
+          entry["role"] == "roads" and entry["defaultHeight"] == 1.0
+          and sorted(f["properties"]["_h"] for f in feats) == [2.0, 4.0],
+          f"{entry['role']} {[f['properties']['_h'] for f in feats]}")
+
+
 def main():
     app = QgsApplication.instance()
     owns = app is None
@@ -658,6 +713,7 @@ def main():
         test_dock_flow(folder, iface)
         test_quick_3d(folder, iface)
         test_building_parts(folder)
+        test_roads(folder)
         test_detail_limit(folder)
         test_epw_and_osm(folder)
     except Exception as exc:  # noqa: BLE001 - a crash is a failure with a trace

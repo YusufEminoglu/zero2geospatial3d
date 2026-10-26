@@ -58,10 +58,12 @@ GRID_CHOICES = [("Automatic (DEM resolution)", None), ("1 m", 1.0), ("2 m", 2.0)
 _HEIGHT_FIELDS = ("height_m", "height", "yukseklik", "yükseklik", "bina_yuk", "bina_yukseklik", "h", "hgt", "elev_top")
 _FLOOR_FIELDS = ("floors", "levels", "building_levels", "num_floors", "kat", "kat_sayisi", "katsayisi",
                  "kat_adedi", "kat_say", "storeys", "stories")
+_TRAFFIC_FIELDS = ("traffic_weight", "lanes", "serit", "şerit", "serit_sayisi")
 _NAME_HINTS = {
     sx.ROLE_BUILDINGS: re.compile(r"build|bina|yap[iı]|house|konut|footprint|blok", re.I),
     sx.ROLE_TREES: re.compile(r"tree|a[gğ]a[cç]", re.I),
     sx.ROLE_WALLS: re.compile(r"wall|duvar|fence|[cç]it|barrier", re.I),
+    sx.ROLE_ROADS: re.compile(r"road|street|highway|traffic|yol|cadde|sokak|trafik", re.I),
     sx.ROLE_SECTIONS: re.compile(r"section|kesit|profil", re.I),
     sx.ROLE_PLATFORMS: re.compile(r"platform|cut|fill|kaz[iı]|dolgu|grading", re.I),
 }
@@ -94,6 +96,12 @@ def guess_base_expression(layer: QgsVectorLayer) -> str:
 
 def guess_height_expression(layer: QgsVectorLayer, role: str) -> str:
     by_lower = {f.name().lower(): f.name() for f in layer.fields() if f.isNumeric()}
+    if role == sx.ROLE_ROADS:
+        # Relative traffic, not a height: a lane count is a fair first guess.
+        for name in _TRAFFIC_FIELDS:
+            if name in by_lower:
+                return f'"{by_lower[name]}"'
+        return sx.DEFAULT_HEIGHT[sx.ROLE_ROADS]
     for name in _HEIGHT_FIELDS:
         if name in by_lower:
             return f'"{by_lower[name]}"'
@@ -143,10 +151,12 @@ class LayerRow(QFrame):
         grid.addWidget(muted(QLabel("Role")), 0, 0)
         grid.addWidget(self.role, 0, 1, 1, 2)
 
-        grid.addWidget(muted(QLabel("Height")), 1, 0)
+        self.height_label = muted(QLabel("Height"))
+        grid.addWidget(self.height_label, 1, 0)
         self.height = QgsFieldExpressionWidget()
         self.height.setLayer(layer)
-        self.height.setExpression(guess_height_expression(layer, role))
+        self._guessed_height = guess_height_expression(layer, role)
+        self.height.setExpression(self._guessed_height)
         self.height.setToolTip("Height in metres above the ground, e.g. \"floors\" * 3.2")
         grid.addWidget(self.height, 1, 1, 1, 2)
 
@@ -187,12 +197,22 @@ class LayerRow(QFrame):
 
     def _role_changed(self) -> None:
         role = self.role.currentData()
+        # A guess the user has not edited follows the role (a road's traffic is not a wall's height).
+        if self.height.expression().strip() == self._guessed_height:
+            self._guessed_height = guess_height_expression(self.layer, role)
+            self.height.setExpression(self._guessed_height)
         self.scenario.setVisible(role == sx.ROLE_BUILDINGS)
         self.base.setVisible(role == sx.ROLE_BUILDINGS)
         self.base_label.setVisible(role == sx.ROLE_BUILDINGS)
-        uses_height = role in (sx.ROLE_BUILDINGS, sx.ROLE_WALLS, sx.ROLE_TREES, sx.ROLE_POLES, sx.ROLE_PLATFORMS)
+        uses_height = role in (sx.ROLE_BUILDINGS, sx.ROLE_WALLS, sx.ROLE_TREES, sx.ROLE_POLES, sx.ROLE_PLATFORMS,
+                               sx.ROLE_ROADS)
         self.height.setEnabled(uses_height)
-        if role == sx.ROLE_PLATFORMS:
+        self.height_label.setText("Traffic" if role == sx.ROLE_ROADS else "Height")
+        if role == sx.ROLE_ROADS:
+            self.height.setToolTip("Relative traffic of each road for the noise and air-quality maps: 1 is the "
+                                   "level set in the viewer, 2 doubles the traffic (+3 dB), 0 leaves the road out; "
+                                   "e.g. \"lanes\" or \"aadt\" / 10000")
+        elif role == sx.ROLE_PLATFORMS:
             self.height.setToolTip("Design elevation of the platform (absolute, metres above sea level)")
         else:
             self.height.setToolTip("Height in metres above the ground, e.g. \"floors\" * 3.2")
@@ -310,9 +330,10 @@ class Geo3DDock(QDockWidget):
         refresh.setToolTip("Refresh the list of layers")
         refresh.setAutoRaise(True)
         refresh.clicked.connect(self.refresh_layers)
-        self.osm_button = QPushButton("Download OSM buildings && trees")
+        self.osm_button = QPushButton("Download OSM buildings, trees && roads")
         self.osm_button.setIcon(theme_icon("/mActionAddLayer.svg"))
-        self.osm_button.setToolTip("Buildings (with heights from OSM tags) and trees for the scene area, "
+        self.osm_button.setToolTip("Buildings (with heights from OSM tags), trees and roads (traffic by road "
+                                   "class, for the noise and air-quality maps) for the scene area, "
                                    "from the OpenStreetMap Overpass API")
         self.osm_button.clicked.connect(self.download_osm)
         buttons.addWidget(self.osm_button, 1)
@@ -684,7 +705,7 @@ class Geo3DDock(QDockWidget):
 
         extent, crs = self._scene_extent(self._selected_specs())
         out_dir = self.folder.filePath().strip() or self._default_scene_dir()
-        path = os.path.join(out_dir, "osm", "osm_buildings_trees.gpkg")
+        path = os.path.join(out_dir, "osm", "osm_layers.gpkg")
         self._set_busy(True)
         try:
             info = osm.download_to_gpkg(extent, crs, path, progress=lambda m: self._progress(None, m))
@@ -698,7 +719,7 @@ class Geo3DDock(QDockWidget):
         finally:
             self._set_busy(False)
         added = []
-        for name, label in (("osm_buildings", "OSM buildings"), ("osm_trees", "OSM trees")):
+        for name, label in (("osm_buildings", "OSM buildings"), ("osm_trees", "OSM trees"), ("osm_roads", "OSM roads")):
             layer = QgsVectorLayer(f"{path}|layername={name}", label, "ogr")
             if layer.isValid() and layer.featureCount() > 0:
                 QgsProject.instance().addMapLayer(layer)
@@ -707,11 +728,13 @@ class Geo3DDock(QDockWidget):
         for row in self.rows:
             if row.layer.id() in added:
                 row.check.setChecked(True)
-                row.height.setExpression('"height_m"')
+                row.height.setExpression('"traffic_weight"' if row.layer.fields().indexOf("traffic_weight") >= 0
+                                         else '"height_m"')
                 if row.layer.fields().indexOf("min_height_m") >= 0:
                     row.base.setExpression('"min_height_m"')
-        self.message(f"OSM: {info['buildings']} buildings and {info['trees']} trees ({info['crs']}). "
-                     "Heights come from OSM height/levels tags, otherwise from the building type.")
+        self.message(f"OSM: {info['buildings']} buildings, {info['trees']} trees and {info['roads']} roads "
+                     f"({info['crs']}). Heights come from OSM height/levels tags, otherwise from the building "
+                     "type; road traffic for the noise and air-quality maps from the road class.")
 
     # ------------------------------------------------------------ viewer link
     def _watch_selection(self) -> None:

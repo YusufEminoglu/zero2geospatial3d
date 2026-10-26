@@ -185,17 +185,14 @@ export class WindStreamlines {
         curX += flow.vx * stepDist;
         curY += flow.vy * stepDist;
 
-        // Wrap or rebound if out of grid bounds
-        if (curX < minX || curX > minX + cols * cell || curY < maxY - rows * cell || curY > maxY) {
-          const respawn = openCells[Math.floor(Math.random() * openCells.length)];
-          curX = minX + (respawn.c + 0.5) * cell;
-          curY = maxY - (respawn.r + 0.5) * cell;
-        }
+        // A streamline that leaves the grid ends there; respawning it inside
+        // would draw a stray segment from the edge to the new point.
+        if (curX < minX || curX > minX + cols * cell || curY < maxY - rows * cell || curY > maxY) break;
       }
 
       streamlines.push({
         pts,
-        meanSpeed: speedSum / trailSteps,
+        meanSpeed: speedSum / pts.length,
         phase: Math.random()
       });
     }

@@ -100,3 +100,27 @@ def tree_height(tags: dict) -> float:
     if h is not None and 1 <= h <= 80:
         return round(h, 2)
     return 8.0
+
+
+# Relative traffic by OSM ``highway`` class for the noise and air-quality
+# screening: 1 is the road the viewer's default sound power and emission stand
+# for (a busy two-lane urban road). Screening values, not traffic counts; a
+# field with real counts belongs in the layer's Traffic expression instead.
+ROAD_TRAFFIC = {
+    "motorway": 8.0, "trunk": 5.0, "primary": 3.0, "secondary": 2.0, "tertiary": 1.2,
+    "unclassified": 0.6, "residential": 0.4, "living_street": 0.15, "service": 0.15,
+}
+HIGHWAY_PATTERN = "^(" + "|".join(ROAD_TRAFFIC) + ")(_link)?$"
+
+
+def road_traffic(tags: dict):
+    """Relative traffic of an OSM way, or None when it is no traffic source
+    (footways, tracks, roads under construction, tunnels)."""
+    highway = str(tags.get("highway") or "")
+    link = highway.endswith("_link")
+    weight = ROAD_TRAFFIC.get(highway[:-5] if link else highway)
+    if weight is None:
+        return None
+    if str(tags.get("tunnel") or "no").lower() not in ("no", "false", "0"):
+        return None
+    return round(weight * (0.5 if link else 1.0), 3)

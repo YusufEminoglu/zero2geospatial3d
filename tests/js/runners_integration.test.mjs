@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Analyst, setDiurnalFrame } from '../../web/src/analysis/runners.js';
+import { LineLayer } from '../../web/src/scene/objects.js';
 import { FIELD_INFO } from '../../web/src/ui/building_report.js';
 import { CRITERIA, judge } from '../../web/src/analysis/compliance.js';
 
@@ -134,6 +135,25 @@ test('Analyst noise: returns noise result', async () => {
 
   assert.equal(res.length, 1);
   assert.equal(res[0].kind, 'noise');
+});
+
+test('Analyst roadLines: drawn roads plus visible Roads layers with their traffic; section lines are not roads', () => {
+  const { app, analyst } = createMockApp();
+  const lineLayer = (role, coords, h) => {
+    const layer = Object.create(LineLayer.prototype);
+    Object.assign(layer, { entry: { role }, visible: true, lines: coords.map((c) => [c]), heights: Float32Array.from(h) });
+    return layer;
+  };
+  const road = lineLayer('roads', [[[0, 0], [10, 0]], [[0, 5], [10, 5]]], [2, 0.5]);
+  app.layers = [road, lineLayer('sections', [[[0, 9], [10, 9]]], [0])];
+
+  let src = analyst.roadLines();
+  assert.equal(src.lines.length, 3);
+  assert.deepEqual(src.weights, [1, 2, 0.5]);
+
+  road.visible = false;
+  src = analyst.roadLines();
+  assert.equal(src.lines.length, 1, 'a hidden roads layer is not a source');
 });
 
 test('Analyst greenView: returns gvi result and open cells near planted tree have positive values', async () => {
