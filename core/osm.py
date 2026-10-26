@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""OpenStreetMap buildings and trees for a scene area (Overpass API).
+"""OpenStreetMap buildings, trees and roads for a scene area (Overpass API).
 
 Requests go through QGIS's own network stack (QgsBlockingNetworkRequest), so
 the user's proxy and TLS settings apply. Responses are cached on disk for a
@@ -64,6 +64,7 @@ def _query(s: float, w: float, n: float, e: float) -> str:
             f"  way[\"building:part\"]({bbox});\n"
             f"  relation[\"building:part\"][\"type\"=\"multipolygon\"]({bbox});\n"
             f"  node[\"natural\"=\"tree\"]({bbox});\n"
+            f"  way[\"highway\"~\"{osm_tags.HIGHWAY_PATTERN}\"]({bbox});\n"
             f");\nout body geom;")
 
 
@@ -238,8 +239,8 @@ def _is_polygon(geom) -> bool:
 # ---------------------------------------------------------------- layers
 def download_to_gpkg(extent: QgsRectangle, extent_crs: QgsCoordinateReferenceSystem, out_path: str,
                      progress=None) -> dict:
-    """Download buildings and trees inside ``extent`` and write them to a
-    GeoPackage in a metric CRS. Returns {"buildings": n, "trees": n, "crs": authid}."""
+    """Download buildings, trees and roads inside ``extent`` and write them to a
+    GeoPackage in a metric CRS. Returns {"buildings": n, "trees": n, "roads": n, "crs": authid}."""
     wgs = QgsCoordinateReferenceSystem("EPSG:4326")
     bbox = QgsCoordinateTransform(extent_crs, wgs, QgsProject.instance()).transformBoundingBox(extent)
     centre = bbox.center()
@@ -255,12 +256,13 @@ def download_to_gpkg(extent: QgsRectangle, extent_crs: QgsCoordinateReferenceSys
     clip = QgsGeometry.fromRect(bbox)
 
     buildings, trees = payload_to_layers(payload, clip, xform, epsg)
-    b_count, t_count = buildings.featureCount(), trees.featureCount()
-    if not b_count and not t_count:
-        raise OsmError("OSM has no buildings or trees in this area.")
+    roads = payload_to_roads(payload, clip, xform, epsg)
+    b_count, t_count, r_count = buildings.featureCount(), trees.featureCount(), roads.featureCount()
+    if not b_count and not t_count and not r_count:
+        raise OsmError("OSM has no buildings, trees or roads in this area.")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     first = True
-    for layer, name in ((buildings, "osm_buildings"), (trees, "osm_trees")):
+    for layer, name in ((buildings, "osm_buildings"), (trees, "osm_trees"), (roads, "osm_roads")):
         if layer.featureCount() == 0:
             continue
         options = QgsVectorFileWriter.SaveVectorOptions()
@@ -273,7 +275,7 @@ def download_to_gpkg(extent: QgsRectangle, extent_crs: QgsCoordinateReferenceSys
         if result[0] != QgsVectorFileWriter.WriterError.NoError:
             raise OsmError(f"Cannot write {out_path}: {result[1]}")
         first = False
-    return {"buildings": b_count, "trees": t_count, "crs": dest.authid(),
+    return {"buildings": b_count, "trees": t_count, "roads": r_count, "crs": dest.authid(),
             "parts": sum(1 for f in buildings.getFeatures() if f["part"])}
 
 
@@ -368,3 +370,34 @@ def payload_to_layers(payload: dict, clip: QgsGeometry, xform: QgsCoordinateTran
     buildings.dataProvider().addFeatures(b_feats)
     trees.dataProvider().addFeatures(t_feats)
     return buildings, trees
+
+
+def payload_to_roads(payload: dict, clip: QgsGeometry, xform: QgsCoordinateTransform, epsg: int):
+    """Overpass JSON -> a memory layer of roads in EPSG:epsg, clipped to the
+    area, with ``traffic_weight`` (relative traffic by highway class) for the
+    viewer's noise and air-quality maps."""
+    roads = QgsVectorLayer(f"MultiLineString?crs=EPSG:{epsg}&field=osm_id:string(32)&field=highway:string(40)"
+                           "&field=name:string(120)&field=traffic_weight:double", "OSM roads", "memory")
+    feats = []
+    for element in payload.get("elements", []):
+        if element.get("type") != "way":
+            continue
+        tags = element.get("tags") or {}
+        weight = osm_tags.road_traffic(tags)
+        if weight is None:
+            continue
+        points = _points(element.get("geometry"))
+        if len(points) < 2:
+            continue
+        geom = QgsGeometry.fromPolylineXY(points).intersection(clip)
+        if geom.isEmpty() or enum_value(QgsWkbTypes.geometryType(geom.wkbType())) != 1:
+            continue
+        geom.convertToMultiType()
+        geom.transform(xform)
+        feat = QgsFeature(roads.fields())
+        feat.setGeometry(geom)
+        feat.setAttributes([f"w{element.get('id')}", str(tags.get("highway"))[:40],
+                            str(tags.get("name") or "")[:120], weight])
+        feats.append(feat)
+    roads.dataProvider().addFeatures(feats)
+    return roads

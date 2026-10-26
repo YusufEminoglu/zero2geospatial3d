@@ -154,24 +154,24 @@ test('pollutantDispersion: downwind of road line has higher concentration than u
   assert.equal(airQualityClass(NaN), null);
 });
 
-test('maekawaDiffraction: returns 0 for unobstructed and increases monotonically up to 25 dB', () => {
+test('maekawaDiffraction: returns 0 for unobstructed and increases monotonically up to 20 dB', () => {
   assert.equal(maekawaDiffraction(0), 0);
   assert.equal(maekawaDiffraction(-1.5), 0);
 
   const d1 = maekawaDiffraction(0.05);
-  const d2 = maekawaDiffraction(0.5);
-  const d3 = maekawaDiffraction(2.0);
-  const d4 = maekawaDiffraction(8.0);
+  const d2 = maekawaDiffraction(0.2);
+  const d3 = maekawaDiffraction(0.6);
+  const d4 = maekawaDiffraction(1.5);
   const dCapped = maekawaDiffraction(100.0);
 
   assert.ok(d1 > 0, `d1 (${d1}) should be > 0`);
   assert.ok(d2 > d1, `d2 (${d2}) should be > d1 (${d1})`);
   assert.ok(d3 > d2, `d3 (${d3}) should be > d2 (${d2})`);
   assert.ok(d4 > d3, `d4 (${d4}) should be > d3 (${d3})`);
-  assert.equal(dCapped, 25, 'diffraction must be capped at 25 dB');
+  assert.equal(dCapped, 20, 'single diffraction is capped at 20 dB (ISO 9613-2)');
 });
 
-test('noisePropagation and buildingFacadeNoise: distance decay, shadow zone barrier attenuation, and quiet facade detection', () => {
+test('noisePropagation and buildingFacadeNoise: distance decay, shadow zone barrier attenuation, and quiet facade detection', async () => {
   const cols = 30, rows = 30, cell = 2;
   const heights = new Float32Array(cols * rows);
   const ids = new Int32Array(cols * rows);
@@ -180,7 +180,7 @@ test('noisePropagation and buildingFacadeNoise: distance decay, shadow zone barr
   const roads = [[[0, 2], [60, 2]]];
 
   // 1. Distance decay check on open flat terrain
-  const openNoise = noisePropagation({
+  const openNoise = await noisePropagation({
     heights,
     cols,
     rows,
@@ -206,7 +206,7 @@ test('noisePropagation and buildingFacadeNoise: distance decay, shadow zone barr
     }
   }
 
-  const barrierNoise = noisePropagation({
+  const barrierNoise = await noisePropagation({
     heights,
     cols,
     rows,
@@ -244,4 +244,46 @@ test('noisePropagation and buildingFacadeNoise: distance decay, shadow zone barr
   assert.equal(noiseClass(67)?.label, 'Loud');
   assert.equal(noiseClass(74)?.label, 'High noise');
   assert.equal(noiseClass(NaN), null);
+});
+
+test('road traffic weights: doubling the traffic adds 3 dB and doubles the traffic increment; zero traffic is silent', async () => {
+  const cols = 20, rows = 20, cell = 2;
+  const heights = new Float32Array(cols * rows);
+  const roads = [[[20, 0], [20, 40]]];
+  const base = { heights, cols, rows, cell, minX: 1, maxY: 39, roads };
+  const i = 10 * cols + 15; // 9 m east of the road
+
+  const n1 = await noisePropagation({ ...base, roadWeights: [1] });
+  const n2 = await noisePropagation({ ...base, roadWeights: [2] });
+  assert.ok(Math.abs(n2[i] - n1[i] - 10 * Math.log10(2)) < 0.05, `+${(n2[i] - n1[i]).toFixed(2)} dB, expected +3.01 dB`);
+  // A road without traffic stays silent instead of falling back to street corridors.
+  const n0 = await noisePropagation({ ...base, roadWeights: [0] });
+  assert.equal(n0[i], 35);
+
+  const wind = { windFromDeg: 270, windSpeed10: 3, backgroundUgM3: 18 };
+  const c1 = pollutantDispersion({ ...base, ...wind, roadWeights: [1] });
+  const c2 = pollutantDispersion({ ...base, ...wind, roadWeights: [2] });
+  const inc1 = c1[i] - 18, inc2 = c2[i] - 18;
+  assert.ok(inc1 > 0, 'downwind cell sees traffic');
+  assert.ok(Math.abs(inc2 / inc1 - 2) < 0.01, `traffic increment x${(inc2 / inc1).toFixed(3)}, expected x2`);
+  const c0 = pollutantDispersion({ ...base, ...wind, roadWeights: [0] });
+  assert.equal(c0[i], 18);
+});
+
+test('streetCentrelines: one source line per street, on its centre, none without buildings', async () => {
+  const { streetCentrelines, STREET_TRAFFIC } = await import('../../web/src/core/road_sources.js');
+  const cols = 30, rows = 10, cell = 1;
+  const heights = new Float32Array(cols * rows);
+  // Two building rows with a 9 m street (columns 10..18) between them.
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if (c < 10 || c > 18) heights[r * cols + c] = 12;
+  const src = streetCentrelines(heights, null, cols, rows, cell, 0.5, rows - 0.5);
+  const xs = new Set(src.map((s) => s.x));
+  assert.deepEqual([...xs], [14.5], 'the street centre column only');
+  assert.equal(src.length, rows - 2);
+  assert.ok(src.every((s) => s.length === cell * STREET_TRAFFIC));
+  // An even-width street (10 m) still gives one line.
+  heights.fill(0);
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if (c < 10 || c > 19) heights[r * cols + c] = 12;
+  assert.equal(new Set(streetCentrelines(heights, null, cols, rows, cell, 0.5, rows - 0.5).map((s) => s.x)).size, 1);
+  assert.equal(streetCentrelines(new Float32Array(cols * rows), null, cols, rows, cell, 0.5, rows - 0.5).length, 0);
 });

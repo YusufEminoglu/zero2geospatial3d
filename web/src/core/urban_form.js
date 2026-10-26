@@ -353,21 +353,34 @@ export function solarEnvelope({
 
     for (let k = 0; k < receptors.length; k++) {
       const rec = receptors[k];
+      const recIdx = rec.r * cols + rec.c;
+      const recId = ids ? ids[recIdx] : 0;
+      // Cells along the ray towards the sun, past the receptor's own cell and
+      // its own building (a facade is not shaded by the building behind it).
+      /** @type {Array<{ idx: number, allowedH: number }>} */
+      const path = [];
+      let ownBuilding = isBuilding[recIdx] === 1;
+      let shaded = false;
       for (let d = stepDist; d <= maxD; d += stepDist) {
-        const colPos = rec.c + (hx * d) / cell;
-        const rowPos = rec.r - (hy * d) / cell; // +north is -row
-        const ic = Math.round(colPos);
-        const ir = Math.round(rowPos);
-
+        const ic = Math.round(rec.c + (hx * d) / cell);
+        const ir = Math.round(rec.r - (hy * d) / cell); // +north is -row
         if (ic < 0 || ic >= cols || ir < 0 || ir >= rows) break;
-
         const targetIdx = ir * cols + ic;
+        if (targetIdx === recIdx) continue;
+        if (ownBuilding) {
+          if (isBuilding[targetIdx] && (!ids || !recId || ids[targetIdx] === recId)) continue;
+          ownBuilding = false;
+        }
         const actualDist = Math.hypot((ic - rec.c) * cell, (ir - rec.r) * cell);
         const allowedH = rec.height + actualDist * tanAlt;
-
-        if (allowedH < maxHeight[targetIdx]) {
-          maxHeight[targetIdx] = allowedH;
-        }
+        // An existing building already takes this sun from the receptor:
+        // nothing more is lost by building here, so this ray sets no limit.
+        if (isBuilding[targetIdx] && bHeights[targetIdx] > allowedH) { shaded = true; break; }
+        path.push({ idx: targetIdx, allowedH });
+      }
+      if (shaded) continue;
+      for (const { idx, allowedH } of path) {
+        if (allowedH < maxHeight[idx]) maxHeight[idx] = allowedH;
       }
     }
   }

@@ -307,7 +307,9 @@ function comfortCard(app) {
       runButton(app, '24 h diurnal study', async () => {
         const res = await app.run('Diurnal thermal study', (prog) => app.analyst.diurnalStudy({
           area: app.area(), cell: Math.max(2, app.cell(600)), date: { month: p.month, day: p.day },
-          material: p.material, lai: p.lai, onProgress: prog }));
+          material: p.material, lai: p.lai, onProgress: prog,
+          manual: p.manual || !app.weather?.dryBulb
+            ? { airTemp: p.airTemp, rh: p.rh, windSpeed: p.windSpeed, windDir: p.windDir, hour: p.hour } : null }));
         if (res?.[0]) {
           app.date = { month: p.month, day: p.day };
           app.time = res[0].hours ? res[0].hours[0] : 12;
@@ -333,6 +335,7 @@ function morphCard(app) {
 function ventilationCard(app) {
   const p = app.params.vent;
   const roadsInfo = h('span', { class: 'muted small', text: `${app.drawnRoads?.length || 0} drawn` });
+  const roadsNote = roadSourcesNote(app);
   const body = h('div', {},
     h('p', { class: 'muted small', text: 'Street canyon ventilation efficiency (VEI), local air age and line-source pollutant dispersion with vegetative canopy filtration.' }),
     row('Wind from (°)', number(p.from, { min: 0, max: 359, step: 5, onChange: (v) => { p.from = v; } })),
@@ -340,6 +343,7 @@ function ventilationCard(app) {
     row('Traffic emission (µg/(m·s))', number(p.emission, { min: 10, max: 5000, step: 50, onChange: (v) => { p.emission = v; } })),
     row('Background (µg/m³)', number(p.background, { min: 0, max: 200, step: 1, onChange: (v) => { p.background = v; } })),
     row('Tree filtration share', number(p.deposition, { min: 0, max: 0.8, step: 0.05, onChange: (v) => { p.deposition = v; } })),
+    roadsNote,
     row('Road line sources', h('span', { class: 'inline' },
       button('Draw road source…', async () => {
         const line = await app.tools.drawLine('Click points along the road source');
@@ -358,18 +362,29 @@ function ventilationCard(app) {
     h('div', { class: 'btn-row' }, runButton(app, 'Run ventilation & dispersion', () => app.run('Ventilation & dispersion', (prog) => app.analyst.ventilation({
       area: app.area(), cell: Math.max(2, app.cell(600)), windFromDeg: p.from, speed10: p.speed,
       emissionRateUgMS: p.emission, backgroundUgM3: p.background, treeDepositionFactor: p.deposition,
-      roads: app.drawnRoads, onProgress: prog })))));
+      onProgress: prog })))));
   return card('Canyon ventilation & air quality', body);
+}
+
+/** Which roads the noise and dispersion runs will use. */
+function roadSourcesNote(app) {
+  const layers = app.layers.filter((l) => l.entry.role === 'roads');
+  const text = layers.length
+    ? `Roads: ${layers.map((l) => l.entry.name).join(', ')} (Traffic expression from QGIS), plus lines drawn here.`
+    : 'No layer has the Roads role: draw road lines here, or give a QGIS line layer the Roads role. Without roads, street corridors between buildings are used.';
+  return h('p', { class: 'muted small', text });
 }
 
 function noiseCard(app) {
   const p = app.params.noise;
   const roadsInfo = h('span', { class: 'muted small', text: `${app.drawnRoads?.length || 0} drawn` });
+  const roadsNote = roadSourcesNote(app);
   const body = h('div', {},
     h('p', { class: 'muted small', text: 'Environmental road traffic noise propagation, Maekawa building edge diffraction and facade quiet-side detection.' }),
     row('Road sound power Lw (dB(A)/m)', number(p.power, { min: 50, max: 110, step: 1, onChange: (v) => { p.power = v; } })),
     row('Receiver height (m)', number(p.receiverHeight, { min: 0.5, max: 10, step: 0.5, onChange: (v) => { p.receiverHeight = v; } })),
     row('Ground absorption', number(p.ground, { min: 0, max: 1, step: 0.1, onChange: (v) => { p.ground = v; } }), '0 = hard paved ground, 1 = soft grass / soil'),
+    roadsNote,
     row('Road line sources', h('span', { class: 'inline' },
       button('Draw road source…', async () => {
         const line = await app.tools.drawLine('Click points along the road source');
@@ -387,7 +402,7 @@ function noiseCard(app) {
       roadsInfo)),
     h('div', { class: 'btn-row' }, runButton(app, 'Run noise map', () => app.run('Environmental noise', (prog) => app.analyst.noise({
       area: app.area(), cell: Math.max(2, app.cell(600)), soundPowerDb: p.power,
-      receiverHeight: p.receiverHeight, groundFactor: p.ground, roads: app.drawnRoads, onProgress: prog })))));
+      receiverHeight: p.receiverHeight, groundFactor: p.ground, onProgress: prog })))));
   return card('Acoustic & noise screening', body);
 }
 

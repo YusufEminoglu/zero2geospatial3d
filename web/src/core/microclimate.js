@@ -97,15 +97,16 @@ export function surfaceTemperature({
 
   const qRad = swAbsorbed + lwNet;
 
-  // Evaporative partitioning via Bowen ratio (beta = H / LE)
-  const fSensible = qRad > 0 ? (bowen / (1 + bowen)) : 1.0;
-
   // Convective conductance and linearized radiative conductance
   const ws = Math.max(0.2, Math.min(15, Number.isFinite(windSpeed) ? windSpeed : 2));
   const hc = 5.8 + 4.1 * ws;
   const hr = 4 * emissivity * SIGMA * Math.pow(tAirK, 3);
 
-  const deltaT = (qRad * fSensible) / (hc + hr);
+  // qRad = H + LE + hr dT with H = hc dT and LE = H / beta (Bowen ratio), so
+  // evaporation raises the convective conductance only, not the radiative
+  // one. A surface losing heat (qRad < 0) does not evaporate.
+  const hTurb = qRad > 0 ? hc * (1 + bowen) / bowen : hc;
+  const deltaT = qRad / (hTurb + hr);
   const clampedDelta = Math.max(-12, Math.min(35, deltaT));
 
   return airTemp + clampedDelta;

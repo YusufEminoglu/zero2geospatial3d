@@ -65,6 +65,19 @@ def test_building_height_priority():
     assert osm_tags.tree_height({"height": "200"}) == 8.0
 
 
+def test_road_traffic_by_highway_class():
+    assert osm_tags.road_traffic({"highway": "primary"}) == 3.0
+    assert osm_tags.road_traffic({"highway": "primary_link"}) == 1.5
+    assert osm_tags.road_traffic({"highway": "residential"}) < osm_tags.road_traffic({"highway": "secondary"})
+    assert osm_tags.road_traffic({"highway": "footway"}) is None
+    assert osm_tags.road_traffic({"highway": "motorway", "tunnel": "yes"}) is None
+    assert osm_tags.road_traffic({"highway": "motorway", "tunnel": "no"}) == 8.0
+    assert osm_tags.road_traffic({}) is None
+    import re
+    assert re.match(osm_tags.HIGHWAY_PATTERN, "trunk_link")
+    assert not re.match(osm_tags.HIGHWAY_PATTERN, "cycleway")
+
+
 def test_epw_index_and_nearest_station():
     index = epw.load_index()
     assert len(index["rows"]) > 15000

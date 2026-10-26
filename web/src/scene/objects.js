@@ -635,6 +635,7 @@ export function createLayer(app, entry, index, data) {
     case 'platforms':
       return new PlatformLayer(app, entry, index, data);
     case 'sections':
+    case 'roads':
       return new LineLayer(app, entry, index, data);
     default:
       return null;

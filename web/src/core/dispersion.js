@@ -2,6 +2,8 @@
 // Street-canyon ventilation, normalized air age, and traffic pollutant
 // dispersion modeling (OSPM-inspired Gaussian plume + canyon recirculation).
 
+import { sampleRoadLines, streetCentrelines } from './road_sources.js';
+
 export const VENTILATION_CLASSES = [
   { min: 0.8, max: Infinity, label: 'Well ventilated', color: '#2b83ba' },
   { min: 0.5, max: 0.8, label: 'Moderate exchange', color: '#abdda4' },
@@ -73,111 +75,18 @@ export function airQualityClass(ugm3) {
 }
 
 /**
- * Sample road emission sources from polylines or synthesize from street corridors.
- * @param {Array<Array<[number, number]>>} roads
- * @param {number} cols
- * @param {number} rows
- * @param {number} cell
- * @param {Float32Array} heights
- * @param {Float32Array|null} porosity
- * @param {number} [minX]
- * @param {number} [maxY]
+ * Traffic emission sources: the given roads sampled every max(2 m, 1 cell),
+ * or street centrelines between buildings when there are none, or a line
+ * across the middle of a scene without buildings.
  * @returns {Array<{ x: number, y: number, length: number }>}
  */
-function sampleEmissionSources(roads, cols, rows, cell, heights, porosity, minX = 0.5 * cell, maxY = (rows - 0.5) * cell) {
-  /** @type {Array<{ x: number, y: number, length: number }>} */
-  const sources = [];
-
-  if (Array.isArray(roads) && roads.length > 0) {
-    const step = Math.max(2, cell);
-    for (const poly of roads) {
-      if (!Array.isArray(poly) || poly.length < 2) continue;
-      for (let p = 0; p < poly.length - 1; p++) {
-        const p1 = poly[p];
-        const p2 = poly[p + 1];
-        const x1 = p1[0], y1 = p1[1];
-        const x2 = p2[0], y2 = p2[1];
-        const len = Math.hypot(x2 - x1, y2 - y1);
-        if (len <= 0) continue;
-        const count = Math.max(1, Math.round(len / step));
-        const segLen = len / count;
-        for (let k = 0; k < count; k++) {
-          const t = (k + 0.5) / count;
-          sources.push({
-            x: x1 + t * (x2 - x1),
-            y: y1 + t * (y2 - y1),
-            length: segLen
-          });
-        }
-      }
-    }
-  }
-
-  if (sources.length === 0) {
-    // Automatically synthesize emission sources along open street cells within 15 m of buildings
-    const INF = 1e9;
-    const dist = new Float32Array(cols * rows);
-    let hasSolid = false;
-    for (let i = 0; i < cols * rows; i++) {
-      if (heights[i] > 0 && !(porosity && porosity[i] > 0)) {
-        dist[i] = 0;
-        hasSolid = true;
-      } else {
-        dist[i] = INF;
-      }
-    }
-    if (hasSolid) {
-      const a = cell, b = cell * Math.SQRT2;
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const i = r * cols + c;
-          let v = dist[i];
-          if (c > 0) v = Math.min(v, dist[i - 1] + a);
-          if (r > 0) {
-            v = Math.min(v, dist[i - cols] + a);
-            if (c > 0) v = Math.min(v, dist[i - cols - 1] + b);
-            if (c < cols - 1) v = Math.min(v, dist[i - cols + 1] + b);
-          }
-          dist[i] = v;
-        }
-      }
-      for (let r = rows - 1; r >= 0; r--) {
-        for (let c = cols - 1; c >= 0; c--) {
-          const i = r * cols + c;
-          let v = dist[i];
-          if (c < cols - 1) v = Math.min(v, dist[i + 1] + a);
-          if (r < rows - 1) {
-            v = Math.min(v, dist[i + cols] + a);
-            if (c < cols - 1) v = Math.min(v, dist[i + cols + 1] + b);
-            if (c > 0) v = Math.min(v, dist[i + cols - 1] + b);
-          }
-          dist[i] = v;
-        }
-      }
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const i = r * cols + c;
-          const d = dist[i];
-          if (d > 0 && d <= 15 && (c % 2 === 0 || r % 2 === 0)) {
-            const sx = minX + c * cell;
-            const sy = maxY - r * cell;
-            sources.push({ x: sx, y: sy, length: cell * 2 });
-          }
-        }
-      }
-    }
-    if (sources.length === 0) {
-      // Scene centerline fallback
-      const midR = Math.floor(rows / 2);
-      for (let c = 0; c < cols; c++) {
-        const sx = minX + c * cell;
-        const sy = maxY - midR * cell;
-        sources.push({ x: sx, y: sy, length: cell });
-      }
-    }
-  }
-
-  return sources;
+function emissionSources(roads, weights, cols, rows, cell, heights, porosity, minX, maxY) {
+  const { sources, given } = sampleRoadLines(roads, weights, Math.max(2, cell));
+  if (sources.length || given) return sources;
+  const streets = streetCentrelines(heights, porosity, cols, rows, cell, minX, maxY, 25);
+  if (streets.length) return streets;
+  const midY = maxY - Math.floor(rows / 2) * cell;
+  return Array.from({ length: cols }, (_, c) => ({ x: minX + c * cell, y: midY, length: cell }));
 }
 
 /**
@@ -195,6 +104,7 @@ function sampleEmissionSources(roads, cols, rows, cell, heights, porosity, minX 
  * @param {number} [p.windFromDeg] meteorological direction wind comes from (0=N, 90=E, 180=S, 270=W)
  * @param {number} [p.windSpeed10] reference wind speed at 10m (m/s)
  * @param {Array<Array<[number, number]>>} [p.roads] polylines of road centerlines
+ * @param {ArrayLike<number>|null} [p.roadWeights] relative traffic per road polyline (1 = the stated level; 2 doubles it)
  * @param {number} [p.emissionRateUgMS] line source emission rate (ug / (m * s))
  * @param {number} [p.backgroundUgM3] ambient background concentration (ug / m3)
  * @param {number} [p.treeDepositionFactor] fraction of pollutant filtered by trees (0..1)
@@ -213,11 +123,12 @@ export function pollutantDispersion({
   windFromDeg = 270,
   windSpeed10 = 3,
   roads = [],
+  roadWeights = null,
   emissionRateUgMS = 450,
   backgroundUgM3 = 18,
   treeDepositionFactor = 0.25
 }) {
-  const sources = sampleEmissionSources(roads, cols, rows, cell, heights, porosity, minX, maxY);
+  const sources = emissionSources(roads, roadWeights, cols, rows, cell, heights, porosity, minX, maxY);
 
   // Wind vector blows towards (windFromDeg + 180) degrees
   const toRad = (((windFromDeg + 180) % 360) * Math.PI) / 180;
