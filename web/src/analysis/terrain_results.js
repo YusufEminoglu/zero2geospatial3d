@@ -38,7 +38,7 @@ export async function terrainAnalyses(app, { kinds, extent = 'scene', tpiRadius 
   if (!kinds.length) throw new Error('Tick at least one terrain analysis.');
   const t = app.terrain;
   const area = extent === 'area' ? app.area() : app.sceneArea();
-  const g = cropGrid(t.grid, area, maxCells);
+  const g = cropGrid(t.dataGrid, area, maxCells);
   const where = `${extent === 'area' ? 'Analysis area' : 'Whole DEM'}, ${g.cell.toFixed(g.cell < 10 ? 1 : 0)} m cells${g.factor > 1 ? ` (DEM ×${g.factor} coarser)` : ''}`;
   const want = new Set(kinds);
   const steps = kinds.length + (want.has('twi') ? 1 : 0);

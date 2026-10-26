@@ -50,14 +50,20 @@ export function bakeScene(app, { area = null } = {}) {
       tUv[k * 2 + 1] = 1 - (rs[j] - r0 + 0.5) / (r1 - r0 + 1); // image row 0 = north
     }
   }
-  const tIdx = new Uint32Array((nc - 1) * (nr - 1) * 6);
+  let tIdx = new Uint32Array((nc - 1) * (nr - 1) * 6);
+  // Where the DEM has no data (a DEM clipped to a polygon) there is no ground.
+  const mask = t.mask;
+  const on = mask ? (i, j) => mask[rs[j] * g.cols + cs[i]] === 1 : () => true;
   let q = 0;
   for (let j = 0; j < nr - 1; j++) {
     for (let i = 0; i < nc - 1; i++) {
       const aa = j * nc + i, b = aa + 1, d = aa + nc, e = d + 1;
-      tIdx[q++] = aa; tIdx[q++] = d; tIdx[q++] = b; tIdx[q++] = b; tIdx[q++] = d; tIdx[q++] = e;
+      const oa = on(i, j), ob = on(i + 1, j), od = on(i, j + 1), oe = on(i + 1, j + 1);
+      if (oa && od && ob) { tIdx[q++] = aa; tIdx[q++] = d; tIdx[q++] = b; }
+      if (ob && od && oe) { tIdx[q++] = b; tIdx[q++] = d; tIdx[q++] = e; }
     }
   }
+  if (q < tIdx.length) tIdx = tIdx.slice(0, q);
   const terrainTexture = composeTerrainTexture(app, { c0, c1, r0, r1 }, overlay, opacity);
 
   // ---------------------------------------------------------- extrusions

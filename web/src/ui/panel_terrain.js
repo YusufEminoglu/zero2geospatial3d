@@ -76,7 +76,7 @@ function profileCard(app) {
     let len = 0;
     for (let i = 0; i < state.line.length - 1; i++) len += Math.hypot(state.line[i + 1][0] - state.line[i][0], state.line[i + 1][1] - state.line[i][1]);
     const step = Math.max(0.5, Math.min(t.grid.cell / 2, len / 800));
-    const pts = profile(t.grid, state.line, step);
+    const pts = profile(t.dataGrid, state.line, step);
     if (state.withBuildings && app.layers.some((l) => l instanceof ExtrudedLayer && l.visible)) {
       const xs = state.line.map((p) => p[0]), ys = state.line.map((p) => p[1]);
       const pad = step * 2;
@@ -99,6 +99,7 @@ function profileCard(app) {
     let up = 0, down = 0, maxSlope = 0;
     for (let i = 1; i < pts.length; i++) {
       const dz = pts[i].z - pts[i - 1].z;
+      if (!Number.isFinite(dz)) continue; // across a hole in the DEM
       if (dz > 0) up += dz; else down -= dz;
       const dd = pts[i].d - pts[i - 1].d;
       if (dd > 0) maxSlope = Math.max(maxSlope, Math.abs(dz / dd));
@@ -131,7 +132,7 @@ function profileCard(app) {
 function profileCsv(app, data) {
   const [ox, oy] = app.manifest.origin;
   const out = ['distance_m,x,y,ground_m,building_top_m'];
-  for (const p of data.points) out.push(`${p.d.toFixed(2)},${(p.x + ox).toFixed(3)},${(p.y + oy).toFixed(3)},${p.z.toFixed(3)},${Number.isFinite(p.top) ? p.top.toFixed(3) : ''}`);
+  for (const p of data.points) out.push(`${p.d.toFixed(2)},${(p.x + ox).toFixed(3)},${(p.y + oy).toFixed(3)},${Number.isFinite(p.z) ? p.z.toFixed(3) : ''},${Number.isFinite(p.top) ? p.top.toFixed(3) : ''}`);
   return out.join('\n');
 }
 
@@ -143,7 +144,14 @@ function profileDxf(data) {
     for (const [x, y] of pts) out.push('0', 'VERTEX', '8', layer, '10', x.toFixed(3), '20', y.toFixed(3), '30', '0');
     out.push('0', 'SEQEND');
   };
-  poly(data.points.map((p) => [p.d, p.z]), 'GROUND');
+  // One ground polyline per stretch with DEM data (a clipped DEM has holes).
+  let ground = [];
+  for (const p of data.points) {
+    if (Number.isFinite(p.z)) { ground.push([p.d, p.z]); continue; }
+    if (ground.length > 1) poly(ground, 'GROUND');
+    ground = [];
+  }
+  if (ground.length > 1) poly(ground, 'GROUND');
   let run = null;
   const flush = (end) => { if (run) { poly([[run.d0, run.z0], [run.d0, run.top], [end.d, run.top], [end.d, end.z]], 'BUILDINGS'); run = null; } };
   for (const p of data.points) {
@@ -167,7 +175,7 @@ function floodCard(app) {
   const levelSlider = slider(state.level, { min: lo, max: hi, step: Math.max(0.1, (hi - lo) / 400), format: (v) => `${v.toFixed(1)} m`,
     onChange: (v) => { state.level = v; apply(); } });
   const apply = () => {
-    const res = flood(t.grid, state.level, state.seed);
+    const res = flood(t.dataGrid, state.level, state.seed);
     state.result = res;
     app.waterLevel = state.level;
     t.setWater(state.level, res.floodedCells ? res.depth : null);
@@ -228,7 +236,7 @@ function cutFillCard(app) {
   }
   const compute = () => {
     if (!state.ring) return;
-    const res = cutFill(t.grid, state.ring, state.level);
+    const res = cutFill(t.dataGrid, state.ring, state.level);
     state.result = res;
     clear(info);
     info.appendChild(stats([['Platform area', `${Math.round(res.area).toLocaleString('en-US')} m²`], ['Cut', `${Math.round(res.cut).toLocaleString('en-US')} m³`],

@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.2] - 2026-10-26
+
+### Fixed
+- A DEM clipped to a concave polygon (the cells of its bounding box outside the polygon set to -9999) showed made-up ground there. With a declared no-data value the exporter filled those cells by interpolation, so the notch of a U-shaped DEM came back as a smooth surface; without one, -9999 reached the viewer as a height. The scene now carries a no-data mask (`terrain_mask.bin`): those cells are not drawn, cannot be clicked, carry no contours, profile, flooding or cut and fill, stay empty in the terrain maps and in every analysis result sent to QGIS. Elevation range and colours come from the cells with data only.
+- An undeclared -9999, -32768, -32767 or float32 minimum in a DEM or climate raster is taken as no data (0 is not, since it can be real ground).
+
 ## [1.2.1] - 2026-10-26
 
 An audit of every tool: each analysis, terrain tool, comparison and export run end to end in the viewer, plus a review of the algorithms and the QGIS side.

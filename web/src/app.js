@@ -67,13 +67,19 @@ export class App {
     this.site = { lat: m.geo.lat, lon: m.geo.lon, utcOffset: m.geo.utcOffset };
     const g = m.grid;
     let values = new Float32Array(g.cols * g.rows);
+    let mask = null;
     if (m.terrain) {
       this.status('Loading terrain …');
       const buf = await (await fetch(base + m.terrain.file, { cache: 'no-store' })).arrayBuffer();
       values = new Float32Array(buf);
       if (values.length !== g.cols * g.rows) throw new Error('terrain.bin does not match the grid in scene.json');
+      // Cells where the DEM has no data (e.g. a DEM clipped to a polygon).
+      if (m.terrain.mask) {
+        mask = new Uint8Array(await (await fetch(base + m.terrain.mask, { cache: 'no-store' })).arrayBuffer());
+        if (mask.length !== values.length) throw new Error('terrain_mask.bin does not match the grid in scene.json');
+      }
     }
-    this.terrain = new Terrain(this.viewer, makeGrid(g.cols, g.rows, g.cell, g.minX, g.maxY, values));
+    this.terrain = new Terrain(this.viewer, makeGrid(g.cols, g.rows, g.cell, g.minX, g.maxY, values), mask);
     let index = 0;
     for (const entry of m.layers) {
       index++;
@@ -202,6 +208,7 @@ export class App {
         r.id = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
         r.created = new Date();
         r.seconds = (performance.now() - t0) / 1000;
+        this.maskNoData(r);
         for (const f of r.fields || []) f.layer.setResultField(f.name, f.values);
       }
       this.results.unshift(...results); // keep the analysis' own order, newest run on top
@@ -217,6 +224,25 @@ export class App {
     } finally {
       this.busy = false;
       this.emit('busy');
+    }
+  }
+
+  /**
+   * Ground cells over holes in the DEM (a DEM clipped to a polygon) carry no
+   * result: NaN there, so they are neither drawn nor sent to QGIS. Roofs of
+   * buildings standing there keep their values.
+   */
+  maskNoData(r) {
+    const t = this.terrain;
+    const g = r?.grid;
+    if (!t?.mask || !g || !(r.values instanceof Float32Array) || r.values.length !== g.cols * g.rows) return;
+    for (let row = 0; row < g.rows; row++) {
+      const y = g.maxY - row * g.cell;
+      for (let c = 0; c < g.cols; c++) {
+        const i = row * g.cols + c;
+        if (r.ids?.[i] || !Number.isFinite(r.values[i])) continue;
+        if (!t.hasData(g.minX + c * g.cell, y)) r.values[i] = NaN;
+      }
     }
   }
 
@@ -554,11 +580,11 @@ export class App {
     clear(el);
     const [x, y] = p.local;
     const z = this.terrain.heightAt(x, y);
-    const g = this.terrain.grid;
+    const g = this.terrain.dataGrid;
     const c = Math.round((x - g.minX) / g.cell), r = Math.round((g.maxY - y) / g.cell);
     const pairs = [['Elevation', `${z.toFixed(1)} m`]];
-    if (c >= 0 && r >= 0 && c < g.cols && r < g.rows && this.terrain.max - this.terrain.min > 0.5) {
-      const sa = slopeAspectAt(g, c, r);
+    const sa = c >= 0 && r >= 0 && c < g.cols && r < g.rows && this.terrain.max - this.terrain.min > 0.5 ? slopeAspectAt(g, c, r) : null;
+    if (sa && Number.isFinite(sa.slope)) {
       pairs.push(['Slope', `${sa.slope.toFixed(1)}°`], ['Aspect', sa.aspect < 0 ? 'flat' : `${sa.aspect.toFixed(0)}°`]);
     }
     const v = this.resultValueAt(x, y);
@@ -595,10 +621,10 @@ export class App {
   }
 
   terrainStats() {
-    return gridStats(this.terrain.grid.values);
+    return gridStats(this.terrain.dataGrid.values);
   }
 
   slopeGrid() {
-    return slopeAspect(this.terrain.grid);
+    return slopeAspect(this.terrain.dataGrid);
   }
 }

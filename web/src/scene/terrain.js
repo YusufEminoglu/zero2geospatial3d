@@ -25,12 +25,19 @@ export class Terrain {
   /**
    * @param {import('./viewer.js').Viewer} viewer
    * @param {{ cols: number, rows: number, cell: number, minX: number, maxY: number, values: Float32Array }} grid
+   * @param {Uint8Array|null} [mask] 1 = DEM data, 0 = no data. A DEM clipped to
+   *   a polygon has holes: they are not drawn, not hit and not analysed. grid
+   *   still carries a filled-in height there, so objects get a base.
    */
-  constructor(viewer, grid) {
+  constructor(viewer, grid, mask = null) {
     this.viewer = viewer;
     this.grid = grid;
+    this.mask = mask && mask.length === grid.cols * grid.rows && mask.includes(0) ? mask : null;
+    this._dataGrid = null;
     let lo = Infinity, hi = -Infinity;
-    for (const v of grid.values) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    const m = this.mask;
+    grid.values.forEach((v, i) => { if (m && !m[i]) return; if (v < lo) lo = v; if (v > hi) hi = v; });
+    if (!(lo <= hi)) lo = hi = 0;
     this.min = lo;
     this.max = hi;
     this.zBase = Math.floor(lo);
@@ -64,7 +71,30 @@ export class Terrain {
     this.paint();
   }
 
-  /** Local (x east, y north) -> absolute elevation. */
+  /**
+   * The DEM as measured: the same grid with NaN where there is no data. Use it
+   * for anything that reads the ground as data (contours, profiles, flooding,
+   * cut and fill, terrain analyses); `grid` is only for placing objects.
+   */
+  get dataGrid() {
+    if (!this.mask) return this.grid;
+    if (!this._dataGrid) {
+      const values = Float32Array.from(this.grid.values, (v, i) => (this.mask[i] ? v : NaN));
+      this._dataGrid = { ...this.grid, values };
+    }
+    return this._dataGrid;
+  }
+
+  /** Whether local (x, y) lies on DEM data (nearest cell). */
+  hasData(x, y) {
+    if (!this.mask) return true;
+    const g = this.grid;
+    const c = Math.round((x - g.minX) / g.cell), r = Math.round((g.maxY - y) / g.cell);
+    if (c < 0 || r < 0 || c >= g.cols || r >= g.rows) return false;
+    return this.mask[r * g.cols + c] === 1;
+  }
+
+  /** Local (x, y) -> absolute elevation. */
   heightAt(x, y) {
     return sample(this.grid, x, y);
   }
@@ -146,15 +176,21 @@ export class Terrain {
       uv[k * 2 + 1] = (r + 0.5) / rows;
     };
     for (let j = 0; j < nr; j++) for (let i = 0; i < nc; i++) put(j * nc + i, cs[i], rs[j], 0);
-    // Typed index of the exact size: no growing JS array to collect later.
+    // Typed index of the largest size needed: no growing JS array to collect later.
     const index = new (count > 65535 ? Uint32Array : Uint16Array)((nc - 1) * (nr - 1) * 6 + ring.length * 12);
+    const mask = this.mask;
+    const on = mask ? (i, j) => mask[rs[j] * cols + cs[i]] === 1 : () => true;
     let q6 = 0;
     for (let j = 0; j < nr - 1; j++) {
       for (let i = 0; i < nc - 1; i++) {
         const a = j * nc + i, b = a + 1, d = a + nc, e = d + 1;
+        // No data at a corner: no ground there (a DEM clipped to a polygon).
+        // Each half of the quad is kept when its own three corners have data,
+        // so the edge follows the outline diagonally rather than in steps.
+        const oa = on(i, j), ob = on(i + 1, j), od = on(i, j + 1), oe = on(i + 1, j + 1);
         // Counter-clockwise seen from above (+y): a(north-west) -> d(south-west) -> b.
-        index[q6++] = a; index[q6++] = d; index[q6++] = b;
-        index[q6++] = b; index[q6++] = d; index[q6++] = e;
+        if (oa && od && ob) { index[q6++] = a; index[q6++] = d; index[q6++] = b; }
+        if (ob && od && oe) { index[q6++] = b; index[q6++] = d; index[q6++] = e; }
       }
     }
     if (skirt) {
@@ -171,7 +207,10 @@ export class Terrain {
       }
       top.push(top[0]);
       bottom.push(bottom[0]);
+      ring.push(ring[0]);
       for (let q = 0; q < top.length - 1; q++) {
+        // No curtain under a hole in the DEM.
+        if (!on(ring[q][0], ring[q][1]) || !on(ring[q + 1][0], ring[q + 1][1])) continue;
         const a = top[q], b = top[q + 1], c2 = bottom[q], d = bottom[q + 1];
         index.set([a, c2, b, b, c2, d, a, b, c2, b, d, c2], q6);
         q6 += 12;
@@ -181,7 +220,7 @@ export class Terrain {
     geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geom.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
     geom.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    geom.setIndex(new THREE.BufferAttribute(index, 1));
+    geom.setIndex(new THREE.BufferAttribute(q6 < index.length ? index.slice(0, q6) : index, 1));
     geom.computeBoundingBox();
     geom.computeBoundingSphere();
     const mesh = new THREE.Mesh(geom, this.material);
@@ -404,7 +443,7 @@ export class Terrain {
       /** @type {any} */ (child).geometry.dispose();
     }
     if (!(interval > 0)) { this.viewer.requestRender(); return; }
-    const sets = contourLines(this.grid, interval, { maxLevels: 300 });
+    const sets = contourLines(this.dataGrid, interval, { maxLevels: 300 });
     const minor = [];
     const major = [];
     for (const { level, segments } of sets) {
@@ -463,7 +502,9 @@ export class Terrain {
   raycast(origin, dir, maxDist = 100000) {
     const step = Math.max(0.5, this.grid.cell / 2);
     let prevT = 0;
-    let prevAbove = origin.y - this.groundY(origin.x, -origin.z) > 0;
+    // Over a hole in the DEM there is no ground: the ray is always above it.
+    const above = (x, y, h) => !this.hasData(x, y) || h - this.groundY(x, y) > 0;
+    let prevAbove = above(origin.x, -origin.z, origin.y);
     if (!prevAbove) return null;
     // Coarse march with growing steps, then bisection.
     let t = step;
@@ -472,17 +513,17 @@ export class Terrain {
       const gx = x, gy = -z;
       const inside = gx >= this.grid.minX - this.grid.cell && gx <= this.grid.minX + this.grid.cols * this.grid.cell &&
         gy <= this.grid.maxY + this.grid.cell && gy >= this.grid.maxY - this.grid.rows * this.grid.cell;
-      const above = y - this.groundY(gx, gy) > 0;
-      if (inside && !above && prevAbove) {
+      const isAbove = above(gx, gy, y);
+      if (inside && !isAbove && prevAbove) {
         let lo = prevT, hi = t;
         for (let i = 0; i < 30; i++) {
           const mid = (lo + hi) / 2;
           const yy = origin.y + dir.y * mid;
-          if (yy - this.groundY(origin.x + dir.x * mid, -(origin.z + dir.z * mid)) > 0) lo = mid; else hi = mid;
+          if (above(origin.x + dir.x * mid, -(origin.z + dir.z * mid), yy)) lo = mid; else hi = mid;
         }
         return new THREE.Vector3().copy(origin).addScaledVector(dir, hi);
       }
-      prevAbove = above || !inside;
+      prevAbove = isAbove || !inside;
       prevT = t;
       t += step * Math.max(1, t / 400);
     }

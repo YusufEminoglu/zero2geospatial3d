@@ -155,7 +155,7 @@ test('terrain results: ridges and crests drawn red, every map kept off the roofs
   const { rampStops, rampColor } = await import('../../web/src/core/classify.js');
   const dem = surface(41, 41, 2, (x, y) => 30 - Math.hypot(x - 40, y - 40) * 0.25);
   const ext = { minX: 0, maxX: 80, minY: 0, maxY: 80 };
-  const app = { terrain: { grid: dem }, sceneArea: () => ext, area: () => ext };
+  const app = { terrain: { grid: dem, dataGrid: dem }, sceneArea: () => ext, area: () => ext };
   const res = await terrainAnalyses(app, { kinds: TERRAIN_ANALYSES.map((a) => a.id), tpiRadius: 20 });
   assert.equal(res.length, TERRAIN_ANALYSES.length);
   assert.ok(res.every((r) => r.groundOnly && r.grid && r.values.length === 41 * 41));

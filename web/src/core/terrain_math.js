@@ -232,6 +232,7 @@ export function cutFill(g, ring, designLevel) {
       const [x, y] = cellCentre(g, c, r);
       if (!pointInRing(x, y, ring)) continue;
       const i = r * cols + c;
+      if (!Number.isFinite(z[i])) continue; // no DEM data: nothing to cut or fill
       const d = designLevel - z[i];
       delta[i] = d;
       n++;

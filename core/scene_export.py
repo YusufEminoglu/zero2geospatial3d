@@ -5,6 +5,8 @@ Package layout (all inside one scene folder)::
 
     scene.json          manifest: CRS, origin, grids, layers, weather
     terrain.bin         DEM heights, float32 little-endian, rows north->south
+    terrain_mask.bin    only when the DEM has holes: uint8 per cell, 1 = data,
+                        0 = no data (left out of the view and the analyses)
     L<n>.geojson        one file per object layer, local metric coordinates
     L<n>.ids.json       source feature ids, index = viewer feature id - 1
     R<n>.bin            climate rasters resampled onto the terrain grid
@@ -44,6 +46,11 @@ from . import geo
 
 SCENE_FORMAT = "zero2geospatial3d-scene"
 SCENE_VERSION = 1
+
+# No-data markers that rasters often carry without declaring them (a clip in
+# QGIS or an old export can drop the tag). Only these exact values, or the
+# float32 floor, are taken as missing: 0 or any other real height never is.
+NODATA_SENTINELS = (-9999.0, -32767.0, -32768.0, -99999.0)
 
 ROLE_BUILDINGS = "buildings"
 ROLE_TREES = "trees"
@@ -154,6 +161,23 @@ def choose_export_crs(spec: ExportSpec) -> QgsCoordinateReferenceSystem:
     wgs = QgsCoordinateReferenceSystem("EPSG:4326")
     centre = _transform_rect(spec.extent, spec.extent_crs, wgs).center()
     return QgsCoordinateReferenceSystem(f"EPSG:{geo.utm_epsg_for(centre.x(), centre.y())}")
+
+
+def _source_nodata(band):
+    """The band's no-data value; when none is declared, a well-known marker
+    (-9999, -32768 ...) found as the band minimum is taken as one."""
+    declared = band.GetNoDataValue()
+    if declared is not None:
+        return declared
+    minmax = None
+    with contextlib.suppress(Exception):
+        minmax = band.ComputeRasterMinMax(False)
+    if not minmax:
+        return None
+    low = float(minmax[0])
+    if low in NODATA_SENTINELS or low < -1e30:
+        return low
+    return None
 
 
 def _is_metric(crs: QgsCoordinateReferenceSystem) -> bool:
@@ -277,7 +301,7 @@ class SceneExporter:
     @staticmethod
     def _clean_previous(out_dir: str) -> None:
         for name in os.listdir(out_dir):
-            if name == "scene.json" or name == "terrain.bin" or name == "weather.epw" or (
+            if name in ("scene.json", "terrain.bin", "terrain_mask.bin", "weather.epw") or (
                     name[:1] in ("L", "R") and name.endswith((".geojson", ".ids.json", ".bin"))):
                 with contextlib.suppress(OSError):
                     os.remove(os.path.join(out_dir, name))
@@ -297,6 +321,7 @@ class SceneExporter:
         if dataset is None:
             raise ExportError(f"GDAL cannot open raster '{layer.name()}'.")
         src_srs = layer.crs().toWkt()
+        src_nodata = _source_nodata(dataset.GetRasterBand(1))
         options = gdal.WarpOptions(
             format="MEM",
             outputBounds=(grid_extent.xMinimum(), grid_extent.yMinimum(),
@@ -304,16 +329,16 @@ class SceneExporter:
             width=cols, height=rows,
             srcSRS=src_srs or None, dstSRS=crs.toWkt(),
             resampleAlg=resample, outputType=gdal.GDT_Float32,
-            dstNodata=float("nan"), multithread=True,
+            srcNodata=src_nodata, dstNodata=float("nan"), multithread=True,
         )
         warped = gdal.Warp("", dataset, options=options)
         if warped is None:
             raise ExportError(f"Could not resample raster '{layer.name()}'.")
         band = warped.GetRasterBand(1)
         values = band.ReadAsArray().astype(np.float32)
-        src_nodata = dataset.GetRasterBand(1).GetNoDataValue()
         if src_nodata is not None and math.isfinite(src_nodata):
             values[values == np.float32(src_nodata)] = np.nan
+        values[values < -1e30] = np.nan
         return values, warped
 
     def _export_dem(self, dem: QgsRasterLayer, crs, grid_extent, cols, rows) -> dict:
@@ -324,7 +349,17 @@ class SceneExporter:
         valid = np.isfinite(values)
         if not valid.any():
             raise ExportError("The DEM has no data inside the scene area.")
+        entry = {"file": "terrain.bin", "source": dem.name()}
         if not valid.all():
+            # A DEM clipped to a polygon (or smaller than the scene) has holes.
+            # They are not ground: the viewer leaves them out of the mesh and
+            # the analyses. Heights are still filled in below so that objects
+            # standing there get a plausible base, but the mask decides what
+            # is drawn and measured.
+            missing_cells = int((~valid).sum())
+            valid.astype(np.uint8).tofile(os.path.join(self.spec.out_dir, "terrain_mask.bin"))
+            entry["mask"] = "terrain_mask.bin"
+            entry["nodataCells"] = missing_cells
             band = warped.GetRasterBand(1)
             band.WriteArray(values)
             band.SetNoDataValue(float("nan"))
@@ -333,10 +368,14 @@ class SceneExporter:
             missing = ~np.isfinite(values)
             if missing.any():
                 values[missing] = np.float32(np.nanmin(values))
-            self.warnings.append(f"The DEM had {int((~valid).sum())} empty cells; they were filled by interpolation.")
+            self.warnings.append(
+                f"The DEM has no data in {missing_cells} cells ({100 * missing_cells / valid.size:.0f} %); "
+                "they are left out of the 3D view and the analyses.")
         values.astype("<f4").tofile(os.path.join(self.spec.out_dir, "terrain.bin"))
-        return {"file": "terrain.bin", "min": float(values.min()), "max": float(values.max()),
-                "source": dem.name()}
+        heights = values[valid]
+        entry["min"] = float(heights.min())
+        entry["max"] = float(heights.max())
+        return entry
 
     def _export_climate_raster(self, index, raster, crs, grid_extent, cols, rows, origin,
                                layer_entries, id_grids) -> dict | None:

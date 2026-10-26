@@ -612,6 +612,54 @@ def test_detail_limit(folder):
           any("Large scene" in w for w in res.warnings), str(res.warnings))
 
 
+def test_clipped_dem(folder):
+    """A DEM clipped to a concave polygon: the box around it is no data
+    (-9999). Those cells must reach the viewer as a mask, never as ground,
+    whether or not the file declares -9999 as its no-data value."""
+    import numpy as np
+    from osgeo import gdal, osr
+
+    from zero2geospatial3d.core import scene_export as sx
+
+    n, cell = 120, 5.0
+    rr, cc = np.mgrid[0:n, 0:n]
+    # A "U": two legs and a base; the notch between the legs is outside.
+    inside = ((cc < 40) | (cc >= 80) | (rr >= 85)) & (cc >= 5) & (cc < n - 5) & (rr >= 5) & (rr < n - 5)
+    z = np.where(inside, 100 + 0.2 * cc, -9999).astype(np.float32)
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(32635)
+    seen = {}
+    for declared in (True, False):
+        path = os.path.join(folder, f"clipped_{declared}.tif")
+        ds = gdal.GetDriverByName("GTiff").Create(path, n, n, 1, gdal.GDT_Float32)
+        ds.SetGeoTransform((X0, cell, 0, Y0, 0, -cell))
+        ds.SetProjection(srs.ExportToWkt())
+        band = ds.GetRasterBand(1)
+        band.WriteArray(z)
+        if declared:
+            band.SetNoDataValue(-9999)
+        ds = None
+        dem = QgsRasterLayer(path, f"clipped {declared}")
+        out = os.path.join(folder, f"clipped_scene_{declared}")
+        res = sx.SceneExporter(sx.ExportSpec(out_dir=out, extent=dem.extent(), extent_crs=dem.crs(), dem=dem)).run()
+        t, g = res.manifest["terrain"], res.manifest["grid"]
+        mask_path = os.path.join(out, t.get("mask") or "-")
+        mask = np.fromfile(mask_path, dtype=np.uint8).reshape(g["rows"], g["cols"]) if os.path.isfile(mask_path) else None
+        heights = np.fromfile(os.path.join(out, t["file"]), dtype="<f4")
+        seen[declared] = (mask is not None and int((mask.astype(bool) != inside).sum()),
+                          round(t["min"], 2), round(t["max"], 2), float(heights.min()) > 0, t.get("nodataCells"))
+    expect = (0, round(float(z[inside].min()), 2), round(float(z[inside].max()), 2), True, int((~inside).sum()))
+    check("clipped DEM: the no-data box is a mask, never ground (declared -9999)", seen[True] == expect, str(seen[True]))
+    check("clipped DEM: an undeclared -9999 is recognised as no data too", seen[False] == expect, str(seen[False]))
+    # A plain DEM gets no mask.
+    plain = QgsRasterLayer(os.path.join(folder, "big_dem.tif"), "big")
+    if plain.isValid():
+        res = sx.SceneExporter(sx.ExportSpec(out_dir=os.path.join(folder, "plain_scene"), extent=plain.extent(),
+                                             extent_crs=plain.crs(), dem=plain, max_cells=1024)).run()
+        check("a DEM without holes gets no mask", "mask" not in res.manifest["terrain"] and
+              not os.path.exists(os.path.join(folder, "plain_scene", "terrain_mask.bin")), str(res.manifest["terrain"]))
+
+
 def test_quick_3d(folder, iface):
     from zero2geospatial3d.ui import dock as dock_mod
 
@@ -765,6 +813,7 @@ def main():
         test_roads(folder)
         test_results_after_reexport(folder)
         test_detail_limit(folder)
+        test_clipped_dem(folder)
         test_epw_and_osm(folder)
     except Exception as exc:  # noqa: BLE001 - a crash is a failure with a trace
         import traceback

@@ -37,8 +37,12 @@ export function drawProfile(canvas, data, height = 190) {
   const pad = { l: 46, r: 10, t: 10, b: 24 };
   const dMax = pts[pts.length - 1].d || 1;
   let zMin = Infinity, zMax = -Infinity;
-  for (const p of pts) { zMin = Math.min(zMin, p.z); zMax = Math.max(zMax, Number.isFinite(p.top) ? p.top : p.z); }
+  for (const p of pts) {
+    if (!Number.isFinite(p.z)) continue; // no DEM data there: a gap in the line
+    zMin = Math.min(zMin, p.z); zMax = Math.max(zMax, Number.isFinite(p.top) ? p.top : p.z);
+  }
   if (Number.isFinite(data.water)) { zMin = Math.min(zMin, data.water); zMax = Math.max(zMax, data.water); }
+  if (!(zMin <= zMax)) { zMin = 0; zMax = 1; }
   const span = Math.max(2, zMax - zMin);
   zMin -= span * 0.08; zMax += span * 0.08;
   const X = (d) => pad.l + ((w - pad.l - pad.r) * d) / dMax;
@@ -59,16 +63,25 @@ export function drawProfile(canvas, data, height = 190) {
     if (!Number.isFinite(p.top) || p.top <= p.z + 0.2) continue;
     ctx.fillRect(X(p.d), Y(p.top), Math.max(1, X(pts[i + 1].d) - X(p.d)) + 0.5, Y(p.z) - Y(p.top));
   }
-  // Ground.
+  // Ground, one piece per run of points with DEM data.
+  const runs = [];
+  for (const p of pts) {
+    if (!Number.isFinite(p.z)) { if (runs.length && runs[runs.length - 1].length) runs.push([]); continue; }
+    if (!runs.length) runs.push([]);
+    runs[runs.length - 1].push(p);
+  }
   ctx.beginPath();
-  ctx.moveTo(X(0), h - pad.b);
-  for (const p of pts) ctx.lineTo(X(p.d), Y(p.z));
-  ctx.lineTo(X(dMax), h - pad.b);
-  ctx.closePath();
+  for (const run of runs) {
+    if (!run.length) continue;
+    ctx.moveTo(X(run[0].d), h - pad.b);
+    for (const p of run) ctx.lineTo(X(p.d), Y(p.z));
+    ctx.lineTo(X(run[run.length - 1].d), h - pad.b);
+    ctx.closePath();
+  }
   ctx.fillStyle = 'rgba(122,154,96,0.55)';
   ctx.fill();
   ctx.beginPath();
-  pts.forEach((p, i) => (i ? ctx.lineTo(X(p.d), Y(p.z)) : ctx.moveTo(X(p.d), Y(p.z))));
+  for (const run of runs) run.forEach((p, i) => (i ? ctx.lineTo(X(p.d), Y(p.z)) : ctx.moveTo(X(p.d), Y(p.z))));
   ctx.strokeStyle = '#3f5e2a';
   ctx.lineWidth = 1.5;
   ctx.stroke();

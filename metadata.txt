@@ -3,7 +3,7 @@ name=02 Geo3D Analyzer
 qgisMinimumVersion=3.28
 qgisMaximumVersion=4.99
 description=3D viewer and analyzer for terrain and buildings: ENVI-met style microclimate (UTCI, PET, surface temperature, canopy cooling), street-canyon ventilation and pollutant dispersion, 3D acoustics, Green View Index, solar envelope, sun and shadow, sky view and facade daylight (VSC), solar PV, visibility, terrain analyses, BRE 209 planning checks and NSGA-II height optimisation, with every result returned to QGIS.
-version=1.2.1
+version=1.2.2
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 about=
@@ -35,6 +35,10 @@ hasProcessingProvider=no
 plugin_dependencies=
 license=MIT
 changelog=
+    1.2.2 - DEM no-data cells stay empty.
+        - Fixed: a DEM clipped to a concave polygon showed made-up ground in its no-data cells (-9999): they were filled by interpolation, or, without a declared no-data value, drawn at -9999.
+        - No-data cells are now left out of the terrain mesh, clicks, contours, profiles, flooding, cut and fill, terrain maps and every analysis result sent to QGIS.
+        - An undeclared -9999, -32768 or -32767 is recognised as no data.
     1.2.1 - Audit of every tool: fixes and a responsive page during analyses.
         - Fixed: results on the wrong buildings after a re-export; A vs B for facade daylight; scenes with 16+ layers.
         - Fixed: optimiser daylight constraint reach; southern-hemisphere seasons; A vs B solar and comfort settings.
