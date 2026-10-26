@@ -7,7 +7,7 @@
 **3D viewer and analyzer for terrain and extruded layers: sun hours, sky view factor, shadows, solar PV, visibility, wind and thermal-comfort screening, terrain sections, flooding and cut/fill, with results returned to QGIS.**
 
 [![QGIS](https://img.shields.io/badge/QGIS-3.28%2B%20%7C%204-93b023?logo=qgis&logoColor=white)](https://plugins.qgis.org/plugins/zero2geospatial3d/)
-[![Version](https://img.shields.io/badge/version-1.2.0-blue)](https://github.com/YusufEminoglu/zero2geospatial3d/releases)
+[![Version](https://img.shields.io/badge/version-1.2.1-blue)](https://github.com/YusufEminoglu/zero2geospatial3d/releases)
 [![Manual](https://img.shields.io/badge/manual-reference%20guide-teal?logo=read-the-docs&logoColor=white)](docs/MANUAL.md)
 [![License](https://img.shields.io/badge/license-MIT-orange)](LICENSE)
 [![QGIS Plugin Hub](https://img.shields.io/badge/QGIS%20Hub-install-589632?logo=qgis&logoColor=white)](https://plugins.qgis.org/plugins/zero2geospatial3d/)

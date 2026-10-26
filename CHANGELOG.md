@@ -3,6 +3,27 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.1] - 2026-10-26
+
+An audit of every tool: each analysis, terrain tool, comparison and export run end to end in the viewer, plus a review of the algorithms and the QGIS side.
+
+### Fixed
+- Results sent to QGIS after a re-export landed on the wrong buildings: a results GeoPackage now belongs to the export that made it (the old one is kept as `*.previous.gpkg`).
+- A feature added by hand to a results layer (no `g3d_id`) broke every later send; a result field that differed only in case from a source field was silently lost.
+- Compare > A vs B for daylight on facades (VSC) failed with an error.
+- Scenes with 16 or more layers mixed up buildings in roof and per-building results.
+- Optimiser: the BRE 25° daylight constraint missed neighbours whose centre lay outside the scored area.
+- Seasons follow the hemisphere; south of the equator the planning check's summer heat test reads December to February.
+- A vs B for solar and comfort used other settings than the Analyze cards (period, efficiency, manual weather).
+- Green View Index counted crowns and ground outside the ±45° field of view (up to 100 % under tall trees).
+- Cut & fill *Balance* on a polygon smaller than a cell returned the highest point of the DEM.
+- The profile DXF left out a building cut by the end of the section line.
+- Large terrain maps failed to go to QGIS (their values were sent twice).
+- Wind ratio at the east edge of the grid, and the GLB/HTML terrain texture half a cell off.
+
+### Changed
+- The page stays responsive during analyses: GPU work waits on a fence between batches of sky and sun directions, and the comfort, diurnal and Green View loops yield. Freezes of 13–38 s in a software-rendered test dropped to about 2 s.
+
 ## [1.2.0] - 2026-10-26
 
 ### Added

@@ -1,6 +1,6 @@
 <!-- Generated from docs/index.html by tools/build_manual_md.py; edit the HTML, then rebuild. -->
 
-> **02 Geo3D Analyzer — Reference Manual** (v1.2.0). The styled online edition is at
+> **02 Geo3D Analyzer — Reference Manual** (v1.2.1). The styled online edition is at
 > [geophilo.com/zero2geospatial3d](https://geophilo.com/zero2geospatial3d/); this copy is the same manual
 > for reading on GitHub.
 
@@ -1423,7 +1423,7 @@ The plugin is deliberately explicit about its methods. Every result carries a no
 |--------------|---------------------------------------------------------------------------------------------------|
 | Plugin       | 02 Geo3D Analyzer                                                                                 |
 | Package      | `zero2geospatial3d`                                                                               |
-| Version      | 1.2.0                                                                                             |
+| Version      | 1.2.1                                                                                             |
 | QGIS         | 3.28 or newer; QGIS 4 supported                                                                   |
 | Runtime      | WebGL 2 browser, local loopback bridge                                                            |
 | Dependencies | None beyond QGIS and the bundled viewer                                                           |
@@ -1437,4 +1437,4 @@ The plugin is deliberately explicit about its methods. Every result carries a no
 
 ### Scope of this manual
 
-This document describes the plugin as shipped in version 1.2.0. Analyses are screening tools for design and planning; they are not a substitute for a formal daylight assessment, a wind-tunnel study, a structural calculation or a statutory compliance report. The note attached to each result names the method and the main limitation.
+This document describes the plugin as shipped in version 1.2.1. Analyses are screening tools for design and planning; they are not a substitute for a formal daylight assessment, a wind-tunnel study, a structural calculation or a statutory compliance report. The note attached to each result names the method and the main limitation.
