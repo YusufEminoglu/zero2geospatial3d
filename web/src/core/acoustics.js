@@ -148,7 +148,7 @@ export async function noisePropagation({
   maxY = (rows - 0.5) * cell,
   roads = [],
   roadWeights = null,
-  soundPowerDb = 78,
+  soundPowerDb = 82,
   receiverHeight = 1.5,
   sourceHeight = 0.5,
   groundFactor = 0.5,

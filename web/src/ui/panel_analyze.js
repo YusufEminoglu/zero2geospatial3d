@@ -25,7 +25,7 @@ export function defaultParams(app) {
     wind: { from: rose ? rose.prevailingDirection : 270, speed: rose ? Math.max(1, rose.prevailingSpeed) : 4, cell: 0 },
     comfort: { month: 7, day: 21, hour: 15, manual: !app.weather?.dryBulb, airTemp: 32, rh: 45, windSpeed: 2.5, windDir: rose ? rose.prevailingDirection : 270, material: 'concrete', lai: 3.0, treeHeight: 10, treeRadius: 3.5 },
     vent: { from: rose ? rose.prevailingDirection : 270, speed: rose ? Math.max(1, rose.prevailingSpeed) : 3.5, emission: 60, background: 18, deposition: 0.25 },
-    noise: { power: 78, receiverHeight: 1.5, ground: 0.5 },
+    noise: { power: 82, receiverHeight: 1.5, ground: 0.5 },
     form: { eyeHeight: 1.6, radius: 80, preset: '12-21', month: 12, day: 21, start: 9, end: 15, minHours: 2, maxH: 72, floorH: 3.2 },
     morph: { block: 100, from: rose ? rose.prevailingDirection : 270 },
     climate: { from: 7, to: 22, sectors: 8, ring: 15 },
@@ -425,7 +425,8 @@ function noiseCard(app) {
   const roadsNote = roadSourcesNote(app);
   const body = h('div', {},
     h('p', { class: 'muted small', text: 'Environmental road traffic noise propagation, Maekawa building edge diffraction and facade quiet-side detection.' }),
-    row('Road sound power Lw (dB(A)/m)', number(p.power, { min: 50, max: 110, step: 1, onChange: (v) => { p.power = v; } })),
+    row('Road sound power Lw (dB(A)/m)', number(p.power, { min: 50, max: 110, step: 1, onChange: (v) => { p.power = v; } }),
+      'Lden per metre of a road with traffic 1: about 82 for a busy two-lane road at 50 km/h'),
     row('Receiver height (m)', number(p.receiverHeight, { min: 0.5, max: 10, step: 0.5, onChange: (v) => { p.receiverHeight = v; } })),
     row('Ground absorption', number(p.ground, { min: 0, max: 1, step: 0.1, onChange: (v) => { p.ground = v; } }), '0 = hard paved ground, 1 = soft grass / soil'),
     roadsNote,

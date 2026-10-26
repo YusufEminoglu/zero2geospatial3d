@@ -1032,7 +1032,7 @@ L_{i} = L_{W}' + 10\log_{10}(\ell_{i}\,w_{i}) - A_{div} - A_{atm} - A_{gr} - A_{
 L = 10\log_{10}\sum_{i} 10^{L_{i}/10}, \qquad A_{div} = 20\log_{10} d + 8, \quad A_{atm} = 0.0019\,d
 ```
 
-$L_W'$ is the sound power per metre of road, $\ell_i$ the length a sample stands for, and $w_i$ the road's relative traffic. The terms then work as follows:
+$L_W'$ is the sound power per metre of road, $\ell_i$ the length a sample stands for, and $w_i$ the road's relative traffic. The default $L_W' = 82$ dB(A)/m is a road with traffic 1, a busy two-lane road at 50 km/h. In CNOSSOS-EU, a light vehicle at that speed has a sound power of about 97.5 dB(A); about 830 vehicles an hour then give about 80 dB(A)/m in the day, and the evening and night weighting of $L_{den}$ adds about 2 dB. Such a road reads about 68 dB at 10 m. The terms then work as follows:
 
 - **Ground** $A_{gr} = 1.5\,G\log_{10}(d/2)$, where $G$ runs from 0 (hard pavement) to 1 (grass and soil).
 - **Barriers:** a ray from each source to the receiver finds the highest blocking building. Its path difference $\delta$ gives the Maekawa attenuation $A_{bar} = 10\log_{10}(3 + 20N)$, with $N = 2\delta/\lambda$ at 500 Hz, capped at 20 dB as in ISO 9613-2 for single diffraction. Air absorption uses the ISO 9613-2 value at 500 Hz, 1.9 dB/km.

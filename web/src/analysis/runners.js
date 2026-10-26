@@ -1241,7 +1241,7 @@ export class Analyst {
     ];
   }
 
-  async noise({ area, cell, soundPowerDb = 78, receiverHeight = 1.5, groundFactor = 0.5, roads = null, roadWeights = null, onProgress }) {
+  async noise({ area, cell, soundPowerDb = 82, receiverHeight = 1.5, groundFactor = 0.5, roads = null, roadWeights = null, onProgress }) {
     const og = await this.obstacleGrid({ area, cell, onProgress: (f) => onProgress?.(0.4 * f) });
     const { grid } = og;
     const src = roads ? { lines: roads, weights: roadWeights } : this.roadLines();

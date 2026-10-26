@@ -29,7 +29,7 @@ export const CRITERIA = [
     help: 'Summer hours with UTCI of 32 °C or more on the surrounding ground (needs the climate year and an EPW). The limit is a project choice.' },
   { id: 'facade_noise', label: 'Max facade noise level (Lden)', short: 'Facade noise',
     unit: 'dB(A)', test: 'max', threshold: 65,
-    help: 'Highest road/environmental noise level at the building perimeter (WHO / EU environmental noise threshold).' },
+    help: 'Highest road traffic noise level at the building perimeter. 65 dB Lden is a common noise action-plan level; the WHO 2018 guideline for road traffic is 53 dB.' },
   { id: 'green_view', label: 'Green View Index around it (GVI)', short: 'Green view',
     unit: '%', test: 'min', threshold: 15,
     help: 'Mean pedestrian-level Green View Index on the surrounding open ground.' }
