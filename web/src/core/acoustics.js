@@ -56,15 +56,17 @@ function noiseSources(roads, weights, cols, rows, cell, heights, porosity, minX,
 }
 
 /**
- * Sources grouped into square clusters: a far receiver hears a cluster as
- * one source at its length-weighted centre, a near one hears every member.
- * @param {Array<{ x: number, y: number, length: number }>} sources
- * @param {number} size cluster side in metres
+ * Items (sources or clusters) grouped into square clusters of `size` metres,
+ * each at the length-weighted centre of its members with their total length.
+ * @template {{ x: number, y: number, length: number }} T
+ * @param {T[]} items
+ * @param {number} size
+ * @returns {Array<{ x: number, y: number, length: number, members: T[] }>}
  */
-function clusterSources(sources, size) {
-  /** @type {Map<string, { x: number, y: number, length: number, members: typeof sources }>} */
+function clusterSources(items, size) {
+  /** @type {Map<string, { x: number, y: number, length: number, members: T[] }>} */
   const bins = new Map();
-  for (const s of sources) {
+  for (const s of items) {
     if (!(s.length > 0)) continue;
     const key = `${Math.floor(s.x / size)},${Math.floor(s.y / size)}`;
     let b = bins.get(key);
@@ -154,11 +156,15 @@ export async function noisePropagation({
   onProgress = null
 }) {
   const sources = noiseSources(roads, roadWeights, cols, rows, cell, heights, porosity, minX, maxY);
-  // Clusters of about 8 m heard as one source beyond 64 m: within 0.5 dB of
-  // summing every source on a block grid, four times faster.
+  // Two cluster levels: road samples within 64 m are traced one by one,
+  // 8 m clusters up to 160 m, 32 m clusters beyond, each heard as one source
+  // at its centre (a distant cluster spans a small angle).
   const clusterSize = Math.max(8, 2 * Math.max(3, cell * 1.5));
+  const bigSize = 4 * clusterSize;
   const clusters = clusterSources(sources, clusterSize);
+  const big = clusterSources(clusters, bigSize);
   const near = 8 * clusterSize;
+  const mid = 5 * bigSize;
   const nearFacades = findNearSolidFacades(heights, porosity, cols, rows, cell);
   const dz = receiverHeight - sourceHeight;
 
@@ -221,13 +227,23 @@ export async function noisePropagation({
       const ry = maxY - r * cell;
       const bonus = nearFacades[i] === 1 ? 1.8 : 0;
       let energySum = 0;
-      for (const k of clusters) {
-        const dk = Math.hypot(rx - k.x, ry - k.y);
-        if (dk > maxDist + clusterSize) continue;
-        if (dk > near) {
-          energySum += energyFrom(rx, ry, k, coarseStep, bonus);
-        } else {
-          for (const src of k.members) energySum += energyFrom(rx, ry, src, fineStep, bonus);
+      for (const K of big) {
+        const dK = Math.hypot(rx - K.x, ry - K.y);
+        if (dK > maxDist + bigSize) continue;
+        if (dK > mid) {
+          // Far: one source, rays sampled about 24 times (barriers of a few
+          // metres still register; far roads are faint and mostly screened).
+          energySum += energyFrom(rx, ry, K, Math.max(coarseStep, dK / 24), bonus);
+          continue;
+        }
+        for (const k of K.members) {
+          const dk = Math.hypot(rx - k.x, ry - k.y);
+          if (dk > maxDist + clusterSize) continue;
+          if (dk > near) {
+            energySum += energyFrom(rx, ry, k, Math.max(coarseStep, dk / 24), bonus);
+          } else {
+            for (const src of k.members) energySum += energyFrom(rx, ry, src, fineStep, bonus);
+          }
         }
       }
       out[i] = energySum > 0 ? Math.max(35, Math.min(90, 10 * Math.log10(energySum))) : 35;

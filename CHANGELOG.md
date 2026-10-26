@@ -26,6 +26,7 @@ An audit of every tool: each analysis, terrain tool, comparison and export run e
 ### Changed
 - The page stays responsive during analyses: GPU work waits on a fence between adaptive batches of sky and sun directions, and the comfort, diurnal, Green View and dispersion loops yield with progress. Freezes of 13–40 s in a software-rendered test dropped to about 2–3 s.
 - Traffic dispersion visits only the road sources within the 250 m plume reach (25 m bins, distant bins as one source): three times faster on a block grid, within 5 % of the full sum.
+- Noise map: a second cluster level (32 m beyond 160 m) and distance-scaled ray steps for distant clusters: 2.4 times faster again, eleven times faster than tracing every road sample, within 0.5 dB of it.
 
 ## [1.2.0] - 2026-10-26
 
