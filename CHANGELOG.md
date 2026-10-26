@@ -30,6 +30,7 @@ An audit of every tool: each analysis, terrain tool, comparison and export run e
 - Traffic dispersion visits only the road sources within the 250 m plume reach (25 m bins, distant bins as one source): three times faster on a block grid, within 5 % of the full sum.
 - Noise map: a second cluster level (32 m beyond 160 m) and distance-scaled ray steps for distant clusters: 2.4 times faster again, eleven times faster than tracing every road sample, within 0.5 dB of it.
 - QGIS 4 (Qt6): `QAction` is imported from `QtGui`, with `QtWidgets` as the fallback for Qt5.
+- The animated wind streamlines pause while an analysis runs. They redraw the whole scene every frame and stayed on after a wind map: the next analysis ran up to six times slower (thermal comfort after a wind map: 161 s instead of 24 s in a software-rendered test).
 
 ## [1.2.0] - 2026-10-26
 
