@@ -226,6 +226,38 @@ export function comfortConditions(app) {
   return { airTemp: p.airTemp, rh: p.rh, windSpeed: p.windSpeed, windDir: p.windDir, ghi: sky.ghi[i], dni: sky.dni[i], dhi: sky.dhi[i], ir: NaN };
 }
 
+/**
+ * Points along the top edge of a building, 1 m outside the walls and just
+ * above the roof: a viewshed from them is where the building can be seen
+ * from (its own roof would hide almost everything from the roof's centre).
+ */
+function roofEdgePoints(app, layer, f, count = 8) {
+  const g = layer.features[f].geometry;
+  const polys = g?.type === 'Polygon' ? [g.coordinates] : g?.type === 'MultiPolygon' ? g.coordinates : [];
+  const ring = polys.map((pp) => pp[0]).filter(Boolean).sort((a, b) => b.length - a.length)[0] || [];
+  const top = app.terrain.toY(layer.baseZ[f]) + layer.heights[f] + 0.3;
+  const cx = layer.centroid[f * 2], cy = layer.centroid[f * 2 + 1];
+  const seg = [];
+  let total = 0;
+  for (let i = 0; i + 1 < ring.length; i++) {
+    const len = Math.hypot(ring[i + 1][0] - ring[i][0], ring[i + 1][1] - ring[i][1]);
+    seg.push([ring[i], ring[i + 1], total, len]);
+    total += len;
+  }
+  if (!total) return [{ x: cx, y: top + 1.3, z: -cy }];
+  const out = [];
+  for (let k = 0; k < count; k++) {
+    const d = (k + 0.5) * total / count;
+    const [a, b, s0, len] = seg.find(([, , s0, len]) => d <= s0 + len) || seg[seg.length - 1];
+    const t = len ? (d - s0) / len : 0;
+    let x = a[0] + t * (b[0] - a[0]), y = a[1] + t * (b[1] - a[1]);
+    const r = Math.hypot(x - cx, y - cy) || 1;
+    x += (x - cx) / r; y += (y - cy) / r; // 1 m outwards
+    out.push({ x, y: top, z: -y });
+  }
+  return out;
+}
+
 function viewCard(app) {
   const p = app.params.view;
   const fromSelected = async () => {
@@ -233,10 +265,8 @@ function viewCard(app) {
       if (!(layer instanceof ExtrudedLayer)) continue;
       const sel = app.selectedIndices(layer);
       if (!sel.length) continue;
-      const f = sel[0];
-      const c = layer.featureCentre(f);
-      c.y = app.terrain.toY(layer.baseZ[f]) + layer.heights[f];
-      return run({ x: c.x, y: c.y, z: c.z }, `from the top of the selected building`);
+      return app.run('Where the building is seen from', (prog) => app.analyst.viewshed({
+        area: app.area(), cell: app.cell(), eyes: roofEdgePoints(app, layer, sel[0]), radius: p.radius, onProgress: prog }));
     }
     toast('Select a building first (click it).');
     return null;
@@ -248,7 +278,7 @@ function viewCard(app) {
   const run = (eye, how) => app.run(`Viewshed ${how}`, (prog) => app.analyst.viewshed({
     area: app.area(), cell: app.cell(), eye, observerHeight: p.height, radius: p.radius, onProgress: prog }));
   const body = h('div', {},
-    h('p', { class: 'muted small', text: 'Which surfaces an observer can see. From a building top it approximates where the building can be seen from.' }),
+    h('p', { class: 'muted small', text: 'Which surfaces an observer can see. From the selected building: the ground and roofs that see its top edge, which is where the building can be seen from.' }),
     row('Eye height (m)', number(p.height, { min: 0, step: 0.1, onChange: (v) => { p.height = v; } })),
     row('Radius (m)', number(p.radius, { min: 50, step: 50, onChange: (v) => { p.radius = v; } })),
     h('div', { class: 'btn-row' }, runButton(app, 'Pick observer…', pick), runButton(app, 'From selected building', fromSelected)));

@@ -20,6 +20,7 @@ An audit of every tool: each analysis, terrain tool, comparison and export run e
 - The profile DXF left out a building cut by the end of the section line.
 - Large terrain maps failed to go to QGIS (their values were sent twice).
 - Wind ratio at the east edge of the grid, and the GLB/HTML terrain texture half a cell off.
+- Visibility *From selected building* looked out from the centre of the roof, whose own edge hid almost all the ground (0.1 % visible from a 96 m tower). It now maps the ground that sees any of eight points along the building's top edge, which is where the building can be seen from (48 % for the same tower).
 - Without a weather file, the sun's clock time zone came from the computer or the longitude: a scene in Turkey analysed on a computer set to UTC used UTC+2. The nearest weather station of the bundled index now sets it (UTC+3).
 
 ### Changed

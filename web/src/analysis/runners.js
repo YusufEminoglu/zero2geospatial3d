@@ -498,18 +498,35 @@ export class Analyst {
   }
 
   // ------------------------------------------------------------ visibility
-  async viewshed({ area, cell, eye, observerHeight = 1.6, radius = 600, onProgress }) {
-    const terrain = this.app.terrain;
-    const e = new THREE.Vector3(eye.x, eye.y + observerHeight, eye.z);
+  /**
+   * Viewshed from one observer (eye + observerHeight), or, with `eyes`, the
+   * ground that sees any of several points (the top edge of a building:
+   * visibility is mutual, so this is where that building can be seen from).
+   */
+  async viewshed({ area, cell, eye, eyes = null, observerHeight = 1.6, radius = 600, onProgress }) {
+    const points = eyes ? eyes.map((p) => new THREE.Vector3(p.x, p.y, p.z)) : [new THREE.Vector3(eye.x, eye.y + observerHeight, eye.z)];
+    let cx = 0, cz = 0;
+    for (const p of points) { cx += p.x / points.length; cz += p.z / points.length; }
+    const e = new THREE.Vector3(cx, Math.max(...points.map((p) => p.y)), cz);
     const sub = clipArea({ minX: e.x - radius, maxX: e.x + radius, minY: -e.z - radius, maxY: -e.z + radius }, area);
-    const run = await this.gridRun({ area: sub, cell, eye: e, maxDistance: radius, lift: 0.3, withIds: true, onProgress });
-    const vis = run.values.map((v, i) => (Number.isFinite(v) && run.potential[i] > 0 ? (v > 0 ? 1 : 0) : NaN));
+    let run = null;
+    let vis = null;
+    for (let k = 0; k < points.length; k++) {
+      const one = await this.gridRun({ area: sub, cell, eye: points[k], maxDistance: radius, lift: 0.3, withIds: true,
+        onProgress: (f) => onProgress?.((k + f) / points.length) });
+      const v1 = one.values.map((v, i) => (Number.isFinite(v) && one.potential[i] > 0 ? (v > 0 ? 1 : 0) : NaN));
+      if (!vis) { run = one; vis = v1; continue; }
+      for (let i = 0; i < vis.length; i++) {
+        if (v1[i] === 1) vis[i] = 1;
+        else if (!Number.isFinite(vis[i]) && Number.isFinite(v1[i])) vis[i] = v1[i];
+      }
+    }
     let seen = 0, total = 0;
     vis.forEach((v) => { if (Number.isFinite(v)) { total++; if (v > 0) seen++; } });
     const visibleRoofs = this.aggregateGrid(run.ids, vis, cell * cell);
-    void terrain;
     return [{
-      kind: 'viewshed', title: 'Viewshed', subtitle: `Observer ${observerHeight} m above the surface, radius ${radius} m`,
+      kind: 'viewshed', title: eyes ? 'Where the building is seen from' : 'Viewshed',
+      subtitle: eyes ? `Ground that sees its top edge (${points.length} points), radius ${radius} m` : `Observer ${observerHeight} m above the surface, radius ${radius} m`,
       unit: '', grid: run.grid, values: vis, ids: run.ids, display: { min: 0, max: 1, categorical: { 0: '#3b4a6b', 1: '#f6c945' } },
       fields: this.toFields(visibleRoofs, 'visible_roof_pct', (a) => a.mean * 100),
       stats: [['Visible share of the surface', `${total ? ((100 * seen) / total).toFixed(0) : 0} %`], ['Visible area', `${fmtBig(seen * cell * cell)} m²`]],
