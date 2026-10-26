@@ -20,6 +20,7 @@ An audit of every tool: each analysis, terrain tool, comparison and export run e
 - The profile DXF left out a building cut by the end of the section line.
 - Large terrain maps failed to go to QGIS (their values were sent twice).
 - Wind ratio at the east edge of the grid, and the GLB/HTML terrain texture half a cell off.
+- Without a weather file, the sun's clock time zone came from the computer or the longitude: a scene in Turkey analysed on a computer set to UTC used UTC+2. The nearest weather station of the bundled index now sets it (UTC+3).
 
 ### Changed
 - The page stays responsive during analyses: GPU work waits on a fence between batches of sky and sun directions, and the comfort, diurnal and Green View loops yield. Freezes of 13–38 s in a software-rendered test dropped to about 2 s.

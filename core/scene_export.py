@@ -233,7 +233,8 @@ class SceneExporter:
             "origin": list(origin),
             "extent": {"minX": -width / 2, "minY": -height / 2, "maxX": width / 2, "maxY": height / 2},
             "geo": {"lat": centre_ll.y(), "lon": centre_ll.x(),
-                    "utcOffset": geo.choose_utc_offset(centre_ll.x(), _machine_standard_offset())},
+                    "utcOffset": geo.choose_utc_offset(centre_ll.x(), _machine_standard_offset(),
+                                                       _station_offset(centre_ll.y(), centre_ll.x()))},
             "grid": grid,
             "terrain": None,
             "layers": [],
@@ -549,6 +550,18 @@ def _machine_standard_offset() -> float | None:
         from qgis.PyQt.QtCore import QDateTime, QTimeZone
 
         return QTimeZone.systemTimeZone().standardTimeOffset(QDateTime.currentDateTime()) / 3600.0
+    return None
+
+
+def _station_offset(lat: float, lon: float, max_km: float = 200.0) -> float | None:
+    """Standard UTC offset of the nearest TMYx station within max_km (the
+    bundled index), or None."""
+    from . import epw
+
+    with contextlib.suppress(Exception):
+        nearest = epw.nearest_stations(lat, lon, 1)
+        if nearest and nearest[0]["distance_km"] <= max_km and nearest[0]["utc"] is not None:
+            return float(nearest[0]["utc"])
     return None
 
 

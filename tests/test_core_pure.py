@@ -107,3 +107,8 @@ def test_utc_offset_choice():
     assert geo.choose_utc_offset(27.14, 3.0) == 3.0      # Izmir analysed from Turkey
     assert geo.choose_utc_offset(-74.0, 3.0) == -5.0     # New York analysed from Turkey
     assert geo.choose_utc_offset(27.14, None) == 2.0     # no machine zone: nautical guess
+    assert geo.choose_utc_offset(27.14, None, 3.0) == 3.0   # the nearest weather station knows Turkey is UTC+3
+    assert geo.choose_utc_offset(27.14, 0.0, 3.0) == 3.0    # even from a computer on UTC
+    index = epw.load_index()
+    izmir = epw.nearest_stations(38.417, 27.13, 1, index)[0]
+    assert izmir["utc"] == 3.0 and izmir["distance_km"] < 50
