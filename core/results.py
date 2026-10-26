@@ -20,6 +20,8 @@ Everything here runs on the QGIS main thread.
 from __future__ import annotations
 
 import base64
+import contextlib
+import hashlib
 import json
 import math
 import os
@@ -208,21 +210,26 @@ class ResultWriter:
             raise ResultError("no result fields")
         target = self._result_layer(entry)
         provider = target.dataProvider()
-        existing = {f.name() for f in target.fields()}
+        # GeoPackage column names are case-insensitive: match them that way.
+        existing = {f.name().lower(): f.name() for f in target.fields()}
         used = set(existing)
         new_fields, names = [], {}
         for raw_name in fields_in:
             key = _key(raw_name)
             if key in existing:
-                names[raw_name] = key
+                names[raw_name] = existing[key]
                 continue
             name = geo.field_name(key, used)
             names[raw_name] = name
             new_fields.append(make_field(name, "double"))
         if new_fields:
-            provider.addAttributes(new_fields)
+            if not provider.addAttributes(new_fields):
+                raise ResultError(f"cannot add the fields {', '.join(f.name() for f in new_fields)} to '{target.name()}'")
             target.updateFields()
         index = {name: target.fields().indexOf(name) for name in names.values()}
+        missing = [name for name, i in index.items() if i < 0]
+        if missing:
+            raise ResultError(f"'{target.name()}' has no field {', '.join(missing)}")
         # The join key is the last g3d_id* column: a re-exported results layer
         # already carries an older g3d_id, and ours was appended after it.
         id_candidates = [i for i, f in enumerate(target.fields()) if f.name().startswith("g3d_id")]
@@ -231,7 +238,10 @@ class ResultWriter:
         id_field = id_candidates[-1]
         by_viewer_id = {}
         for feature in target.getFeatures(QgsFeatureRequest().setSubsetOfAttributes([id_field])):
-            by_viewer_id[int(feature[id_field])] = feature.id()
+            try:
+                by_viewer_id[int(feature[id_field])] = feature.id()
+            except (TypeError, ValueError):
+                continue  # a feature added by hand has no viewer id
         changes: dict = {}
         updated = 0
         for raw_name, spec in fields_in.items():
@@ -264,17 +274,45 @@ class ResultWriter:
         stem = geo.safe_name(entry["name"], entry["id"])
         path = os.path.join(self.results_dir, f"{entry['id']}_{stem}_results.gpkg")
         layer_name = f"{entry['name']} (3D results)"
-        for layer in QgsProject.instance().mapLayers().values():
-            if isinstance(layer, QgsVectorLayer) and layer.source().split("|", 1)[0].replace("\\", "/") == \
-                    path.replace("\\", "/"):
-                return layer
+        loaded = [layer for layer in QgsProject.instance().mapLayers().values()
+                  if isinstance(layer, QgsVectorLayer)
+                  and layer.source().split("|", 1)[0].replace("\\", "/") == path.replace("\\", "/")]
+        # The g3d_id of a results file belongs to the export that created it.
+        # After a re-export with other features (a smaller area, edited
+        # layer) the same ids name other buildings: start a new file.
+        stamp_path = path + ".export"
+        token = self._export_token(entry)
+        stale = os.path.isfile(path) and _read_text(stamp_path) != token
+        if stale:
+            for layer in loaded:
+                QgsProject.instance().removeMapLayer(layer.id())
+            loaded = []
+            old = path[:-len(".gpkg")] + ".previous.gpkg"
+            for suffix in ("", "-wal", "-shm"):
+                with contextlib.suppress(OSError):
+                    os.replace(path + suffix, old + suffix)
+            self._log(f"'{os.path.basename(path)}' came from an earlier export with other features; "
+                      f"it was kept as '{os.path.basename(old)}' and a new results file was started.")
+        if loaded:
+            return loaded[0]
         if not os.path.isfile(path):
             self._create_result_gpkg(entry, path)
+            with open(stamp_path, "w", encoding="utf-8") as handle:
+                handle.write(token)
         layer = QgsVectorLayer(path, layer_name, "ogr")
         if not layer.isValid():
             raise ResultError(f"cannot open {path}")
         self._add_to_group(layer)
         return layer
+
+    def _export_token(self, entry: dict) -> str:
+        """What the viewer ids of a layer stand for: its source layer and the
+        source feature ids in viewer-id order (the layer's ids.json)."""
+        ids_path = os.path.join(self.scene_dir, f"{entry['id']}.ids.json")
+        digest = hashlib.sha256(str(entry.get("sourceLayerId", "")).encode("utf-8"))
+        with contextlib.suppress(OSError), open(ids_path, "rb") as handle:
+            digest.update(handle.read())
+        return digest.hexdigest()
 
     def _create_result_gpkg(self, entry: dict, path: str) -> None:
         source = QgsProject.instance().mapLayer(entry.get("sourceLayerId", ""))
@@ -402,6 +440,14 @@ def _wkb_string(layer: QgsVectorLayer) -> str:
 
     return {"point": "MultiPoint", "line": "MultiLineString", "polygon": "MultiPolygon"}.get(
         geometry_kind(layer), "MultiPolygon")
+
+
+def _read_text(path: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return handle.read().strip()
+    except OSError:
+        return ""
 
 
 def _key(text) -> str:

@@ -188,6 +188,28 @@ export class GpuEngine {
     return cam;
   }
 
+  /**
+   * Resolve once the GPU has run every command issued so far, polling a
+   * WebGL2 fence without blocking the page (a plain setTimeout yield when
+   * fences are not available).
+   */
+  async _gpuDone() {
+    const gl = /** @type {WebGL2RenderingContext} */ (this.renderer.getContext());
+    if (typeof gl.fenceSync !== 'function') { await new Promise((res) => setTimeout(res, 0)); return; }
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    if (!sync) { await new Promise((res) => setTimeout(res, 0)); return; }
+    gl.flush();
+    try {
+      for (let k = 0; k < 20000; k++) {
+        const st = gl.clientWaitSync(sync, 0, 0);
+        if (st === gl.ALREADY_SIGNALED || st === gl.CONDITION_SATISFIED || st === gl.WAIT_FAILED) break;
+        await new Promise((res) => setTimeout(res, 4));
+      }
+    } finally {
+      gl.deleteSync(sync);
+    }
+  }
+
   /** Feature key per texel of a tile (row 0 = north), 0 where no feature. */
   idGrid(scene, tile, cols, rows) {
     const cam = this._topCamera(tile);
@@ -201,7 +223,7 @@ export class GpuEngine {
       const src = (rows - 1 - y) * cols;
       for (let x = 0; x < cols; x++) {
         const i = (src + x) * 4;
-        out[y * cols + x] = raw[i + 3] ? decodeKey(raw[i], raw[i + 1], raw[i + 2]) : 0;
+        out[y * cols + x] = raw[i + 3] ? decodeKey(raw[i], raw[i + 1], raw[i + 2], raw[i + 3]) : 0;
       }
     }
     return out;
@@ -325,9 +347,11 @@ export class GpuEngine {
       r.render(this.quadScene, this.quadCamera);
       r.setRenderTarget(before);
       r.autoClear = autoClear;
-      if (onProgress && (i % 6 === 5 || i === views.length - 1)) {
-        onProgress((i + 1) / views.length);
-        await new Promise((res) => setTimeout(res, 0));
+      if (i % 6 === 5 || i === views.length - 1) {
+        // Let the GPU finish this batch while the page stays responsive;
+        // otherwise every view queues up and the readback blocks for all.
+        await this._gpuDone();
+        onProgress?.((i + 1) / views.length);
       }
     }
     const [valuesRaw, potentialRaw] = this._readChannels(accum, w, h, [0, 1]);

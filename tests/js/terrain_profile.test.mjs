@@ -172,3 +172,27 @@ test('terrain results: ridges and crests drawn red, every map kept off the roofs
   // East of the hilltop the ground faces east (class 3).
   assert.equal(aspect.values[20 * 41 + 35], 3);
 });
+
+test('balancedLevel: searches the ground inside the polygon; a polygon smaller than a cell gets the ground there', async () => {
+  const { balancedLevel, cutFill } = await import('../../web/src/core/terrain_math.js');
+  const cols = 20, rows = 20, cell = 10;
+  const values = new Float32Array(cols * rows);
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) values[r * cols + c] = 100 + c + (r === 0 && c === 0 ? 49 : 0);
+  const g = { cols, rows, cell, minX: 5, maxY: 195, values };
+  const big = [[50, 50], [120, 50], [120, 120], [50, 120]];
+  const level = balancedLevel(g, big);
+  assert.ok(Math.abs(cutFill(g, big, level).net) < 1, 'cut and fill balance');
+  // 6 m x 6 m between cell centres: no centre inside; ground there is about 105.
+  const tiny = [[52, 52], [58, 52], [58, 58], [52, 58]];
+  const t = balancedLevel(g, tiny);
+  assert.ok(t >= 104 && t <= 106, `ground under the small polygon, not the DEM maximum (got ${t})`);
+});
+
+test('seasons follow the hemisphere: Dec–Feb is summer in the south', async () => {
+  const { seasonNames, summerCode, winterCode } = await import('../../web/src/analysis/climate.js');
+  assert.deepEqual(seasonNames(38.4), ['Winter', 'Spring', 'Summer', 'Autumn']);
+  assert.deepEqual(seasonNames(-33.9), ['Summer', 'Autumn', 'Winter', 'Spring']);
+  assert.equal(summerCode(38.4), 'jja');
+  assert.equal(summerCode(-33.9), 'djf');
+  assert.equal(winterCode(-33.9), 'jja');
+});

@@ -2,17 +2,17 @@
 // Object layers: extruded buildings and walls (merged into chunks), trees
 // and poles (instanced), draped surfaces, platforms and section lines.
 //
-// Every extruded feature carries a feature key (layer index << 20 | id) in
-// the `fkey` vertex attribute, so a single GPU pass can say which feature
-// covers a pixel. Vertex heights are recomputed from per-vertex base
+// Every extruded feature carries its id (`fkey`) and its layer index
+// (`flayer`) as vertex attributes, so a single GPU pass can say which
+// feature covers a pixel (key = layer index << 20 | id). Vertex heights are recomputed from per-vertex base
 // elevations and per-feature heights, so a new height field or terrain
 // exaggeration costs one pass over the vertices, not a rebuild.
 import * as THREE from 'three';
-import { LAYER_SURFACE, LAYER_OCCLUDER, LAYER_ID } from './viewer.js';
+import { LAYER_SURFACE, LAYER_OCCLUDER, LAYER_ID, KEY_SHIFT } from './viewer.js';
 import { patchMaterial } from './overlay.js';
 import { hexToRgb } from '../core/classify.js';
 
-export const KEY_SHIFT = 1 << 20;
+export { KEY_SHIFT };
 export const SINK = 0.6; // metres a building is pushed into the ground
 const CHUNK_FEATURES = 3000;
 
@@ -322,10 +322,12 @@ export class ExtrudedLayer extends ObjectLayer {
     geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(chunk.pos), 3));
     geom.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(chunk.nrm), 3));
     geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    // The ID pass reads the feature id and the layer index separately (viewer.js).
     const fkey = new Float32Array(n);
     const feat = Uint32Array.from(chunk.feat);
-    for (let i = 0; i < n; i++) fkey[i] = featureKey(this.index, feat[i] + 1);
+    for (let i = 0; i < n; i++) fkey[i] = feat[i] + 1;
     geom.setAttribute('fkey', new THREE.BufferAttribute(fkey, 1));
+    geom.setAttribute('flayer', new THREE.BufferAttribute(new Float32Array(n).fill(this.index), 1));
     geom.setIndex(n > 65535 ? new THREE.Uint32BufferAttribute(chunk.index, 1) : new THREE.Uint16BufferAttribute(chunk.index, 1));
     const mesh = new THREE.Mesh(geom, this.material);
     mesh.castShadow = true;

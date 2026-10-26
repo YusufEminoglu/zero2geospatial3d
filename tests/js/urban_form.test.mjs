@@ -207,3 +207,13 @@ test('solarEnvelope: a building is not limited by its own shadow; its sunny side
   // North of the block the ground is already in its shadow at noon: no limit from those receptors.
   assert.equal(maxHeight[10 * cols + 20], 80);
 });
+
+test('greenViewIndex: only the ±45° field of view counts (tall crowns all around give at most the upper half)', () => {
+  const cols = 21, rows = 21, cell = 2;
+  const buildingHeights = new Float32Array(cols * rows);
+  const trees = [];
+  for (let y = 1; y < 42; y += 4) for (let x = 1; x < 42; x += 4) if (Math.hypot(x - 21, y - 21) > 3) trees.push([x, y, 2.5, 30]);
+  const gvi = greenViewIndex({ buildingHeights, treeObstacles: trees, cols, rows, cell, minX: 0, maxY: 42 });
+  const centre = gvi[10 * cols + 10];
+  assert.ok(centre > 20 && centre <= 50 + 1e-6, `upper half at most, got ${centre}`);
+});

@@ -324,7 +324,7 @@ export class App {
     let legend = null;
     if (r) {
       if (r.legend) legend = { title: r.title, items: r.legend };
-      else if (r.display?.categorical) legend = null;
+      else if (r.display?.categorical || !r.display || !(r.grid || r.facade)) legend = null; // nothing drawn by colour
       else {
         const stops = rampStops(r.display.ramp);
         const css = stops.map((s, i) => `rgb(${s.map((x) => Math.round(x * 255)).join(',')}) ${(100 * i) / (stops.length - 1)}%`).join(',');

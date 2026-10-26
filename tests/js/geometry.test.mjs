@@ -137,3 +137,12 @@ test('a raised part starts at min_height and parts of one building share their g
   assert.ok(Math.abs(towerLow - (-2 + 12)) < 1e-9, `tower bottom ${towerLow}`);
   assert.ok(Math.abs(towerTop - (-2 + 60)) < 1e-9, `tower top ${towerTop}`);
 });
+
+test('ID pass keys: layer in alpha, id in RGB, exact beyond the 15th layer', async () => {
+  const { decodeKey } = await import('../../web/src/scene/viewer.js');
+  const { featureKey } = await import('../../web/src/scene/objects.js');
+  for (const [layer, id] of [[1, 1], [15, (1 << 20) - 1], [16, 1], [40, 123457], [255, 7]]) {
+    const r = Math.floor(id / 65536), g = Math.floor((id % 65536) / 256), b = id % 256;
+    assert.equal(decodeKey(r, g, b, layer), featureKey(layer, id));
+  }
+});

@@ -49,9 +49,12 @@ export function qgisStyle(display = {}, legend = null) {
 /** Send a grid result as a GeoTIFF layer. */
 export async function sendGrid(result, key) {
   const values = result.values instanceof Float32Array ? result.values : Float32Array.from(result.values);
+  // Only the georeference: some grids (terrain maps, flooding) carry their own
+  // values array, which JSON would send a second time as a huge object.
+  const { cols, rows, cell, minX, maxY } = result.grid;
   return post('/api/result', {
     type: 'grid', name: result.title, key, unit: result.unit,
-    grid: result.grid, data: float32ToBase64(values),
+    grid: { cols, rows, cell, minX, maxY }, data: float32ToBase64(values),
     style: { min: result.display.min, max: result.display.max, ...qgisStyle(result.display, result.legend) }
   });
 }

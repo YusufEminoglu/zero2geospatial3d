@@ -49,8 +49,15 @@ export async function windRatio({ heights, porosity = null, cols, rows, cell, wi
   for (const h of heights) if (h > 2 * hMean && h > 20) { hasTall = true; break; }
   const maxSteps = Math.ceil(Math.min(600, Math.max(60, wakeLength * 5 * hMax)) / cell);
   const sideSteps = Math.ceil(40 / cell);
-  const at = (c, r) => (c < 0 || r < 0 || c >= cols || r >= rows ? 0 : heights[Math.round(r) * cols + Math.round(c)]);
-  const poro = (c, r) => (porosity ? porosity[Math.round(r) * cols + Math.round(c)] || 0 : 0);
+  // Round, then check the bounds: c = cols - 0.3 would round into the next row.
+  const at = (c, r) => {
+    const ic = Math.round(c), ir = Math.round(r);
+    return ic < 0 || ir < 0 || ic >= cols || ir >= rows ? 0 : heights[ir * cols + ic];
+  };
+  const poro = (c, r) => {
+    const ic = Math.round(c), ir = Math.round(r);
+    return porosity && ic >= 0 && ir >= 0 && ic < cols && ir < rows ? porosity[ir * cols + ic] || 0 : 0;
+  };
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const i = r * cols + c;

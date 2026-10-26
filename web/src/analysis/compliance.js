@@ -8,7 +8,7 @@
 // factor stands in for it.
 import { sunPath } from '../core/solar.js';
 import { typicalDoy } from '../core/weather.js';
-import { surroundings } from './climate.js';
+import { surroundings, summerCode } from './climate.js';
 import { featureKey, splitKey, ExtrudedLayer } from '../scene/objects.js';
 
 export const CRITERIA = [
@@ -184,7 +184,7 @@ export async function planningCheck(app, { scope, criteria, thresholds, profile 
     for (const t of targets) {
       const k = keyOf(t);
       if (values.has('wind')) values.get('wind').set(k, t.layer.extraFields.get('windy_pct')?.[t.f]);
-      if (values.has('heat')) values.get('heat').set(k, t.layer.extraFields.get('heat_stress_h_jja')?.[t.f]);
+      if (values.has('heat')) values.get('heat').set(k, t.layer.extraFields.get(`heat_stress_h_${summerCode(app.site.lat)}`)?.[t.f]);
     }
   }
   // 6. Facade noise level (Lden).

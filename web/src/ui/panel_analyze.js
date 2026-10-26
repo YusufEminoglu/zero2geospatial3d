@@ -202,9 +202,28 @@ function solarCard(app) {
     row('Suitable if ≥', number(p.minShare, { min: 0.3, max: 1, step: 0.05, onChange: (v) => { p.minShare = v; } }), 'Share of the unshaded potential a roof cell must keep'),
     row('Facades too', toggle(p.facades, (v) => { p.facades = v; })),
     h('div', { class: 'btn-row' }, runButton(app, 'Run solar & PV', () => app.run('Solar radiation', (prog) => app.analyst.solarRadiation({
-      area: app.area(), cell: app.cell(), months: PERIOD_MONTHS[p.period], tiltDeg: p.tilt, azimuthDeg: p.azimuth, efficiency: p.efficiency,
-      performanceRatio: p.pr, coverage: p.coverage, minShare: p.minShare, facades: p.facades, onProgress: prog })))));
+      ...solarOptions(app), facades: p.facades, onProgress: prog })))));
   return card('Solar radiation & PV', body);
+}
+
+/** The solar card's settings as runner options (also used by Compare). */
+export function solarOptions(app) {
+  const p = app.params.solar;
+  return { area: app.area(), cell: app.cell(), months: PERIOD_MONTHS[p.period], tiltDeg: p.tilt, azimuthDeg: p.azimuth,
+    efficiency: p.efficiency, performanceRatio: p.pr, coverage: p.coverage, minShare: p.minShare };
+}
+
+/**
+ * The comfort card's weather for its date and hour: the EPW hour, or the
+ * typed values with clear-sky radiation (also used by Compare).
+ */
+export function comfortConditions(app) {
+  const p = app.params.comfort;
+  if (!p.manual && app.weather?.dryBulb) return conditionsAt(app.weather, p.month, p.day, p.hour);
+  const s = app.site;
+  const sky = clearSkyYear(s.lat, s.lon, s.utcOffset);
+  const i = (typicalDoy(p.month, p.day) - 1) * 24 + (p.hour - 1);
+  return { airTemp: p.airTemp, rh: p.rh, windSpeed: p.windSpeed, windDir: p.windDir, ghi: sky.ghi[i], dni: sky.dni[i], dhi: sky.dhi[i], ir: NaN };
 }
 
 function viewCard(app) {
@@ -256,13 +275,7 @@ function windCard(app) {
 function comfortCard(app) {
   const p = app.params.comfort;
   const condBox = h('div', {});
-  const conditions = () => {
-    if (!p.manual && app.weather?.dryBulb) return conditionsAt(app.weather, p.month, p.day, p.hour);
-    const s = app.site;
-    const sky = clearSkyYear(s.lat, s.lon, s.utcOffset);
-    const i = (typicalDoy(p.month, p.day) - 1) * 24 + (p.hour - 1);
-    return { airTemp: p.airTemp, rh: p.rh, windSpeed: p.windSpeed, windDir: p.windDir, ghi: sky.ghi[i], dni: sky.dni[i], dhi: sky.dhi[i], ir: NaN };
-  };
+  const conditions = () => comfortConditions(app);
   const drawCond = () => {
     clear(condBox);
     const c = conditions();

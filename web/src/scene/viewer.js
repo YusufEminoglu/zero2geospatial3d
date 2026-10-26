@@ -13,33 +13,43 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 export const LAYER_SURFACE = 1;
 export const LAYER_OCCLUDER = 2;
 export const LAYER_ID = 3;
+/** Feature keys are layerIndex * KEY_SHIFT + id (objects.js featureKey). */
+export const KEY_SHIFT = 1 << 20;
 
+// Feature keys in the ID pass: the layer index (1..255) in alpha, the
+// feature id (< 2^20) in RGB. Two attributes, because one float32 holds a
+// whole key (layer * 2^20 + id) exactly only up to layer 15.
 const ID_VERTEX = `
 attribute float fkey;
+attribute float flayer;
 varying float vKey;
+varying float vLayer;
 #include <common>
 void main() {
   vKey = fkey;
+  vLayer = flayer;
   #include <begin_vertex>
   #include <project_vertex>
 }`;
 const ID_FRAGMENT = `
 precision highp float;
 varying float vKey;
+varying float vLayer;
 void main() {
   float k = floor(vKey + 0.5);
   float r = floor(k / 65536.0);
   float g = floor((k - r * 65536.0) / 256.0);
   float b = k - r * 65536.0 - g * 256.0;
-  gl_FragColor = vec4(r / 255.0, g / 255.0, b / 255.0, 1.0);
+  gl_FragColor = vec4(r / 255.0, g / 255.0, b / 255.0, floor(vLayer + 0.5) / 255.0);
 }`;
 
 export function makeIdMaterial() {
   return new THREE.ShaderMaterial({ vertexShader: ID_VERTEX, fragmentShader: ID_FRAGMENT, side: THREE.DoubleSide });
 }
 
-export function decodeKey(r, g, b) {
-  return r * 65536 + g * 256 + b;
+/** Feature key from an ID-pass pixel (a = layer index, rgb = feature id). */
+export function decodeKey(r, g, b, a) {
+  return a * KEY_SHIFT + r * 65536 + g * 256 + b;
 }
 
 export class Viewer {
@@ -249,7 +259,7 @@ export class Viewer {
     this.scene.background = prevBg;
     this.scene.overrideMaterial = prevOverride;
     this.requestRender();
-    return px[3] > 0 ? decodeKey(px[0], px[1], px[2]) : 0;
+    return px[3] > 0 ? decodeKey(px[0], px[1], px[2], px[3]) : 0;
   }
 
   /** Normalised device coordinates of a client position. */
