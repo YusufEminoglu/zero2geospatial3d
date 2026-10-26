@@ -718,7 +718,13 @@ export class Analyst {
     const petGrid = new Float32Array(n).fill(NaN);
     const tsurf = new Float32Array(n).fill(NaN);
 
+    let lastYield = performance.now();
     for (let i = 0; i < n; i++) {
+      // PET is solved iteratively per cell: keep the page responsive.
+      if ((i & 4095) === 0 && performance.now() - lastYield > 50) {
+        await new Promise((res) => setTimeout(res, 0));
+        lastYield = performance.now();
+      }
       if (svfRun.ids[i] !== 0 || !Number.isFinite(svfRun.values[i])) continue; // open ground only
 
       const localTa = conditions.airTemp + (Number.isFinite(dTa[i]) ? dTa[i] : 0);
@@ -1017,7 +1023,12 @@ export class Analyst {
       const tSky = skyTemperature(cond.airTemp, cond.ir);
       const frame = new Float32Array(n).fill(NaN);
 
+      let lastYield = performance.now();
       for (let i = 0; i < n; i++) {
+        if ((i & 4095) === 0 && performance.now() - lastYield > 50) {
+          await new Promise((res) => setTimeout(res, 0));
+          lastYield = performance.now();
+        }
         if (svfRun.ids[i] !== 0 || !Number.isFinite(svfRun.values[i])) continue;
 
         const localTa = cond.airTemp + (Number.isFinite(dTa[i]) ? dTa[i] : 0);
