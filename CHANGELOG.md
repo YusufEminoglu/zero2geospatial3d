@@ -8,7 +8,7 @@ All notable changes to this project are documented here. The format follows
 An audit of every tool: each analysis, terrain tool, comparison and export run end to end in the viewer, plus a review of the algorithms and the QGIS side.
 
 ### Fixed
-- Results sent to QGIS after a re-export landed on the wrong buildings: a results GeoPackage now belongs to the export that made it (the old one is kept as `*.previous.gpkg`).
+- Results sent to QGIS after a re-export landed on the wrong buildings: a results GeoPackage now belongs to the set of exported features (its name carries an export stamp; earlier results files stay on disk).
 - A feature added by hand to a results layer (no `g3d_id`) broke every later send; a result field that differed only in case from a source field was silently lost.
 - Compare > A vs B for daylight on facades (VSC) failed with an error.
 - Scenes with 16 or more layers mixed up buildings in roof and per-building results.

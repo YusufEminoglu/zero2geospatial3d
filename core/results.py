@@ -7,8 +7,9 @@ Two payload types arrive from the viewer (see ``web/src/ui/qgis_link.js``):
               written as a GeoTIFF and added with a pseudocolour ramp, or
               a palette for class rasters;
 ``features``  per-feature values for one exported layer, written as fields
-              of ``results/<layer>_results.gpkg`` (a copy of the exported
-              features that keeps every source attribute).
+              of ``results/<layer>_results_<export>.gpkg`` (a copy of the
+              exported features that keeps every source attribute; one
+              file per set of exported features, see ``_result_layer``).
 
 ``style`` carries the viewer's own colours so QGIS draws what the viewer
 drew: ``stops`` (hex colours of the ramp, already reversed where the viewer
@@ -272,33 +273,33 @@ class ResultWriter:
     def _result_layer(self, entry: dict) -> QgsVectorLayer:
         os.makedirs(self.results_dir, exist_ok=True)
         stem = geo.safe_name(entry["name"], entry["id"])
-        path = os.path.join(self.results_dir, f"{entry['id']}_{stem}_results.gpkg")
+        # The g3d_id of a results file belongs to the export that created it:
+        # after a re-export with other features (a smaller area, an edited
+        # layer) the same ids name other buildings. The file name carries the
+        # export's stamp, so such a re-export starts a new file and the same
+        # features keep theirs. Nothing is deleted or renamed.
+        prefix = f"{entry['id']}_{stem}_results"
+        path = os.path.join(self.results_dir, f"{prefix}_{self._export_token(entry)[:10]}.gpkg")
         layer_name = f"{entry['name']} (3D results)"
-        loaded = [layer for layer in QgsProject.instance().mapLayers().values()
-                  if isinstance(layer, QgsVectorLayer)
-                  and layer.source().split("|", 1)[0].replace("\\", "/") == path.replace("\\", "/")]
-        # The g3d_id of a results file belongs to the export that created it.
-        # After a re-export with other features (a smaller area, edited
-        # layer) the same ids name other buildings: start a new file.
-        stamp_path = path + ".export"
-        token = self._export_token(entry)
-        stale = os.path.isfile(path) and _read_text(stamp_path) != token
-        if stale:
-            for layer in loaded:
-                QgsProject.instance().removeMapLayer(layer.id())
-            loaded = []
-            old = path[:-len(".gpkg")] + ".previous.gpkg"
-            for suffix in ("", "-wal", "-shm"):
-                with contextlib.suppress(OSError):
-                    os.replace(path + suffix, old + suffix)
-            self._log(f"'{os.path.basename(path)}' came from an earlier export with other features; "
-                      f"it was kept as '{os.path.basename(old)}' and a new results file was started.")
-        if loaded:
-            return loaded[0]
+        norm = path.replace("\\", "/")
+        older = []
+        for layer in list(QgsProject.instance().mapLayers().values()):
+            if not isinstance(layer, QgsVectorLayer):
+                continue
+            src = layer.source().split("|", 1)[0].replace("\\", "/")
+            if src == norm:
+                return layer
+            if os.path.dirname(src) == os.path.dirname(norm) and os.path.basename(src).startswith(prefix):
+                older.append(layer)
+        # Results of an earlier export of this layer stay on disk; their
+        # layers leave the project so the names do not mix up.
+        for layer in older:
+            QgsProject.instance().removeMapLayer(layer.id())
+        if older:
+            self._log(f"Results of an earlier export of '{entry['name']}' stay in their file; "
+                      f"new results go to '{os.path.basename(path)}'.")
         if not os.path.isfile(path):
             self._create_result_gpkg(entry, path)
-            with open(stamp_path, "w", encoding="utf-8") as handle:
-                handle.write(token)
         layer = QgsVectorLayer(path, layer_name, "ogr")
         if not layer.isValid():
             raise ResultError(f"cannot open {path}")
@@ -440,14 +441,6 @@ def _wkb_string(layer: QgsVectorLayer) -> str:
 
     return {"point": "MultiPoint", "line": "MultiLineString", "polygon": "MultiPolygon"}.get(
         geometry_kind(layer), "MultiPolygon")
-
-
-def _read_text(path: str) -> str:
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            return handle.read().strip()
-    except OSError:
-        return ""
 
 
 def _key(text) -> str:
