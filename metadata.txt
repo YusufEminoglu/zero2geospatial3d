@@ -2,32 +2,26 @@
 name=02Geo3D - 3D Terrain and Building Analyzer
 qgisMinimumVersion=3.28
 qgisMaximumVersion=4.99
-description=3D viewer and analyzer for terrain and buildings: ENVI-met style microclimate (UTCI, PET, surface temperature, canopy cooling), street-canyon ventilation and pollutant dispersion, 3D acoustics, Green View Index, solar envelope, sun and shadow, sky view and facade daylight (VSC), solar PV, visibility, terrain analyses, BRE 209 planning checks and NSGA-II height optimisation, with every result returned to QGIS.
+description=3D terrain and building analysis with results back in QGIS: sun and shadow, daylight and BRE 209 checks, solar PV, wind, UTCI and PET comfort, noise, flooding, cut and fill and height optimisation.
 version=1.2.2
 author=Geophilo
 email=yusuf.eminoglu@deu.edu.tr
-about=
-    02 Geo3D Analyzer turns a DEM and vector layers into an interactive 3D scene in three steps (terrain, objects, open in 3D) and runs GPU-accelerated spatial and environmental analyses, returning styled results directly to QGIS as GeoTIFF and GeoPackage layers.
-    
-    KEY CAPABILITIES:
-    - Three-Step Workflow: Ground elevation mesh (DEM), extruded objects (buildings, walls, trees, poles) from fields or expressions with QGIS symbology, and single-click 3D launch.
-    - Solar and Daylight Analyses: Sun hours, shadow casting, Sky View Factor (SVF), facade daylight (Vertical Sky Component under CIE overcast sky), annual solar irradiation, and rooftop and facade PV yield.
-    - Microclimate and Thermal Comfort: Surface energy balance with Bowen ratio partitioning, ground surface temperature, tree canopy evapotranspiration cooling, Physiological Equivalent Temperature (PET) and UTCI heat stress, 24-hour diurnal thermal studies, and interactive 3D tree planting.
-    - Ventilation, Air Quality and Acoustics: Street canyon ventilation efficiency (VEI), normalized air age, traffic pollutant dispersion (NO2 and PM2.5) with tree filtration, and 3D acoustic propagation (ISO 9613-2 proxy) with quiet-facade detection.
-    - Green View and Solar Envelope: Panoramic pedestrian Green View Index (GVI) and Knowles and BRE 3D Solar Envelope height limits and floor capacity.
-    - Urban Comfort and Environment: Pedestrian wind screening with animated streamlines, heat-island morphology, approximate Local Climate Zones (LCZ), and seasonal outdoor comfort around buildings using EnergyPlus (EPW/TMYx) weather files.
-    - Topographic and Hydrologic Analyses: Slope, aspect, hillshade, curvature, Topographic Position Index (TPI), ruggedness (TRI), topographic wetness index (TWI), dynamic cross-sections, flood inundation, and cut and fill earthwork volume calculations.
-    - Planning Regulations and Optimization: BRE 209 daylight and sunlight compliance checks with shareable threshold profiles, side-by-side scenario comparison (A vs B), and multi-objective NSGA-II building height optimization.
-    - Interoperability and Export: Synchronized multi-panel view (up to 8 synced panels), 8K high-resolution capture, PDF documentation sheets, standalone offline HTML packages, GLB 3D models, and animated MP4 video recording.
-    
-    Runs entirely on your local machine via an embedded web server (127.0.0.1); no cloud dependencies or data uploads. Compatible with QGIS 3.28 through QGIS 4.x.
-    
-    Online Documentation and Reference Manual: https://geophilo.com/zero2geospatial3d/
+about=02Geo3D turns a DEM and your building, wall, tree and pole layers into an interactive 3D scene in three steps (terrain, objects, open in 3D), runs environmental analyses on the GPU in the browser, and returns every result to QGIS as styled GeoTIFF and GeoPackage layers.
+    THREE-STEP WORKFLOW: Build the ground mesh from a DEM, extrude objects from height fields or expressions while keeping their QGIS symbology, and open the scene with one click.
+    SUN AND DAYLIGHT: Sun hours, shadow casting for any date and time, sky view factor, facade daylight as Vertical Sky Component under a CIE overcast sky, annual solar irradiation, and rooftop and facade PV yield.
+    MICROCLIMATE AND THERMAL COMFORT: Surface energy balance with Bowen-ratio partitioning, ground surface temperature, evapotranspiration cooling from tree canopies, Physiological Equivalent Temperature (PET) and UTCI heat stress, 24-hour diurnal studies, seasonal outdoor comfort from EnergyPlus EPW/TMYx weather files, and interactive tree planting to test the effect of new canopy.
+    VENTILATION, AIR AND NOISE: Street-canyon ventilation efficiency, normalised air age, traffic NO2 and PM2.5 dispersion with filtration by trees, pedestrian wind screening with animated streamlines, and 3D noise propagation based on ISO 9613-2 with quiet-facade detection.
+    URBAN FORM AND CLIMATE: Panoramic pedestrian Green View Index, Knowles and BRE 3D solar envelopes with height limits and floor capacity, heat-island morphology and approximate Local Climate Zones.
+    TERRAIN AND WATER: Slope, aspect, hillshade, curvature, topographic position (TPI), ruggedness (TRI), topographic wetness (TWI), dynamic cross-sections, flood inundation, and cut-and-fill earthwork volumes.
+    PLANNING CHECKS AND OPTIMISATION: BRE 209 daylight and sunlight compliance checks with shareable threshold profiles, side-by-side A/B scenario comparison, and multi-objective NSGA-II building-height optimisation.
+    PRESENTATION AND EXPORT: Up to eight synchronised view panels, 8K captures, PDF documentation sheets, GLB models, MP4 video and standalone offline HTML packages.
+    The scene runs on a local server at 127.0.0.1; your data stays on your computer. QGIS 3.28 to QGIS 4.
+    Manual: https://geophilo.com/zero2geospatial3d/
 tracker=https://github.com/YusufEminoglu/zero2geospatial3d/issues
 repository=https://github.com/YusufEminoglu/zero2geospatial3d
 homepage=https://geophilo.com/zero2geospatial3d/
 category=Web
-tags=3d,three.js,dem,terrain,sun hours,shadow,sky view factor,daylight,vsc,bre 209,solar,pv,irradiation,viewshed,wind,streamlines,utci,pet,microclimate,surface temperature,ventilation,air quality,dispersion,acoustics,noise,green view index,solar envelope,urban heat island,local climate zone,slope,aspect,wetness index,profile,flood,cut and fill,epw,nsga-ii,optimisation,urban planning,extrusion
+tags=3d,three.js,dem,terrain,sun hours,shadow,sky view factor,daylight,vsc,bre 209,solar,pv,irradiation,viewshed,wind,streamlines,utci,pet,microclimate,surface temperature,ventilation,air quality,dispersion,acoustics,noise,green view index,solar envelope,urban heat island,local climate zone,slope,aspect,wetness index,profile,flood,cut and fill,epw,nsga-ii,optimisation,urban planning,extrusion,geophilo
 icon=icons/icon.png
 experimental=False
 deprecated=False
