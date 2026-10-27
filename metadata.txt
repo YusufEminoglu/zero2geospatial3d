@@ -1,10 +1,10 @@
 [general]
-name=02 Geo3D Analyzer
+name=02Geo3D - 3D Terrain and Building Analyzer
 qgisMinimumVersion=3.28
 qgisMaximumVersion=4.99
 description=3D viewer and analyzer for terrain and buildings: ENVI-met style microclimate (UTCI, PET, surface temperature, canopy cooling), street-canyon ventilation and pollutant dispersion, 3D acoustics, Green View Index, solar envelope, sun and shadow, sky view and facade daylight (VSC), solar PV, visibility, terrain analyses, BRE 209 planning checks and NSGA-II height optimisation, with every result returned to QGIS.
 version=1.2.2
-author=Yusuf Eminoglu
+author=Geophilo
 email=yusuf.eminoglu@deu.edu.tr
 about=
     02 Geo3D Analyzer turns a DEM and vector layers into an interactive 3D scene in three steps (terrain, objects, open in 3D) and runs GPU-accelerated spatial and environmental analyses, returning styled results directly to QGIS as GeoTIFF and GeoPackage layers.

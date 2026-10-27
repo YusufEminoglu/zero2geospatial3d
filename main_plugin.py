@@ -99,7 +99,7 @@ class Geo3DAnalyzerPlugin:
             "Sky View Factor (SVF), facade daylight (VSC under CIE overcast sky), solar irradiation &amp; PV yield, "
             "viewsheds, pedestrian wind screening, UTCI thermal comfort, terrain metrics (slope, aspect, TPI, TRI, TWI), "
             "cross-sections, flooding, cut &amp; fill earthworks, and BRE 209 planning compliance checks.</p>"
-            "<p><b>Author:</b> Yusuf Eminoğlu<br>"
+            "<p><b>Author:</b> Geophilo<br>"
             "<b>Online Reference Manual:</b> "
             "<a href='https://geophilo.com/zero2geospatial3d/'>https://geophilo.com/zero2geospatial3d/</a></p>"
             "<p>Runs locally via an embedded web server (127.0.0.1); no cloud dependencies or data uploads.</p>"

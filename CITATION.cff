@@ -1,11 +1,10 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 authors:
-  - family-names: "Eminoglu"
-    given-names: "Yusuf"
+  - name: "Geophilo"
     email: "yusuf.eminoglu@deu.edu.tr"
     orcid: "https://orcid.org/0009-0005-6000-2934"
-title: "02 Geo3D Analyzer"
+title: "02Geo3D - 3D Terrain and Building Analyzer"
 version: "1.2.2"
 date-released: "2026-10-26"
 url: "https://github.com/YusufEminoglu/zero2geospatial3d"

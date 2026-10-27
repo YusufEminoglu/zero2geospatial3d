@@ -1428,7 +1428,7 @@ The plugin is deliberately explicit about its methods. Every result carries a no
 | QGIS         | 3.28 or newer; QGIS 4 supported                                                                   |
 | Runtime      | WebGL 2 browser, local loopback bridge                                                            |
 | Dependencies | None beyond QGIS and the bundled viewer                                                           |
-| Author       | Yusuf Eminoğlu                                                                                    |
+| Author       | Geophilo                                                                                    |
 | Studio       | GEOPHILO Spatial Software Studio                                                                  |
 | License      | MIT                                                                                               |
 | Contact      | <geospacephilo@gmail.com>                                                                         |
