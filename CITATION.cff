@@ -6,6 +6,7 @@ authors:
     orcid: "https://orcid.org/0009-0005-6000-2934"
 title: "02Geo3D - 3D Terrain and Building Analyzer"
 version: "1.2.3"
+doi: "10.5281/zenodo.23701965"
 date-released: "2026-10-27"
 url: "https://github.com/YusufEminoglu/zero2geospatial3d"
 license: "MIT"
