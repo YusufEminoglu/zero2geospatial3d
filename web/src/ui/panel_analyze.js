@@ -2,11 +2,11 @@
 // "Analyze" tab: analysis area, one card per analysis, and the results list.
 import { h, clear, row, select, number, toggle, button, card, stats, download, toast, slider } from './dom.js';
 import { MONTH_NAMES, windRose } from '../core/weather.js';
-import { sendGrid, sendFields } from './qgis_link.js';
+import { sendGrid, sendFields, sendRoutes, sendAllResults } from './qgis_link.js';
 import { clearSkyYear, conditionsAt, typicalDoy } from '../core/weather.js';
 import { solarPosition } from '../core/solar.js';
 import { ExtrudedLayer } from '../scene/objects.js';
-import { CRITERIA, planningCheck, parseProfile, profileJson, defaultProfile } from '../analysis/compliance.js';
+import { CRITERIA, PRESET_PROFILES, presetProfile, planningCheck, parseProfile, profileJson, defaultProfile } from '../analysis/compliance.js';
 import { planningSheet, planningCsv } from '../export/check_pdf.js';
 import { SURFACE_MATERIALS } from '../core/microclimate.js';
 
@@ -27,9 +27,10 @@ export function defaultParams(app) {
     vent: { from: rose ? rose.prevailingDirection : 270, speed: rose ? Math.max(1, rose.prevailingSpeed) : 3.5, emission: 60, background: 18, deposition: 0.25 },
     noise: { power: 82, receiverHeight: 1.5, ground: 0.5 },
     form: { eyeHeight: 1.6, radius: 80, preset: '12-21', month: 12, day: 21, start: 9, end: 15, minHours: 2, maxH: 72, floorH: 3.2 },
+    walk: { coolBias: 2.8, startXY: null, endXY: null },
     morph: { block: 100, from: rose ? rose.prevailingDirection : 270 },
     climate: { from: 7, to: 22, sectors: 8, ring: 15 },
-    check: { scope: 'selected', criteria: CRITERIA.map((c) => c.id), thresholds: Object.fromEntries(CRITERIA.map((c) => [c.id, c.threshold])) }
+    check: { scope: 'selected', preset: 'defaults', criteria: CRITERIA.map((c) => c.id), thresholds: Object.fromEntries(CRITERIA.map((c) => [c.id, c.threshold])) }
   };
 }
 
@@ -46,6 +47,7 @@ export function buildAnalyzePanel(app, root) {
     root.appendChild(viewCard(app));
     root.appendChild(windCard(app));
     root.appendChild(comfortCard(app));
+    root.appendChild(walkabilityCard(app));
     root.appendChild(morphCard(app));
     root.appendChild(ventilationCard(app));
     root.appendChild(noiseCard(app));
@@ -364,6 +366,51 @@ function comfortCard(app) {
   return card('Thermal comfort (UTCI & PET)', body);
 }
 
+function walkabilityCard(app) {
+  app.params.walk ??= { coolBias: 2.8, startXY: null, endXY: null };
+  const p = app.params.walk;
+  const routeNote = h('span', { class: 'muted small' });
+  const updateNote = () => {
+    routeNote.textContent = p.startXY && p.endXY
+      ? `Start (${p.startXY[0].toFixed(0)}, ${p.startXY[1].toFixed(0)}) → End (${p.endXY[0].toFixed(0)}, ${p.endXY[1].toFixed(0)})`
+      : 'Default diagonal across the analysis area (or pick start & end)';
+  };
+  updateNote();
+  const body = h('div', {},
+    h('p', { class: 'muted small', text: 'Pedestrian Cool Walkability Index (0–100) combining UTCI thermal comfort, shade, Green View Index and traffic noise, plus A* pathfinding comparing the shortest route vs. the coolest & shaded route.' }),
+    row('Comfort weight', number(p.coolBias, { min: 0.5, max: 8, step: 0.2, onChange: (v) => { p.coolBias = v; } }),
+      'Higher values allow a slightly longer detour to stay in shade, green streets and lower heat stress'),
+    row('Route endpoints', h('span', { class: 'inline' },
+      button('Pick start & end…', async () => {
+        const sPt = await app.tools.pickPoint('Click pedestrian start point on open ground', { roofs: false });
+        if (!sPt) return;
+        const ePt = await app.tools.pickPoint('Click pedestrian destination point on open ground', { roofs: false });
+        if (!ePt) return;
+        p.startXY = [sPt.local[0], sPt.local[1]];
+        p.endXY = [ePt.local[0], ePt.local[1]];
+        updateNote();
+      }),
+      button('Reset', () => {
+        p.startXY = null;
+        p.endXY = null;
+        app.tools?.outline?.('route_shortest', null);
+        app.tools?.outline?.('route_coolest', null);
+        updateNote();
+      }))),
+    routeNote,
+    h('div', { class: 'btn-row' }, runButton(app, 'Run walkability & cool route', () => {
+      const c = comfortConditions(app);
+      const cp = app.params.comfort;
+      return app.run('Walkability & cool route', (prog) => app.analyst.walkability({
+        area: app.area(), cell: Math.max(2, app.cell(600)),
+        month: cp.month, day: cp.day, hour: cp.hour, conditions: c,
+        material: cp.material, lai: cp.lai, soundPowerDb: app.params.noise.power,
+        startXY: p.startXY, endXY: p.endXY, coolBias: p.coolBias, onProgress: prog
+      }));
+    })));
+  return card('Pedestrian walkability & cool route', body);
+}
+
 function morphCard(app) {
   const p = app.params.morph;
   const body = h('div', {},
@@ -543,14 +590,20 @@ function checkCard(app) {
   } });
   const fileStemOf = (name) => String(name).normalize('NFKD').replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 50) || 'planning_profile';
   const body = h('div', {},
-    h('p', { class: 'muted small', text: 'Pass or fail for each building: sun on the open ground around it, facade daylight, daylight kept after scenario B, windy and summer heat-stress hours. Missing analyses run on their own.' }),
+    h('p', { class: 'muted small', text: 'Pass or fail for each building: sun on the open ground around it, facade daylight, daylight kept after scenario B, windy and summer heat-stress hours, noise, air quality, canyon ventilation and rooftop solar. Missing analyses run on their own.' }),
     row('Buildings', select([['selected', 'Selected buildings'], ['area', 'All in the analysis area'], ...(hasB ? [['scenarioB', 'Scenario B buildings']] : [])], p.scope, (v) => { p.scope = v; })),
+    row('Preset', select(PRESET_PROFILES.map((pr) => [pr.key, pr.name]), p.preset || 'defaults', (v) => {
+      p.preset = v;
+      applyProfile(p, presetProfile(v));
+      remember();
+      renderCriteria();
+    })),
     row('Profile', nameInput),
     crit,
     h('div', { class: 'btn-row' },
       button('Save profile', () => download(`${fileStemOf(p.name)}.json`, profileJson(p), 'application/json'), { title: 'Save these criteria and thresholds as a JSON file to reuse or share' }),
       button('Load…', () => file.click(), { title: 'Load a saved profile' }),
-      button('Defaults', () => { applyProfile(p, defaultProfile()); remember(); renderCriteria(); }, { title: 'Back to the default thresholds' }),
+      button('Defaults', () => { p.preset = 'defaults'; applyProfile(p, defaultProfile()); remember(); renderCriteria(); }, { title: 'Back to the default thresholds' }),
       file),
     h('div', { class: 'btn-row' }, runButton(app, 'Run planning check', () => app.run('Planning check', (prog) => planningCheck(app, {
       scope: p.scope, criteria: p.criteria, thresholds: p.thresholds, profile: p.name, onProgress: prog })))));
@@ -565,6 +618,15 @@ function renderResults(app, box) {
     return;
   }
   box.appendChild(row('Overlay opacity', slider(0.92, { min: 0.2, max: 1, step: 0.02, format: (v) => `${Math.round(v * 100)} %`, onInput: (v) => app.setOverlayOpacity(v) })));
+  if (app.qgis && app.results.length > 1) {
+    box.appendChild(h('div', { class: 'btn-row' },
+      button(`Send all to QGIS (${app.results.length})`, async () => {
+        try {
+          const info = await sendAllResults(app.results);
+          toast(`Sent ${info.grids} grid(s)${info.routeSets ? `, ${info.routeSets} route layer(s)` : ''}${info.layers.length ? ` and fields on ${info.layers.join(', ')}` : ''} to QGIS.`);
+        } catch (e) { toast(e.message, 'error'); }
+      }, { kind: 'primary', title: 'Send every raster grid, route layer and building result field to QGIS in one batch' })));
+  }
   for (const r of app.results) {
     const active = app.activeResult === r;
     const actions = h('div', { class: 'btn-row' },
@@ -575,8 +637,9 @@ function renderResults(app, box) {
         try {
           const key = `${r.kind}_${r.created.toISOString().slice(0, 16).replace(/[-:T]/g, '')}`;
           if (r.grid) await sendGrid(r, key);
+          if (r.routes?.length) await sendRoutes(r, key);
           const layers = r.fields?.length ? await sendFields(r.fields, r.qgisStyle || String(r.display?.ramp || 'viridis')) : [];
-          toast(`Sent to QGIS${layers.length ? ` (+ fields on ${layers.join(', ')})` : ''}.`);
+          toast(`Sent to QGIS${layers.length ? ` (+ fields on ${layers.join(', ')})` : ''}${r.routes?.length ? ' (+ routes)' : ''}.`);
         } catch (e) { toast(e.message, 'error'); }
       }, { kind: 'primary', title: 'GeoTIFF layer plus per-building fields in a results GeoPackage' }) : null,
       r.grid ? button('.asc', () => download(`${r.kind}.asc`, asciiGrid(app, r)), { title: 'ESRI ASCII grid in the scene CRS' }) : null,

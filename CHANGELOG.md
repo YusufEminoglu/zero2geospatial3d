@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0] - 2026-11-02
+
+### Added
+- **Scene Preflight Validator & 1-Click Auto-Fix (`core/scene_export.py`, `ui/dock.py`)**: Added `preflight_scene()` and `autofix_export_spec()` with a `Check & Fix` button in the QGIS dock (and automatic pre-export repair) that detects and fixes broken height/bottom expressions, centimetre/millimetre height unit mismatches (`> 300 m` median converted to metres), NULL/non-positive heights, missing EPW weather paths, and non-overlapping DEM/vector extents.
+- **Pedestrian Cool Walkability Index & A\* Cool Route Finder (`web/src/core/walkability.js`, `web/src/analysis/runners.js`, `web/src/ui/panel_analyze.js`)**: Computes a 0–100 Pedestrian Cool Walkability Index (`walk_score`) combining UTCI thermal comfort, solar shade, Green View Index (Konijnendijk 3-30-300 rule), road traffic noise and terrain slope, and finds the **shortest obstacle-free path** vs. the **coolest & shaded path** across open ground, drawing both in 3D and sending them back to QGIS as a categorized GeoPackage line layer (`ResultWriter.write_routes`).
+- **Expanded 10-Point Planning Check & Built-in Preset Profiles (`web/src/analysis/compliance.js`, `web/src/ui/panel_analyze.js`)**: Added `air_no2` (WHO/EU street NO2 limit), `canyon_vent` (Ventilation Efficiency Index VEI), and `solar_roof` (rooftop irradiation threshold) criteria with automatic on-demand execution, plus 5 preset profiles (*Defaults*, *BRE 209 Daylight & Sunlight*, *WHO Urban Health*, *Solar & Energy-Ready District*, *Complete 10-Point Urban Audit*).
+- **Batch "Send all to QGIS" & A4 Landscape Print Layout Sheet (`web/src/ui/qgis_link.js`, `core/results.py`, `ui/dock.py`)**: Added `sendAllResults()` in the viewer to push all active grids, route layers and building fields to QGIS in one click, and `build_qgis_analysis_layout()` / `validate_analysis_layout()` (`Print Sheet` button in the dock) to generate an A4 Landscape `QgsPrintLayout` with HTML scene/KPI summary card, map frame, legend, scale bar and north arrow.
+
 ## [1.2.3] - 2026-10-27
 
 - Hub listing text rewritten; author Geophilo; university affiliation removed; documentation links use the standard geophilo.com pages (manual.html, guide/); manual HTML no longer ships in the plugin package.

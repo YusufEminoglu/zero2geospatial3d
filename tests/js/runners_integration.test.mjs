@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { Analyst, setDiurnalFrame } from '../../web/src/analysis/runners.js';
 import { LineLayer } from '../../web/src/scene/objects.js';
 import { FIELD_INFO } from '../../web/src/ui/building_report.js';
-import { CRITERIA, judge } from '../../web/src/analysis/compliance.js';
+import { CRITERIA, PRESET_PROFILES, presetProfile, judge } from '../../web/src/analysis/compliance.js';
 
 function createMockApp() {
   let inInit = true;
@@ -230,4 +230,43 @@ test('CRITERIA and judge: facade_noise and green_view criteria behave correctly'
   assert.equal(judge(cGreen, 15), true, '15 % >= 15 % should pass');
   assert.equal(judge(cGreen, 10), false, '10 % < 15 % should fail');
   assert.equal(judge(cGreen, NaN), null, 'NaN should return null');
+
+  const cAir = CRITERIA.find((c) => c.id === 'air_no2');
+  assert.ok(cAir && cAir.test === 'max' && cAir.threshold === 40);
+  assert.equal(judge(cAir, 32), true);
+  assert.equal(judge(cAir, 48), false);
+
+  const cVent = CRITERIA.find((c) => c.id === 'canyon_vent');
+  assert.ok(cVent && cVent.test === 'min' && cVent.threshold === 0.35);
+  assert.equal(judge(cVent, 0.45), true);
+  assert.equal(judge(cVent, 0.2), false);
+
+  const cSolar = CRITERIA.find((c) => c.id === 'solar_roof');
+  assert.ok(cSolar && cSolar.test === 'min' && cSolar.threshold === 800);
+  assert.equal(judge(cSolar, 950), true);
+  assert.equal(judge(cSolar, 600), false);
+
+  assert.equal(PRESET_PROFILES.length, 5);
+  const who = presetProfile('who_health');
+  assert.ok(who.criteria.includes('air_no2') && who.thresholds.facade_noise === 55);
+});
+
+test('Analyst walkability: computes walkability index grid and shortest vs. coolest routes', async () => {
+  const { analyst } = createMockApp();
+  const res = await analyst.walkability({
+    area: { minX: 0, maxX: 40, minY: 0, maxY: 40 },
+    cell: 4,
+    month: 7,
+    day: 21,
+    hour: 15,
+    startXY: [4, 36],
+    endXY: [36, 4]
+  });
+
+  assert.equal(res.length, 1);
+  assert.equal(res[0].kind, 'walkability');
+  assert.ok(Number.isNaN(res[0].values[55]), 'Building cell 55 must be NaN in walkability grid');
+  assert.ok(Number.isFinite(res[0].values[0]), 'Open cell 0 must have a finite walkability score');
+  assert.ok(Array.isArray(res[0].routes) && res[0].routes.length === 2, 'Should include shortest and coolest routes');
+  assert.ok('walk_score' in FIELD_INFO, 'walk_score must exist in FIELD_INFO');
 });

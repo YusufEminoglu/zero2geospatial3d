@@ -789,6 +789,97 @@ def test_roads(folder):
           f"{entry['role']} {[f['properties']['_h'] for f in feats]}")
 
 
+def test_preflight_and_autofix(folder):
+    """Scene preflight catches broken height syntax, cm-unit heights, missing
+    EPW and extent mismatches, and autofix_export_spec repairs them."""
+    from zero2geospatial3d.core import scene_export as sx
+
+    cm_bldg = QgsVectorLayer(f"Polygon?crs={CRS}&field=height_m:double&field=floors:integer", "CM buildings", "memory")
+    f = QgsFeature(cm_bldg.fields())
+    f.setGeometry(square(X0 + 120, Y0 - 120, 12))
+    f.setAttributes([1500.0, 5])  # 1500 cm instead of 15 m
+    cm_bldg.dataProvider().addFeatures([f])
+
+    bad_extent = QgsRectangle(X0 + 50000, Y0 + 50000, X0 + 50100, Y0 + 50100)
+    spec = sx.ExportSpec(
+        out_dir=os.path.join(folder, "preflight_scene"),
+        extent=bad_extent,
+        extent_crs=cm_bldg.crs(),
+        layers=[
+            sx.LayerSpec(cm_bldg, sx.ROLE_BUILDINGS, '"height_m"'),
+            sx.LayerSpec(cm_bldg, sx.ROLE_BUILDINGS, '"floors" * ', base_expr='"bad_col" + '),
+        ],
+        epw_path=os.path.join(folder, "missing_weather.epw"),
+    )
+    issues = sx.preflight_scene(spec)
+    codes = {i["code"] for i in issues}
+    check("preflight: detects layer_no_overlap, height_unit_cm, height_expr_syntax, base_expr_syntax, epw_missing",
+          {"layer_no_overlap", "height_unit_cm", "height_expr_syntax", "base_expr_syntax", "epw_missing"} <= codes,
+          str(sorted(codes)))
+    fixed_spec, fixes = sx.autofix_export_spec(spec)
+    after = sx.preflight_scene(fixed_spec)
+    check("autofix: repairs cm->m expression, broken syntax, extent and missing EPW with 0 remaining issues",
+          not after and len(fixes) >= 4 and "/ 100" in fixed_spec.layers[0].height_expr
+          and "/ 100" in fixed_spec.layers[1].height_expr and fixed_spec.layers[1].base_expr == "",
+          f"fixes={len(fixes)} remaining={after}")
+
+
+def test_routes_and_layout(scene_dir):
+    """ResultWriter writes pedestrian routes to GeoPackage, and
+    build_qgis_analysis_layout creates a validated A4 Landscape Print Layout."""
+    from zero2geospatial3d.core.results import (
+        ResultWriter,
+        build_qgis_analysis_layout,
+        validate_analysis_layout,
+    )
+
+    writer = ResultWriter(scene_dir)
+    msg = writer.handle({
+        "type": "routes",
+        "name": "Pedestrian cool routes",
+        "key": "cool_routes_test",
+        "routes": [
+            {
+                "route_type": "shortest",
+                "label": "Shortest path",
+                "color": "#e4572e",
+                "coords": [[-100.0, -80.0], [0.0, 0.0], [120.0, 90.0]],
+                "length_m": 280.0,
+                "mean_utci_c": 35.4,
+                "shade_pct": 15.0,
+                "mean_gvi_pct": 8.0,
+                "mean_noise_dba": 66.0,
+                "walk_score": 41.0,
+            },
+            {
+                "route_type": "coolest",
+                "label": "Coolest & shaded path",
+                "color": "#1d8f5f",
+                "coords": [[-100.0, -80.0], [-40.0, 40.0], [60.0, 80.0], [120.0, 90.0]],
+                "length_m": 315.0,
+                "mean_utci_c": 29.1,
+                "shade_pct": 78.0,
+                "mean_gvi_pct": 29.0,
+                "mean_noise_dba": 52.0,
+                "walk_score": 82.5,
+            },
+        ],
+    })
+    route_layers = [lyr for lyr in QgsProject.instance().mapLayers().values() if lyr.name() == "Pedestrian cool routes"]
+    check("routes result written as categorized GeoPackage line layer",
+          bool(route_layers) and route_layers[0].featureCount() == 2
+          and isinstance(route_layers[0].renderer(), QgsCategorizedSymbolRenderer),
+          msg)
+
+    layout, checks = build_qgis_analysis_layout(scene_dir, QgsProject.instance(), "Test Geo3D Sheet")
+    mgr = QgsProject.instance().layoutManager()
+    check("Print Layout registered in QgsProject layoutManager and passes all validation checks",
+          mgr.layoutByName("Test Geo3D Sheet") is not None
+          and all(c["level"] == "ok" for c in checks)
+          and len(validate_analysis_layout(layout, scene_dir)) == 4,
+          str(checks))
+
+
 def main():
     app = QgsApplication.instance()
     owns = app is None
@@ -806,11 +897,13 @@ def main():
         test_lifecycle(iface)
         scene_dir, manifest, b = test_export(folder, iface)
         test_results(scene_dir, manifest, b)
+        test_routes_and_layout(scene_dir)
         test_server(scene_dir)
         test_dock_flow(folder, iface)
         test_quick_3d(folder, iface)
         test_building_parts(folder)
         test_roads(folder)
+        test_preflight_and_autofix(folder)
         test_results_after_reexport(folder)
         test_detail_limit(folder)
         test_clipped_dem(folder)

@@ -81,6 +81,42 @@ export async function sendFields(fields, style = 'viridis') {
   return sent;
 }
 
+/** Send pedestrian route lines (shortest vs. coolest path) as a GeoPackage line layer. */
+export async function sendRoutes(result, key) {
+  if (!result.routes?.length) return null;
+  return post('/api/result', {
+    type: 'routes',
+    name: `${result.title} (routes)`,
+    key: `${key}_routes`,
+    routes: result.routes
+  });
+}
+
+/** Batch-send all results (grids, building fields and route layers) to QGIS. */
+export async function sendAllResults(results) {
+  let grids = 0;
+  let routeSets = 0;
+  const layerNames = new Set();
+  for (const r of results || []) {
+    const stamp = (r.created instanceof Date ? r.created.toISOString() : new Date().toISOString())
+      .slice(0, 16).replace(/[-:T]/g, '');
+    const key = `${r.kind}_${stamp}`;
+    if (r.grid && r.values) {
+      await sendGrid(r, key);
+      grids++;
+    }
+    if (r.fields?.length) {
+      const sent = await sendFields(r.fields, r.qgisStyle || String(r.display?.ramp || 'viridis'));
+      for (const name of sent) layerNames.add(name);
+    }
+    if (r.routes?.length) {
+      await sendRoutes(r, key);
+      routeSets++;
+    }
+  }
+  return { grids, routeSets, layers: [...layerNames] };
+}
+
 export async function selectInQgis(layer, ids) {
   return post('/api/select', { layer: layer.entry.id, ids });
 }

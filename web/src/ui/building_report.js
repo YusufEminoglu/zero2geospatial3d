@@ -52,7 +52,8 @@ export const FIELD_INFO = {
   noise_dba_mean: ['Mean facade noise (Lden)', 'dB(A)', 'Mean environmental noise level around the building perimeter'],
   quiet_facade: ['Has quiet facade', '', '1 if the building has a quiet side (< 55 dB(A) or ≥ 6 dB quieter than the loudest side)'],
   gvi_pct: ['Green View Index (GVI)', '%', 'Visible green canopy and ground vegetation share from pedestrian level around the building'],
-  env_max_h: ['Solar envelope height limit', 'm', 'Maximum height over the footprint that preserves neighbours’ solar access']
+  env_max_h: ['Solar envelope height limit', 'm', 'Maximum height over the footprint that preserves neighbours’ solar access'],
+  walk_score: ['Pedestrian walkability (PCWI)', '/100', 'Composite 0–100 cool walkability score (UTCI, shade, GVI, noise and slope) around the building']
 };
 
 function infoFor(name) {

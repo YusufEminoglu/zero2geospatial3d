@@ -32,8 +32,43 @@ export const CRITERIA = [
     help: 'Highest road traffic noise level at the building perimeter. 65 dB Lden is a common noise action-plan level; the WHO 2018 guideline for road traffic is 53 dB.' },
   { id: 'green_view', label: 'Green View Index around it (GVI)', short: 'Green view',
     unit: '%', test: 'min', threshold: 15,
-    help: 'Mean pedestrian-level Green View Index on the surrounding open ground.' }
+    help: 'Mean pedestrian-level Green View Index on the surrounding open ground.' },
+  { id: 'air_no2', label: 'Street air quality around it (NO2)', short: 'Air NO2',
+    unit: 'µg/m³', test: 'max', threshold: 40,
+    help: 'Mean street-canyon NO2 concentration on the surrounding open ground. 40 µg/m³ is the EU annual limit; the WHO 2021 guideline is 10 µg/m³.' },
+  { id: 'canyon_vent', label: 'Canyon ventilation efficiency (VEI)', short: 'Ventilation',
+    unit: '', test: 'min', threshold: 0.35,
+    help: 'Mean street-canyon Ventilation Efficiency Index on the surrounding open ground (>= 0.35 avoids stagnant canyon pockets).' },
+  { id: 'solar_roof', label: 'Rooftop solar irradiation', short: 'Solar roof',
+    unit: 'kWh/m²', test: 'min', threshold: 800,
+    help: 'Mean annual solar irradiation on the building roof (>= 800 kWh/m² is suitable for rooftop PV).' }
 ];
+
+export const PRESET_PROFILES = [
+  { key: 'defaults', name: 'Defaults (BRE 209 & Urban Environment)',
+    criteria: ['amenity_sun', 'facade_vsc', 'neighbour_daylight', 'wind', 'heat', 'facade_noise', 'green_view'] },
+  { key: 'bre209', name: 'BRE 209 Daylight & Sunlight',
+    criteria: ['amenity_sun', 'facade_vsc', 'neighbour_daylight'] },
+  { key: 'who_health', name: 'WHO Urban Health (Noise, Air, Heat & Green)',
+    criteria: ['heat', 'facade_noise', 'air_no2', 'canyon_vent', 'green_view'],
+    thresholds: { facade_noise: 55, air_no2: 25, green_view: 20 } },
+  { key: 'solar_district', name: 'Solar & Energy-Ready District',
+    criteria: ['amenity_sun', 'facade_vsc', 'solar_roof'],
+    thresholds: { solar_roof: 900 } },
+  { key: 'complete_audit', name: 'Complete 10-Point Urban Audit',
+    criteria: CRITERIA.map((c) => c.id) }
+];
+
+export function presetProfile(key) {
+  const base = defaultProfile();
+  const found = PRESET_PROFILES.find((p) => p.key === key);
+  if (!found) return base;
+  return {
+    name: found.name,
+    criteria: [...found.criteria],
+    thresholds: { ...base.thresholds, ...(found.thresholds || {}) }
+  };
+}
 
 export const PROFILE_FORMAT = '02geo3d-planning-profile';
 // Criteria renamed since a profile may have been saved: the old id switches
@@ -207,6 +242,35 @@ export async function planningCheck(app, { scope, criteria, thresholds, profile 
     }
     for (const t of targets) {
       values.get('green_view').set(keyOf(t), t.layer.extraFields.get('gvi_pct')?.[t.f]);
+    }
+  }
+  // 8-9. Street air quality (NO2) and canyon ventilation efficiency (VEI).
+  if (values.has('air_no2') || values.has('canyon_vent')) {
+    const missing = fresh || targets.some((t) => (
+      (values.has('air_no2') && !Number.isFinite(t.layer.extraFields.get('air_no2_ugm3')?.[t.f])) ||
+      (values.has('canyon_vent') && !Number.isFinite(t.layer.extraFields.get('vent_index')?.[t.f]))
+    ));
+    if (missing) {
+      const res = await a.ventilation({ area, cell: Math.max(2, cell) });
+      for (const item of res) {
+        for (const fld of item.fields || []) fld.layer.setResultField(fld.name, fld.values);
+      }
+    }
+    for (const t of targets) {
+      const k = keyOf(t);
+      if (values.has('air_no2')) values.get('air_no2').set(k, t.layer.extraFields.get('air_no2_ugm3')?.[t.f]);
+      if (values.has('canyon_vent')) values.get('canyon_vent').set(k, t.layer.extraFields.get('vent_index')?.[t.f]);
+    }
+  }
+  // 10. Rooftop solar irradiation (kWh/m²).
+  if (values.has('solar_roof')) {
+    const missing = fresh || targets.some((t) => !Number.isFinite(t.layer.extraFields.get('roof_kwh_m2')?.[t.f]));
+    if (missing) {
+      const res = await a.solarRadiation({ area, cell: Math.max(2, cell) });
+      for (const fld of res[0].fields) fld.layer.setResultField(fld.name, fld.values);
+    }
+    for (const t of targets) {
+      values.get('solar_roof').set(keyOf(t), t.layer.extraFields.get('roof_kwh_m2')?.[t.f]);
     }
   }
   onProgress?.(1);

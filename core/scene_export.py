@@ -678,3 +678,319 @@ def _zonal_means(values, polygons: dict, grid_extent: QgsRectangle, cols: int, r
         if 0 <= col < cols and 0 <= row < rows and np.isfinite(values[row, col]):
             out[fid] = float(values[row, col])
     return out
+
+
+_PREFLIGHT_HEIGHT_FIELDS = (
+    "height_m", "height", "yukseklik", "yükseklik", "bina_yuk", "bina_yukseklik", "h", "hgt", "elev_top",
+)
+_PREFLIGHT_FLOOR_FIELDS = (
+    "floors", "levels", "building_levels", "num_floors", "kat", "kat_sayisi", "katsayisi",
+    "kat_adedi", "kat_say", "storeys", "stories",
+)
+_PREFLIGHT_TRAFFIC_FIELDS = ("traffic_weight", "lanes", "serit", "şerit", "serit_sayisi")
+
+
+def _fallback_height_expr(layer: QgsVectorLayer, role: str) -> str:
+    by_lower = {f.name().lower(): f.name() for f in layer.fields() if f.isNumeric()}
+    if role == ROLE_ROADS:
+        for name in _PREFLIGHT_TRAFFIC_FIELDS:
+            if name in by_lower:
+                return f'"{by_lower[name]}"'
+        return DEFAULT_HEIGHT.get(ROLE_ROADS, "1")
+    for name in _PREFLIGHT_HEIGHT_FIELDS:
+        if name in by_lower:
+            return f'"{by_lower[name]}"'
+    if role in (ROLE_BUILDINGS, ROLE_WALLS):
+        for name in _PREFLIGHT_FLOOR_FIELDS:
+            if name in by_lower:
+                return f'"{by_lower[name]}" * 3'
+    return DEFAULT_HEIGHT.get(role, "0")
+
+
+def _sample_expression_values(layer: QgsVectorLayer, expr_str: str, rect: QgsRectangle | None = None,
+                              limit: int = 50) -> list[float]:
+    expr = QgsExpression(expr_str)
+    if expr.hasParserError():
+        return []
+    context = QgsExpressionContext()
+    context.appendScopes(QgsExpressionContextUtils.globalProjectLayerScopes(layer))
+    expr.prepare(context)
+    request = QgsFeatureRequest()
+    if rect is not None and not rect.isEmpty():
+        request.setFilterRect(rect)
+    request.setLimit(limit)
+    vals: list[float] = []
+    for feat in layer.getFeatures(request):
+        context.setFeature(feat)
+        val = expr.evaluate(context)
+        if expr.hasEvalError():
+            continue
+        try:
+            num = float(val)
+            if math.isfinite(num):
+                vals.append(num)
+        except (TypeError, ValueError):
+            continue
+    return vals
+
+
+def preflight_scene(spec: ExportSpec) -> list[dict]:
+    """Validate a scene ExportSpec before export and return a list of issue dicts.
+
+    Each item has keys: ``level`` ('error' | 'warning' | 'info'), ``code``,
+    ``layer`` (str), ``message`` (str), and ``fixable`` (bool).
+    """
+    issues: list[dict] = []
+    if spec.dem is None and not spec.layers:
+        issues.append({
+            "level": "error",
+            "code": "no_inputs",
+            "layer": "",
+            "message": "Pick a DEM or tick at least one vector layer first.",
+            "fixable": False,
+        })
+        return issues
+
+    crs = choose_export_crs(spec)
+    extent = _transform_rect(spec.extent, spec.extent_crs, crs) if not spec.extent.isEmpty() else QgsRectangle()
+    width = extent.width() if not extent.isEmpty() else 0.0
+    height = extent.height() if not extent.isEmpty() else 0.0
+    if width <= 1 or height <= 1:
+        issues.append({
+            "level": "error",
+            "code": "empty_extent",
+            "layer": "",
+            "message": "The scene area is empty (<= 1 m across).",
+            "fixable": bool(spec.dem is not None or spec.layers),
+        })
+    elif max(width, height) > geo.MAX_SCENE_SIDE_M:
+        issues.append({
+            "level": "error",
+            "code": "extent_too_large",
+            "layer": "",
+            "message": (f"The scene area is {max(width, height) / 1000:.0f} km across; "
+                        f"the limit is {geo.MAX_SCENE_SIDE_M / 1000:.0f} km."),
+            "fixable": False,
+        })
+    elif max(width, height) > geo.LARGE_SCENE_SIDE_M:
+        issues.append({
+            "level": "warning",
+            "code": "large_scene",
+            "layer": "",
+            "message": (f"Large scene ({max(width, height) / 1000:.1f} km across): "
+                        "terrain grid cells will be coarse unless a smaller area is chosen."),
+            "fixable": False,
+        })
+
+    if spec.dem is not None:
+        if not spec.dem.isValid() or spec.dem.providerType() != "gdal":
+            issues.append({
+                "level": "error",
+                "code": "dem_invalid",
+                "layer": spec.dem.name(),
+                "message": f"DEM '{spec.dem.name()}' is not a valid file raster.",
+                "fixable": False,
+            })
+        elif width > 1 and height > 1:
+            dem_ext = _transform_rect(spec.dem.extent(), spec.dem.crs(), crs)
+            if not dem_ext.intersects(extent):
+                issues.append({
+                    "level": "error",
+                    "code": "dem_no_overlap",
+                    "layer": spec.dem.name(),
+                    "message": f"DEM '{spec.dem.name()}' does not overlap the chosen scene extent.",
+                    "fixable": True,
+                })
+
+    overlapping_layers = 0
+    for lspec in spec.layers:
+        layer = lspec.layer
+        lname = layer.name()
+        kind = geometry_kind(layer)
+        if not kind:
+            issues.append({
+                "level": "warning",
+                "code": "layer_no_geometry",
+                "layer": lname,
+                "message": f"Layer '{lname}' has no spatial geometry and will be skipped.",
+                "fixable": False,
+            })
+            continue
+        layer_extent = None
+        if width > 1 and height > 1:
+            layer_extent = _transform_rect(extent, crs, layer.crs())
+            if layer.featureCount() == 0 or not layer.extent().intersects(layer_extent):
+                issues.append({
+                    "level": "warning",
+                    "code": "layer_no_overlap",
+                    "layer": lname,
+                    "message": f"Layer '{lname}' has no features inside the chosen scene area.",
+                    "fixable": layer.featureCount() > 0,
+                })
+            else:
+                overlapping_layers += 1
+
+        raw_h = (lspec.height_expr or DEFAULT_HEIGHT.get(lspec.role, "0")).strip()
+        h_expr = QgsExpression(raw_h)
+        if h_expr.hasParserError():
+            issues.append({
+                "level": "error",
+                "code": "height_expr_syntax",
+                "layer": lname,
+                "message": f"Layer '{lname}' height expression '{raw_h}' is invalid: {h_expr.parserErrorString()}",
+                "fixable": True,
+            })
+        elif lspec.role in (ROLE_BUILDINGS, ROLE_WALLS, ROLE_TREES, ROLE_POLES, ROLE_ROADS) and layer.featureCount() > 0:
+            vals = _sample_expression_values(layer, raw_h, layer_extent)
+            if not vals:
+                vals = _sample_expression_values(layer, raw_h, None)
+            if not vals:
+                issues.append({
+                    "level": "warning",
+                    "code": "height_all_null",
+                    "layer": lname,
+                    "message": f"Layer '{lname}' height expression '{raw_h}' evaluated to NULL on sampled features.",
+                    "fixable": True,
+                })
+            elif lspec.role == ROLE_BUILDINGS:
+                svals = sorted(vals)
+                median = svals[len(svals) // 2]
+                if median > 300.0:
+                    issues.append({
+                        "level": "warning",
+                        "code": "height_unit_cm",
+                        "layer": lname,
+                        "message": (f"Layer '{lname}' median height is {median:.0f} m — heights appear to be in "
+                                    "centimetres or millimetres instead of metres."),
+                        "fixable": True,
+                    })
+                elif max(svals) <= 0.0:
+                    issues.append({
+                        "level": "warning",
+                        "code": "height_non_positive",
+                        "layer": lname,
+                        "message": f"Layer '{lname}' height expression '{raw_h}' is <= 0 m on all sampled buildings.",
+                        "fixable": True,
+                    })
+
+        if lspec.base_expr and lspec.role == ROLE_BUILDINGS:
+            b_expr = QgsExpression(lspec.base_expr)
+            if b_expr.hasParserError():
+                issues.append({
+                    "level": "error",
+                    "code": "base_expr_syntax",
+                    "layer": lname,
+                    "message": (f"Layer '{lname}' bottom expression '{lspec.base_expr}' is invalid: "
+                                f"{b_expr.parserErrorString()}"),
+                    "fixable": True,
+                })
+
+    if spec.epw_path and not os.path.isfile(spec.epw_path):
+        issues.append({
+            "level": "warning",
+            "code": "epw_missing",
+            "layer": "",
+            "message": f"Weather file not found: {spec.epw_path}",
+            "fixable": True,
+        })
+
+    for raster in spec.climate_rasters:
+        if width > 1 and height > 1 and raster.isValid():
+            rext = _transform_rect(raster.extent(), raster.crs(), crs)
+            if not rext.intersects(extent):
+                issues.append({
+                    "level": "warning",
+                    "code": "climate_no_overlap",
+                    "layer": raster.name(),
+                    "message": f"Climate raster '{raster.name()}' does not overlap the scene area.",
+                    "fixable": False,
+                })
+
+    return issues
+
+
+def autofix_export_spec(spec: ExportSpec) -> tuple[ExportSpec, list[str]]:
+    """Automatically repair common scene configuration issues in ``spec``.
+
+    Returns ``(fixed_spec, fixes_applied)``.
+    """
+    fixes: list[str] = []
+    crs = choose_export_crs(spec)
+    extent = _transform_rect(spec.extent, spec.extent_crs, crs) if not spec.extent.isEmpty() else QgsRectangle()
+    width = extent.width() if not extent.isEmpty() else 0.0
+    height = extent.height() if not extent.isEmpty() else 0.0
+
+    need_extent_snap = width <= 1 or height <= 1
+    if not need_extent_snap and spec.dem is not None and spec.dem.isValid():
+        dem_ext = _transform_rect(spec.dem.extent(), spec.dem.crs(), crs)
+        if not dem_ext.intersects(extent):
+            need_extent_snap = True
+    if not need_extent_snap and spec.layers:
+        any_overlap = False
+        for lspec in spec.layers:
+            if lspec.layer.featureCount() > 0:
+                lext = _transform_rect(lspec.layer.extent(), lspec.layer.crs(), crs)
+                if lext.intersects(extent):
+                    any_overlap = True
+                    break
+        if not any_overlap and any(ls.layer.featureCount() > 0 for ls in spec.layers):
+            need_extent_snap = True
+
+    if need_extent_snap:
+        if spec.dem is not None and spec.dem.isValid() and not spec.dem.extent().isEmpty():
+            spec.extent = QgsRectangle(spec.dem.extent())
+            spec.extent_crs = spec.dem.crs()
+            fixes.append(f"Snapped scene extent to DEM '{spec.dem.name()}'.")
+        elif spec.layers:
+            combined = QgsRectangle()
+            combined.setMinimal()
+            for lspec in spec.layers:
+                if lspec.layer.featureCount() > 0 and not lspec.layer.extent().isEmpty():
+                    combined.combineExtentWith(_transform_rect(lspec.layer.extent(), lspec.layer.crs(), crs))
+            if not combined.isEmpty() and combined.width() > 1 and combined.height() > 1:
+                spec.extent = combined
+                spec.extent_crs = crs
+                fixes.append("Snapped scene extent to the combined extent of ticked vector layers.")
+
+    for lspec in spec.layers:
+        layer = lspec.layer
+        lname = layer.name()
+        raw_h = (lspec.height_expr or DEFAULT_HEIGHT.get(lspec.role, "0")).strip()
+        h_expr = QgsExpression(raw_h)
+        if h_expr.hasParserError():
+            fallback = _fallback_height_expr(layer, lspec.role)
+            if QgsExpression(fallback).hasParserError():
+                fallback = DEFAULT_HEIGHT.get(lspec.role, "0")
+            lspec.height_expr = fallback
+            raw_h = fallback
+            fixes.append(f"Repaired invalid height expression on '{lname}' -> {fallback}.")
+        if lspec.role in (ROLE_BUILDINGS, ROLE_WALLS, ROLE_TREES, ROLE_POLES, ROLE_ROADS) and layer.featureCount() > 0:
+            vals = _sample_expression_values(layer, raw_h, None)
+            if not vals:
+                fallback = DEFAULT_HEIGHT.get(lspec.role, "9")
+                lspec.height_expr = fallback
+                fixes.append(f"Replaced NULL height expression on '{lname}' with default {fallback} m.")
+            elif lspec.role == ROLE_BUILDINGS:
+                svals = sorted(vals)
+                median = svals[len(svals) // 2]
+                if median > 300.0:
+                    divisor = 1000.0 if median > 30000.0 else 100.0
+                    unit_name = "mm" if divisor == 1000.0 else "cm"
+                    lspec.height_expr = f"({raw_h}) / {divisor:g}"
+                    fixes.append(f"Converted '{lname}' heights from {unit_name} to m: {lspec.height_expr}.")
+                elif max(svals) <= 0.0:
+                    fallback = DEFAULT_HEIGHT.get(ROLE_BUILDINGS, "9")
+                    lspec.height_expr = fallback
+                    fixes.append(f"Replaced non-positive building heights on '{lname}' with default {fallback} m.")
+
+        if lspec.base_expr and lspec.role == ROLE_BUILDINGS:
+            if QgsExpression(lspec.base_expr).hasParserError():
+                lspec.base_expr = ""
+                fixes.append(f"Cleared invalid bottom expression on '{lname}'.")
+
+    if spec.epw_path and not os.path.isfile(spec.epw_path):
+        spec.epw_path = ""
+        fixes.append("Cleared missing EPW weather file path.")
+
+    return spec, fixes
+

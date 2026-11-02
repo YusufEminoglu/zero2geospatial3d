@@ -20,6 +20,7 @@ import { splitKey, ExtrudedLayer, PointLayer, SurfaceLayer, LineLayer } from '..
 import { climateAroundBuildings, surroundings } from './climate.js';
 import { vscDirections, VSC_OPEN, VSC_TARGET } from '../core/daylight_rule.js';
 import { coverIndex, coverAt, isOpen } from '../core/party_walls.js';
+import { pedestrianWalkabilityIndex, findCoolRoute, WALKABILITY_CLASSES, walkabilityClass } from '../core/walkability.js';
 
 const DEG = Math.PI / 180;
 
@@ -1407,6 +1408,165 @@ export class Analyst {
         ]
       }
     ];
+  }
+
+  // ------------------------------------------------------------ pedestrian walkability & cool route
+  async walkability({
+    area,
+    cell,
+    month = 7,
+    day = 21,
+    hour = 15,
+    conditions = null,
+    material = 'concrete',
+    lai = 3.0,
+    soundPowerDb = 82,
+    startXY = null,
+    endXY = null,
+    coolBias = 2.8,
+    onProgress
+  }) {
+    const s = this.site();
+    const cond = conditions || this.conditionsFor(month, day, hour) || {
+      airTemp: 32, rh: 45, windSpeed: 2.5, windDir: 270, dni: 750, dhi: 120, ghi: 800, ir: 380
+    };
+    const doy = typicalDoy(month, day);
+    const p = solarPosition(doy, hour - 0.5, s.lat, s.lon, s.utcOffset);
+    const elevDeg = p.elevation / DEG;
+
+    const svfKey = cacheKey('svf', area, cell);
+    let svfRun = this.cache.get(svfKey);
+    if (!svfRun) {
+      svfRun = await this.gridRun({
+        area, cell, directions: skyHemisphere(96), cosMode: 1, lift: 1.1, withIds: true,
+        onProgress: (f) => onProgress?.(0.25 * f)
+      });
+    }
+    let sunlit = null;
+    if (elevDeg > 0.5) {
+      const dir = sunVector(p.elevation, p.azimuth);
+      const sun = await this.gridRun({
+        area, cell, directions: [{ dir, weight: 1 }], cosMode: 0, lift: 1.1,
+        onProgress: (f) => onProgress?.(0.25 + 0.1 * f)
+      });
+      sunlit = sun.values;
+    }
+
+    const og = await this.obstacleGrid({ area, cell, onProgress: (f) => onProgress?.(0.35 + 0.1 * f) });
+    const { grid } = og;
+    const n = grid.cols * grid.rows;
+    const ratio = await windRatio({
+      heights: og.heights, porosity: og.porosity, cols: grid.cols, rows: grid.rows, cell,
+      windFromDeg: cond.windDir ?? 270, onProgress: (f) => onProgress?.(0.45 + 0.15 * f)
+    });
+    const green = this.greenMask(grid);
+    const dTa = canopyCoolingGrid({
+      heights: og.heights, porosity: og.porosity, greenMask: green, cols: grid.cols, rows: grid.rows, cell,
+      windFromDeg: cond.windDir ?? 270, windSpeed: cond.windSpeed ?? 2, airTemp: cond.airTemp, rh: cond.rh ?? 50,
+      lai, svf: svfRun.values
+    });
+
+    const tSky = skyTemperature(cond.airTemp, cond.ir);
+    const utciGrid = new Float32Array(n).fill(NaN);
+    const shadeGrid = new Float32Array(n).fill(NaN);
+    for (let i = 0; i < n; i++) {
+      if (svfRun.ids[i] !== 0 || !Number.isFinite(svfRun.values[i])) continue;
+      const sunVal = sunlit ? sunlit[i] : 0;
+      const treeShade = og.porosity[i] > 0;
+      shadeGrid[i] = treeShade ? Math.max(0.75, 1 - sunVal) : (1 - sunVal);
+      const localTa = cond.airTemp + (Number.isFinite(dTa[i]) ? dTa[i] : 0);
+      const v10 = Math.max(0.5, Math.min(17, (cond.windSpeed ?? 2) * (Number.isFinite(ratio[i]) ? ratio[i] : 1)));
+      const vPed = Math.max(0.1, v10 * OPEN_PEDESTRIAN_FACTOR);
+      const matKey = green[i] ? 'grass' : (SURFACE_MATERIALS[material] ? material : 'concrete');
+      const ts = surfaceTemperature({
+        airTemp: localTa, skyTemp: tSky, svf: svfRun.values[i], sunlit: sunVal,
+        dni: cond.dni, dhi: cond.dhi, ghi: cond.ghi, elevationDeg: elevDeg, windSpeed: vPed,
+        material: matKey, treeShade, lai
+      });
+      const tr = meanRadiantTemperature({
+        airTemp: localTa, skyTemp: tSky, svf: svfRun.values[i], sunlit: sunVal,
+        dni: cond.dni, dhi: cond.dhi, ghi: cond.ghi, elevationDeg: elevDeg, groundTemp: ts, wallTemp: localTa
+      });
+      utciGrid[i] = utci(localTa, tr, v10, cond.rh ?? 50);
+    }
+
+    const buildingHeights = og.heights.map((h, i) => (og.ids[i] ? h : 0));
+    const gviGrid = await greenViewIndex({
+      buildingHeights, treeObstacles: this.treeObstacles(), greenMask: green,
+      cols: grid.cols, rows: grid.rows, cell, minX: grid.minX - 0.5 * cell, maxY: grid.maxY + 0.5 * cell,
+      eyeHeight: 1.6, maxRadius: 80, onProgress: (f) => onProgress?.(0.6 + 0.2 * f)
+    });
+
+    const src = this.roadLines();
+    const noiseGrid = await noisePropagation({
+      heights: og.heights, porosity: og.porosity, cols: grid.cols, rows: grid.rows, cell,
+      minX: grid.minX, maxY: grid.maxY, roads: src.lines, roadWeights: src.weights,
+      soundPowerDb, receiverHeight: 1.5, groundFactor: 0.5, onProgress: (f) => onProgress?.(0.8 + 0.2 * f)
+    });
+
+    const walkScore = pedestrianWalkabilityIndex({
+      ids: og.ids, utciGrid, shadeGrid, gviGrid, noiseGrid, cols: grid.cols, rows: grid.rows
+    });
+
+    const fields = this.surroundingFields(og.ids, og.heights, grid.cols, grid.rows, cell, walkScore, 'walk_score');
+    const open = walkScore.filter(Number.isFinite);
+    const st = gridStats(open);
+    const counts = new Map();
+    for (const v of open) {
+      const c = walkabilityClass(v);
+      if (c) counts.set(c.label, (counts.get(c.label) || 0) + 1);
+    }
+
+    const fromPt = startXY || [grid.minX + grid.cols * 0.15 * cell, grid.maxY - grid.rows * 0.85 * cell];
+    const toPt = endXY || [grid.minX + grid.cols * 0.85 * cell, grid.maxY - grid.rows * 0.15 * cell];
+    const routeComparison = findCoolRoute({
+      ids: og.ids, walkScore, utciGrid, shadeGrid, gviGrid, noiseGrid,
+      cols: grid.cols, rows: grid.rows, cell, minX: grid.minX, maxY: grid.maxY,
+      startXY: fromPt, endXY: toPt, coolBias
+    });
+
+    const statsRows = [
+      ['Mean walkability score', `${st.mean.toFixed(1)} / 100`],
+      ['Range', `${st.min.toFixed(0)} – ${st.max.toFixed(0)} / 100`],
+      ...[...counts].map(([k, v]) => [k, `${((100 * v) / Math.max(1, open.length)).toFixed(0)} %`])
+    ];
+    if (routeComparison) {
+      const sh = routeComparison.shortest;
+      const co = routeComparison.coolest;
+      statsRows.push(
+        ['Shortest path', `${sh.length_m.toFixed(0)} m · ${sh.mean_utci_c.toFixed(1)} °C UTCI · ${sh.shade_pct.toFixed(0)} % shade`],
+        ['Coolest path', `${co.length_m.toFixed(0)} m (+${routeComparison.detourPct.toFixed(0)} %) · ${co.mean_utci_c.toFixed(1)} °C UTCI · ${co.shade_pct.toFixed(0)} % shade`],
+        ['Thermal relief (coolest − shortest)', `${routeComparison.utciDeltaC >= 0 ? '+' : ''}${routeComparison.utciDeltaC.toFixed(1)} °C UTCI, +${routeComparison.shadeGainPct.toFixed(0)} % shade`]
+      );
+    }
+
+    const when = `${day} ${monthName(month)} ${String(hour - 1).padStart(2, '0')}:00–${String(hour).padStart(2, '0')}:00`;
+    const result = {
+      kind: 'walkability',
+      title: `Pedestrian walkability & cool route, ${when}`,
+      subtitle: `UTCI, shade, GVI & noise composite; ${routeComparison ? 'shortest vs. coolest path' : 'index map'}`,
+      unit: '/100',
+      grid,
+      values: walkScore,
+      ids: og.ids,
+      display: { min: 0, max: 100, ramp: 'greens' },
+      fields,
+      routes: routeComparison ? [routeComparison.shortest, routeComparison.coolest] : null,
+      routeComparison,
+      stats: statsRows,
+      notes: 'Pedestrian Cool Walkability Index (0–100) combining thermal comfort (UTCI, 35 %), shade (25 %), Green View Index (15 %) and acoustic comfort (15 %). When shown, the green line marks the coolest/shaded path and the orange line marks the shortest path.'
+    };
+    if (routeComparison && this.app?.tools?.outline) {
+      result.onShow = () => {
+        this.app.tools.outline('route_shortest', routeComparison.shortest.coords, 0xe4572e);
+        this.app.tools.outline('route_coolest', routeComparison.coolest.coords, 0x1d8f5f);
+      };
+      result.onHide = () => {
+        this.app.tools.outline('route_shortest', null);
+        this.app.tools.outline('route_coolest', null);
+      };
+    }
+    return [result];
   }
 }
 

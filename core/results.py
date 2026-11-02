@@ -130,6 +130,8 @@ class ResultWriter:
             return self.write_grid(payload)
         if kind == "features":
             return self.write_features(payload)
+        if kind == "routes":
+            return self.write_routes(payload)
         raise ResultError(f"unknown result type {kind!r}")
 
     # ------------------------------------------------------------ rasters
@@ -389,6 +391,83 @@ class ResultWriter:
         except Exception as exc:  # noqa: BLE001 - the 3D style is a bonus, but say so
             self._log(f"No 3D style for '{layer.name()}': {exc}")
 
+    # ------------------------------------------------------------ routes
+    def write_routes(self, payload: dict) -> str:
+        from qgis.core import QgsGeometry, QgsPointXY
+
+        routes = payload.get("routes") or []
+        if not isinstance(routes, list) or not routes:
+            raise ResultError("no route geometries in payload")
+        name = str(payload.get("name") or "Pedestrian routes")
+        key = _key(payload.get("key") or name)
+        os.makedirs(self.results_dir, exist_ok=True)
+        path = _unique_path(os.path.join(self.results_dir, f"{key}.gpkg"))
+        uri = f"LineString?crs={self.crs.authid()}"
+        memory = QgsVectorLayer(uri, name, "memory")
+        mprov = memory.dataProvider()
+        mprov.addAttributes([
+            make_field("route_type", "string"),
+            make_field("label", "string"),
+            make_field("length_m", "double"),
+            make_field("mean_utci_c", "double"),
+            make_field("shade_pct", "double"),
+            make_field("mean_gvi_pct", "double"),
+            make_field("mean_noise_dba", "double"),
+            make_field("walk_score", "double"),
+        ])
+        memory.updateFields()
+        ox, oy = self.origin
+        feats = []
+        cats = []
+        for item in routes:
+            coords = (item or {}).get("coords") or []
+            if len(coords) < 2:
+                continue
+            pts = [QgsPointXY(float(pt[0]) + ox, float(pt[1]) + oy) for pt in coords if len(pt) >= 2]
+            if len(pts) < 2:
+                continue
+            rtype = str(item.get("route_type") or "route")
+            rlabel = str(item.get("label") or rtype)
+            feat = QgsFeature(memory.fields())
+            feat.setGeometry(QgsGeometry.fromPolylineXY(pts))
+            feat.setAttributes([
+                rtype,
+                rlabel,
+                _num(item.get("length_m"), None),
+                _num(item.get("mean_utci_c"), None),
+                _num(item.get("shade_pct"), None),
+                _num(item.get("mean_gvi_pct"), None),
+                _num(item.get("mean_noise_dba"), None),
+                _num(item.get("walk_score"), None),
+            ])
+            feats.append(feat)
+            cats.append((rtype, _color(item.get("color"), "#1d8f5f"), rlabel))
+        if not feats:
+            raise ResultError("no valid route lines in payload")
+        mprov.addFeatures(feats)
+        options = QgsVectorFileWriter.SaveVectorOptions()
+        options.driverName = "GPKG"
+        options.layerName = geo.safe_name(name, "routes")
+        options.fileEncoding = "UTF-8"
+        res = QgsVectorFileWriter.writeAsVectorFormatV3(
+            memory, path, QgsProject.instance().transformContext(), options)
+        if res[0] != QgsVectorFileWriter.WriterError.NoError:
+            raise ResultError(f"cannot write {path}: {res[1]}")
+        layer = QgsVectorLayer(path, name, "ogr")
+        if not layer.isValid():
+            raise ResultError(f"cannot open {path}")
+        with contextlib.suppress(Exception):
+            rcats = []
+            for rtype, color, rlabel in cats:
+                sym = QgsSymbol.defaultSymbol(layer.geometryType())
+                sym.setColor(color)
+                with contextlib.suppress(Exception):
+                    sym.setWidth(1.1)
+                rcats.append(QgsRendererCategory(rtype, sym, rlabel))
+            layer.setRenderer(QgsCategorizedSymbolRenderer("route_type", rcats))
+        self._add_to_group(layer)
+        return f"Added route layer '{name}' ({len(feats)} route(s))."
+
     # ------------------------------------------------------------ project
     def _add_to_group(self, layer) -> None:
         project = QgsProject.instance()
@@ -464,3 +543,242 @@ def _unique_path(path: str) -> str:
     while os.path.exists(f"{stem}_{k}{ext}"):
         k += 1
     return f"{stem}_{k}{ext}"
+
+
+def _scene_result_summary(manifest: dict, project: QgsProject) -> list[tuple[str, str]]:
+    """Collect (label, summary_value) rows from the scene manifest and ``02 Geo3D results`` group."""
+    rows: list[tuple[str, str]] = []
+    grid = manifest.get("grid") or {}
+    if grid.get("cols") and grid.get("rows"):
+        rows.append(("Scene grid", f"{grid['cols']} × {grid['rows']} @ {float(grid.get('cell', 1)):g} m"))
+    terrain = manifest.get("terrain")
+    if isinstance(terrain, dict) and "min" in terrain and "max" in terrain:
+        rows.append(("Terrain elevation", f"{float(terrain['min']):.1f} – {float(terrain['max']):.1f} m"))
+    weather = manifest.get("weather")
+    if isinstance(weather, dict) and weather.get("source"):
+        rows.append(("Weather (EPW)", str(weather["source"])))
+    for entry in manifest.get("layers") or []:
+        rows.append((f"3D {entry.get('role', 'layer')}: {entry.get('name', '')}", f"{entry.get('count', 0)} features"))
+
+    root = project.layerTreeRoot()
+    group = root.findGroup(GROUP_NAME) if root is not None else None
+    if group is not None:
+        for tree_layer in group.findLayers():
+            lyr = tree_layer.layer()
+            if lyr is None or not lyr.isValid():
+                continue
+            if isinstance(lyr, QgsRasterLayer):
+                stats_str = "raster result"
+                with contextlib.suppress(Exception):
+                    st = lyr.dataProvider().bandStatistics(1)
+                    if math.isfinite(st.minimumValue) and math.isfinite(st.maximumValue):
+                        stats_str = f"{st.minimumValue:.2f} – {st.maximumValue:.2f} (mean {st.mean:.2f})"
+                rows.append((f"Raster: {lyr.name()}", stats_str))
+            elif isinstance(lyr, QgsVectorLayer):
+                rows.append((f"Vector: {lyr.name()}", f"{lyr.featureCount()} features"))
+    return rows
+
+
+def _enable_html_label(label) -> None:
+    from qgis.core import QgsLayoutItemLabel
+
+    mode = getattr(getattr(QgsLayoutItemLabel, "Mode", QgsLayoutItemLabel), "ModeHtml", 1)
+    with contextlib.suppress(Exception):
+        label.setMode(mode)
+
+
+def validate_analysis_layout(layout, scene_dir: str = "") -> list[dict]:
+    """Validate a Geo3D Print Layout and return a list of check dicts."""
+    from qgis.core import (
+        QgsLayoutItemLabel,
+        QgsLayoutItemLegend,
+        QgsLayoutItemMap,
+        QgsLayoutItemScaleBar,
+    )
+
+    checks: list[dict] = []
+    if layout is None:
+        return [{"level": "error", "code": "no_layout", "message": "Layout is None."}]
+    items = list(layout.items())
+    maps = [i for i in items if isinstance(i, QgsLayoutItemMap)]
+    legends = [i for i in items if isinstance(i, QgsLayoutItemLegend)]
+    scalebars = [i for i in items if isinstance(i, QgsLayoutItemScaleBar)]
+    labels = [i for i in items if isinstance(i, QgsLayoutItemLabel)]
+    if not maps:
+        checks.append({"level": "error", "code": "missing_map", "message": "Layout has no map item."})
+    else:
+        ext = maps[0].extent()
+        if ext.isEmpty() or ext.width() <= 0 or ext.height() <= 0:
+            checks.append({"level": "error", "code": "empty_map_extent", "message": "Map item has an empty extent."})
+        else:
+            checks.append({"level": "ok", "code": "map_ready", "message": "Map item has a valid scene extent."})
+    if not legends:
+        checks.append({"level": "warning", "code": "missing_legend", "message": "Layout has no legend item."})
+    else:
+        checks.append({"level": "ok", "code": "legend_ready", "message": "Legend item is present."})
+    if not scalebars:
+        checks.append({"level": "warning", "code": "missing_scalebar", "message": "Layout has no scale bar."})
+    else:
+        checks.append({"level": "ok", "code": "scalebar_ready", "message": "Scale bar is linked to the map."})
+    if len(labels) < 2:
+        checks.append({"level": "warning", "code": "missing_summary_card",
+                       "message": "Layout is missing the title banner or HTML KPI summary card."})
+    else:
+        checks.append({"level": "ok", "code": "summary_card_ready",
+                       "message": "Title banner and HTML KPI summary card are present."})
+    if scene_dir and not os.path.isfile(os.path.join(scene_dir, "scene.json")):
+        checks.append({"level": "warning", "code": "missing_manifest",
+                       "message": "Scene manifest (scene.json) was not found in scene_dir."})
+    return checks
+
+
+def build_qgis_analysis_layout(scene_dir: str, project: QgsProject | None = None,
+                               layout_name: str = "") -> tuple[object, list[dict]]:
+    """Create and register a publication-ready A4 Landscape ``QgsPrintLayout``
+    summarizing the 3D scene and any ``02 Geo3D results`` layers.
+
+    Returns ``(layout, validation_checks)``.
+    """
+    import html as _html
+    from qgis.core import (
+        QgsLayoutItemLabel,
+        QgsLayoutItemLegend,
+        QgsLayoutItemMap,
+        QgsLayoutItemPage,
+        QgsLayoutItemPicture,
+        QgsLayoutItemScaleBar,
+        QgsLayoutPoint,
+        QgsLayoutSize,
+        QgsPrintLayout,
+        QgsRectangle,
+        QgsUnitTypes,
+    )
+
+    project = project or QgsProject.instance()
+    manifest_path = os.path.join(scene_dir, "scene.json") if scene_dir else ""
+    if not manifest_path or not os.path.isfile(manifest_path):
+        raise ResultError("Export or open a 3D scene first (scene.json not found).")
+    with open(manifest_path, "r", encoding="utf-8") as handle:
+        manifest = json.load(handle)
+
+    crs = QgsCoordinateReferenceSystem(manifest["crs"]["authid"])
+    if not crs.isValid():
+        crs = QgsCoordinateReferenceSystem.fromWkt(manifest["crs"]["wkt"])
+    ox, oy = manifest.get("origin") or [0.0, 0.0]
+    ext_info = manifest.get("extent") or {"minX": -250.0, "minY": -250.0, "maxX": 250.0, "maxY": 250.0}
+    scene_rect = QgsRectangle(
+        float(ox) + float(ext_info["minX"]),
+        float(oy) + float(ext_info["minY"]),
+        float(ox) + float(ext_info["maxX"]),
+        float(oy) + float(ext_info["maxY"]),
+    )
+    scene_rect.scale(1.06)
+
+    title = str(manifest.get("title") or "02 Geo3D Scene")
+    base_name = layout_name.strip() or f"02 Geo3D — {title}"
+    mgr = project.layoutManager()
+    existing = mgr.layoutByName(base_name)
+    if existing is not None:
+        mgr.removeLayout(existing)
+
+    layout = QgsPrintLayout(project)
+    layout.initializeDefaults()
+    layout.setName(base_name)
+    mm = QgsUnitTypes.LayoutUnit.LayoutMillimeters
+
+    pc = layout.pageCollection()
+    if pc.pageCount() > 0:
+        orient = getattr(getattr(QgsLayoutItemPage, "Orientation", QgsLayoutItemPage), "Landscape", 0)
+        pc.page(0).setPageSize("A4", orient)
+
+    # 1. Header Banner (HTML)
+    geo_info = manifest.get("geo") or {}
+    lat = float(geo_info.get("lat", 0.0))
+    lon = float(geo_info.get("lon", 0.0))
+    utc = float(geo_info.get("utcOffset", 0.0))
+    created = str(manifest.get("created") or "")[:16].replace("T", " ")
+    header = QgsLayoutItemLabel(layout)
+    header.setId("geo3d_header_banner")
+    _enable_html_label(header)
+    header.setText(
+        "<div style='font-family:Segoe UI,Arial,sans-serif;background:#162436;color:#ffffff;"
+        "padding:6px 12px;border-radius:4px;'>"
+        f"<div style='font-size:13pt;font-weight:700;'>02 Geo3D — {_html.escape(title)}</div>"
+        f"<div style='font-size:8.5pt;color:#b9cde3;'>CRS: {_html.escape(crs.authid())} &nbsp;|&nbsp; "
+        f"Center: {lat:.4f}°, {lon:.4f}° (UTC{utc:+g}) &nbsp;|&nbsp; Exported: {_html.escape(created)}</div>"
+        "</div>"
+    )
+    header.attemptMove(QgsLayoutPoint(10.0, 8.0, mm))
+    header.attemptResize(QgsLayoutSize(277.0, 14.0, mm))
+    layout.addLayoutItem(header)
+
+    # 2. Main Map Item
+    map_item = QgsLayoutItemMap(layout)
+    map_item.setId("geo3d_main_map")
+    map_item.setCrs(crs)
+    map_item.attemptMove(QgsLayoutPoint(10.0, 24.0, mm))
+    map_item.attemptResize(QgsLayoutSize(188.0, 176.0, mm))
+    map_item.zoomToExtent(scene_rect)
+    map_item.setFrameEnabled(True)
+    layout.addLayoutItem(map_item)
+
+    # 3. Scale Bar
+    scalebar = QgsLayoutItemScaleBar(layout)
+    scalebar.setId("geo3d_scalebar")
+    scalebar.setStyle("Single Box")
+    scalebar.setLinkedMap(map_item)
+    scalebar.setUnits(QgsUnitTypes.DistanceUnit.DistanceMeters)
+    scalebar.setNumberOfSegments(2)
+    scalebar.setNumberOfSegmentsLeft(0)
+    with contextlib.suppress(Exception):
+        scalebar.applyDefaultSize(QgsUnitTypes.DistanceUnit.DistanceMeters)
+    scalebar.attemptMove(QgsLayoutPoint(14.0, 186.0, mm))
+    scalebar.attemptResize(QgsLayoutSize(65.0, 11.0, mm))
+    layout.addLayoutItem(scalebar)
+
+    # 4. North Arrow
+    north = QgsLayoutItemPicture(layout)
+    north.setId("geo3d_north_arrow")
+    with contextlib.suppress(Exception):
+        north.setLinkedMap(map_item)
+    north.attemptMove(QgsLayoutPoint(184.0, 27.0, mm))
+    north.attemptResize(QgsLayoutSize(10.0, 10.0, mm))
+    layout.addLayoutItem(north)
+
+    # 5. HTML Scene & Analysis KPI Summary Card
+    summary_rows = _scene_result_summary(manifest, project)
+    tr_html = "".join(
+        f"<tr><td style='padding:2px 4px;color:#334e68;font-weight:600;border-bottom:1px solid #e4ebf1;'>"
+        f"{_html.escape(k)}</td>"
+        f"<td style='padding:2px 4px;color:#102a43;text-align:right;border-bottom:1px solid #e4ebf1;'>"
+        f"{_html.escape(v)}</td></tr>"
+        for k, v in summary_rows[:12]
+    )
+    kpi_card = QgsLayoutItemLabel(layout)
+    kpi_card.setId("geo3d_kpi_card")
+    _enable_html_label(kpi_card)
+    kpi_card.setText(
+        "<div style='font-family:Segoe UI,Arial,sans-serif;background:#f7f9fc;border:1px solid #cbd5e1;"
+        "border-radius:4px;padding:6px 8px;'>"
+        "<div style='font-size:9.5pt;font-weight:700;color:#162436;margin-bottom:4px;'>"
+        "3D Scene &amp; Environmental Summary</div>"
+        f"<table style='width:100%;border-collapse:collapse;font-size:7.8pt;'>{tr_html}</table>"
+        "</div>"
+    )
+    kpi_card.attemptMove(QgsLayoutPoint(202.0, 24.0, mm))
+    kpi_card.attemptResize(QgsLayoutSize(85.0, 96.0, mm))
+    layout.addLayoutItem(kpi_card)
+
+    # 6. Legend Item
+    legend = QgsLayoutItemLegend(layout)
+    legend.setId("geo3d_legend")
+    legend.setTitle("Legend")
+    legend.setLinkedMap(map_item)
+    legend.setFrameEnabled(True)
+    legend.attemptMove(QgsLayoutPoint(202.0, 123.0, mm))
+    legend.attemptResize(QgsLayoutSize(85.0, 77.0, mm))
+    layout.addLayoutItem(legend)
+
+    mgr.addLayout(layout)
+    return layout, validate_analysis_layout(layout, scene_dir)
+

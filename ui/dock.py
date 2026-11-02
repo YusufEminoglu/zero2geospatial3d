@@ -389,6 +389,16 @@ class Geo3DDock(QDockWidget):
         self.qgis3d_button.setToolTip("Use the DEM as the project's 3D terrain, extrude the ticked building layers "
                                       "with their height expressions and colours, and open a QGIS 3D map view")
         self.qgis3d_button.clicked.connect(self.setup_qgis_3d)
+        self.check_button = QPushButton("Check && Fix")
+        self.check_button.setIcon(theme_icon("/mActionCheckGeometry.svg"))
+        self.check_button.setToolTip("Validate DEM overlap, height expressions (syntax, cm vs m units, NULLs) "
+                                     "and automatically fix issues before exporting")
+        self.check_button.clicked.connect(self.check_and_autofix)
+        self.layout_button = QPushButton("Print Sheet")
+        self.layout_button.setIcon(theme_icon("/mActionNewLayout.svg"))
+        self.layout_button.setToolTip("Build an A4 Landscape QGIS Print Layout summarizing the 3D scene and "
+                                      "all returned '02 Geo3D results' layers")
+        self.layout_button.clicked.connect(self.create_analysis_layout)
         open_folder = QPushButton("Folder")
         open_folder.setIcon(theme_icon("/mIconFolderOpen.svg"))
         open_folder.setToolTip("Open the scene folder (scene files and analysis results)")
@@ -396,7 +406,7 @@ class Geo3DDock(QDockWidget):
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self._request_cancel)
         self.cancel_button.setVisible(False)
-        for w in (self.reopen, self.qgis3d_button, open_folder, self.cancel_button):
+        for w in (self.reopen, self.qgis3d_button, self.check_button, self.layout_button, open_folder, self.cancel_button):
             actions.addWidget(w)
         c3.body.addLayout(actions)
         more3 = QWidget()
@@ -530,12 +540,9 @@ class Geo3DDock(QDockWidget):
             self.progress.setValue(0)
 
     # ------------------------------------------------------------ actions
-    def open_in_3d(self) -> None:
+    def _build_export_spec(self) -> sx.ExportSpec:
         specs = self._selected_specs()
         dem = self.dem.currentLayer()
-        if dem is None and not specs:
-            QMessageBox.information(self, "02 Geo3D Analyzer", "Pick a DEM or tick at least one layer first.")
-            return
         out_dir = self.folder.filePath().strip() or self._default_scene_dir()
         extent, extent_crs = self._scene_extent(specs)
         climate = []
@@ -545,10 +552,74 @@ class Geo3DDock(QDockWidget):
                 layer = QgsProject.instance().mapLayer(item.data(Qt.ItemDataRole.UserRole))
                 if layer is not None:
                     climate.append(layer)
-        spec = sx.ExportSpec(out_dir=out_dir, extent=extent, extent_crs=extent_crs, dem=dem,
-                             cell_size=self.cell.currentData(), layers=specs, climate_rasters=climate,
-                             epw_path=self.epw.filePath().strip(), max_cells=self.detail.currentData(),
-                             title=os.path.splitext(os.path.basename(QgsProject.instance().fileName()))[0] or "Scene")
+        return sx.ExportSpec(
+            out_dir=out_dir, extent=extent, extent_crs=extent_crs, dem=dem,
+            cell_size=self.cell.currentData(), layers=specs, climate_rasters=climate,
+            epw_path=self.epw.filePath().strip(), max_cells=self.detail.currentData(),
+            title=os.path.splitext(os.path.basename(QgsProject.instance().fileName()))[0] or "Scene",
+        )
+
+    def _apply_fixed_spec_to_ui(self, spec: sx.ExportSpec) -> None:
+        by_id = {ls.layer.id(): ls for ls in spec.layers}
+        for row in self.rows:
+            if _deleted(row.layer):
+                continue
+            ls = by_id.get(row.layer.id())
+            if ls is not None:
+                row.height.setExpression(ls.height_expr)
+                row.base.setExpression(ls.base_expr)
+        if not spec.epw_path and self.epw.filePath():
+            self.epw.setFilePath("")
+
+    def check_and_autofix(self) -> list[dict]:
+        """Validate the current scene configuration and automatically repair fixable issues."""
+        spec = self._build_export_spec()
+        issues = sx.preflight_scene(spec)
+        if not issues:
+            self.message("Scene preflight OK: DEM, extent and layer height expressions are ready.")
+            return []
+        for issue in issues:
+            prefix = "Error" if issue["level"] == "error" else "Warning"
+            self.message(f"{prefix}: {issue['message']}", error=issue["level"] == "error")
+        if any(i.get("fixable") for i in issues):
+            spec, fixes = sx.autofix_export_spec(spec)
+            self._apply_fixed_spec_to_ui(spec)
+            for fix in fixes:
+                self.message(f"Auto-fixed: {fix}")
+            issues = sx.preflight_scene(spec)
+        return issues
+
+    def create_analysis_layout(self):
+        """Build a publication-ready A4 Landscape Print Layout for the active 3D scene."""
+        from ..core.results import ResultError, build_qgis_analysis_layout
+
+        target_dir = self.scene_dir or self.folder.filePath().strip() or self._default_scene_dir()
+        try:
+            layout, checks = build_qgis_analysis_layout(target_dir, QgsProject.instance())
+        except ResultError as exc:
+            self.message(str(exc), error=True)
+            QMessageBox.information(self, "02 Geo3D Analyzer", str(exc))
+            return None
+        ok_count = sum(1 for c in checks if c["level"] == "ok")
+        self.message(f"Print Layout '{layout.name()}' created ({ok_count}/{len(checks)} checks ready).")
+        with contextlib.suppress(Exception):
+            self.iface.openLayoutDesigner(layout)
+        return layout
+
+    def open_in_3d(self) -> None:
+        specs = self._selected_specs()
+        dem = self.dem.currentLayer()
+        if dem is None and not specs:
+            QMessageBox.information(self, "02 Geo3D Analyzer", "Pick a DEM or tick at least one layer first.")
+            return
+        spec = self._build_export_spec()
+        out_dir = spec.out_dir
+        issues = sx.preflight_scene(spec)
+        if any(i.get("fixable") for i in issues):
+            spec, fixes = sx.autofix_export_spec(spec)
+            self._apply_fixed_spec_to_ui(spec)
+            for fix in fixes:
+                self.message(f"Auto-fixed: {fix}")
         self._set_busy(True)
         try:
             result = sx.SceneExporter(spec, self._progress, lambda: self._cancel).run()
